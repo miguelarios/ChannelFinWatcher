@@ -19,21 +19,25 @@
 ### 5. Architecture Overview
 
 #### Deployment Architecture
-- Dockerfile and Docker compose to run this on a server
-- Single container approach with persistent volumes
-- SQLite database file on persistent volume
-- Configuration mounted from host system
+- **Multi-service Docker Compose**: Separate containers for backend and frontend with shared volumes
+- **Backend Container**: FastAPI application with Python dependencies and yt-dlp
+- **Frontend Container**: NextJS application with Node.js runtime
+- **Shared Volumes**: SQLite database, media directory, and configuration files
+- **Network Configuration**: Internal Docker network with frontend proxying API requests
+- **Alternative Single Container**: Option for combined build with nginx serving static files
 
-#### Single-Tier Streamlit Architecture
-- **Presentation Layer**: Streamlit Dashboard providing unified interface for all operations
-- **Application Layer**: Core business logic with integrated services in single application context
+#### Two-Tier FastAPI + NextJS Architecture
+- **Frontend Layer**: NextJS React application providing modern, responsive UI with real-time capabilities
+- **Backend Layer**: FastAPI REST API with WebSocket support for real-time updates
+- **Application Layer**: Core business logic with background task processing via APScheduler
 - **Data Layer**: SQLite database for runtime state and YAML configuration for settings
 
 #### Component Integration Model
-- UI components directly invoke business logic functions
-- All operations share common database connection
-- Services communicate through direct method calls
-- Single process manages all functionality
+- NextJS frontend communicates with FastAPI backend via REST API and WebSockets
+- FastAPI handles all business logic, file operations, and background processing
+- Real-time updates flow through WebSocket connections for live progress tracking
+- Background scheduler runs independently of web requests
+- Clear separation of concerns between presentation and business logic
 
 #### Configuration-Database Hybrid Model
 - **YAML Configuration**: Source of truth for channel definitions and system settings
@@ -91,24 +95,40 @@ settings:
 - Storage validation: Pre-check disk space before downloads
 - Invalid channels: Handle deleted/private channels gracefully
 
+#### Real-Time Capabilities
+- **WebSocket Connections**: Live progress updates for active downloads (US-008)
+- **Server-Sent Events**: System status and storage monitoring updates (US-010)
+- **Background Task Status**: Real-time feedback on download progress and completion
+- **Live Configuration Updates**: Instant UI updates when YAML configuration changes
+
 #### State Management
-- Streamlit session state for UI persistence
-- SQLite database for permanent storage
-- Direct file system access for media operations
-- YAML configuration for settings management
+- **Frontend State**: React state management with React Query for API caching
+- **Backend State**: SQLite database for permanent storage and runtime locks
+- **Real-time State**: WebSocket connections maintain live data synchronization
+- **File System Access**: Direct media operations through FastAPI endpoints
+- **Configuration Management**: YAML configuration with hot-reloading capabilities
 
 ### 7. Tech Stack
 
-#### Core Framework
-- **Python**: Primary application language
-- **Streamlit**: Web framework for dashboard and user interface
+#### Backend Framework
+- **Python**: Primary backend application language
+- **FastAPI**: Modern, high-performance web framework for REST API and WebSocket endpoints
 - **SQLite**: Zero-configuration database for data persistence
 - **APScheduler**: Pure Python scheduling solution for automated downloads
+- **Uvicorn**: ASGI server for FastAPI application
+
+#### Frontend Framework
+- **NextJS**: React-based framework for modern, responsive user interface
+- **TypeScript**: Type-safe JavaScript for better development experience
+- **TailwindCSS**: Utility-first CSS framework for rapid UI development
+- **React Query**: Data fetching and caching for API interactions
 
 #### Key Libraries
 - **yt-dlp**: YouTube downloading and metadata extraction
 - **PyYAML**: YAML configuration file parsing and validation
 - **apprise**: Notification system integration (planned)
+- **WebSockets**: Real-time communication between frontend and backend
+- **Pydantic**: Data validation and serialization for API models
 
 ### 8. Third-Party Dependencies
 
@@ -120,7 +140,10 @@ settings:
   - Subtitle downloads (en/es) and thumbnail embedding
 
 #### Supporting Libraries
-- **streamlit**: WebUI framework for dashboard interface
+- **FastAPI Dependencies**: uvicorn, pydantic, python-multipart for file uploads
+- **NextJS Dependencies**: react, react-dom, next for frontend framework
+- **Real-time Libraries**: websockets (Python), socket.io-client (NextJS) for live updates
+- **UI Libraries**: tailwindcss, headlessui for modern component styling
 - **apprise**: Notification system for alerts and status updates
 - **APScheduler**: Background task scheduling
 - **PyYAML**: Configuration file management
