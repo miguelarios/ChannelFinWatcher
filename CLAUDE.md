@@ -15,6 +15,40 @@ For complex problems, I may ask you to think deeper:
 - "think harder" - deep architectural analysis
 - "ultrathink" - maximum reasoning for critical decisions
 
+### Educational Development Approach
+When working on this project, always explain the "why" behind technical decisions:
+
+#### Explain Technical Choices
+- **Why we chose this technology stack** (FastAPI + NextJS + Docker)
+- **Why we structure code this way** (separation of concerns, testability)
+- **Why we use specific patterns** (dependency injection, health checks, migrations)
+- **Why we configure things certain ways** (environment variables, mount points)
+
+#### Teaching Moments
+- **Before implementing**: Explain what we're about to build and why
+- **During implementation**: Call out key patterns and best practices
+- **After testing**: Explain what the tests validate and why it matters
+- **When debugging**: Show thought process for diagnosing issues
+
+#### Architecture Explanations
+- **Database design decisions**: Why these tables, relationships, indexes
+- **API design patterns**: Why REST + WebSocket, how endpoints relate
+- **Docker strategies**: Why multi-service, volume mounts vs named volumes
+- **Configuration management**: Why YAML + database hybrid approach
+
+#### Code Quality Teaching
+- **Show alternative approaches**: "We could do X, but Y is better because..."
+- **Explain trade-offs**: Performance vs simplicity, flexibility vs constraints
+- **Point out common pitfalls**: Things that often go wrong and how to avoid them
+- **Highlight debugging techniques**: How to trace issues, useful commands
+
+#### Real-world Context
+- **Connect to larger patterns**: How this relates to microservices, 12-factor apps
+- **Production considerations**: What would change for larger scale deployment
+- **Maintenance implications**: How these choices affect long-term maintenance
+
+The goal is to make each development session a learning opportunity, not just completing tasks.
+
 ## Development Commands
 
 ## Docker Development Commands
@@ -111,7 +145,8 @@ git merge feature/story-1-quick-split
 ## Architecture
 
 ### Core Components
-- **Streamlit Dashboard**: Single web interface for all operations with multi-page structure
+- **FastAPI Backend**: REST API with WebSocket support for real-time updates
+- **NextJS Frontend**: Modern React-based web interface with TypeScript
 - **Download Engine**: yt-dlp wrapper with progress tracking and recent video detection
 - **Channel Management**: CRUD operations for YouTube channel subscriptions with YAML configuration, including enable/disable functionality
 - **Auto-deletion System**: Automatically removes older videos to maintain configured limits per channel
@@ -121,11 +156,13 @@ git merge feature/story-1-quick-split
 - **YAML Configuration**: Source of truth for channel definitions and system settings
 
 ### Technology Stack
-- **Python** application framework
-- **Streamlit** for web UI
+- **FastAPI**: High-performance backend framework with automatic OpenAPI documentation
+- **NextJS**: React framework with TypeScript for modern, responsive frontend
 - **yt-dlp** for YouTube downloading and interactions
 - **SQLite** for data storage
-- **APScheduler** for scheduling
+- **APScheduler** for background task scheduling
+- **WebSockets** for real-time communication between frontend and backend
+- **TailwindCSS** for utility-first styling
 - **apprise** for notifications (planned)
 
 ### File Organization
@@ -173,12 +210,15 @@ The application preserves these specific yt-dlp parameters from the reference sc
 ## Development Approach
 
 ### Implementation Phases
-1. **Core Foundation**: Streamlit structure, YAML config, basic channel management, manual downloads
-2. **Automation Layer**: Scheduler integration, automated detection, background processing
-3. **User Experience**: Interface polish, filtering, statistics, documentation
+1. **Infrastructure Setup**: FastAPI backend, NextJS frontend, Docker development environment
+2. **Core Foundation**: YAML config, basic channel management, manual downloads
+3. **Automation Layer**: Scheduler integration, automated detection, background processing
+4. **Real-time Features**: WebSocket integration, live progress tracking, status updates
+5. **User Experience**: Interface polish, filtering, statistics, documentation
 
 ### Key Design Principles
-- **Simplicity over sophistication**: Single web interface eliminates complexity
+- **Modern Architecture**: FastAPI + NextJS provides scalable, maintainable foundation
+- **Real-time Updates**: WebSocket integration for live download progress and status
 - **Local network optimization**: No authentication required for trusted environment
 - **Configuration-driven**: YAML file as source of truth with database for runtime state
 - **Recent videos only**: Downloads last X videos per channel, not entire history
@@ -202,9 +242,11 @@ The project requirements are tracked through numbered user stories (US-001 throu
 - Storage usage monitoring (US-010)
 
 ## Deployment
-- Single container approach with persistent volumes
-- SQLite database file on persistent volume
-- Configuration mounted from host system
-- Download directory mounted to host storage
+- **Multi-service Docker Compose**: Separate containers for backend and frontend with shared volumes
+- **Backend Container**: FastAPI application with Python dependencies and yt-dlp
+- **Frontend Container**: NextJS application with Node.js runtime
+- **Shared Volumes**: SQLite database, media directory, and configuration files
+- **Network Configuration**: Internal Docker network with frontend proxying API requests
+- **Alternative Single Container**: Option for combined build with nginx serving static files
 
 This is a personal project optimized for local deployment with minimal operational overhead.

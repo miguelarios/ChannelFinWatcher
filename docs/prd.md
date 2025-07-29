@@ -23,17 +23,82 @@ This app allows someone to keep the latest videos (i.e. perhaps the latest 50 vi
     - This is for a personal project so doesn't have to be perfect and production ready at first
 
 ### 5. User Stories / Use Cases
-- [ ] **US-001**: As a user, I want to add a new channel to monitor so that I start downloading videos from that channel
-- [ ] **US-002**: As a user, I want to add a fixed number of videos for a channel in particular to be downloaded so that I do not have too many videos for that particular channel
-- [ ] **US-003**: As a user, I want to set the number of videos globally so that I can just add my channel and nothing more
-- [ ] **US-004**: As a user, I want to temporarily disable a channel without removing it so that I can pause downloads when needed
-- [ ] **US-005**: As a user, I want the system to automatically delete older videos when the configured limit is exceeded so that I only keep the most recent X videos per channel and don't fill up my storage
-- [ ] **US-006**: As a user, i want to use a yaml config file to administer the channels I want to download so that it is easy to configure this app
-- [ ] **US-007**: As a user, I want to have a webUI so that I can monitor each channel I am monitoring and details of each monitored channel in a simple webUI so I know at a glance what is going on
-- [ ] **US-008**: As a user, I want to view in my webUI the active downloads so I know what is currently being download and everything is working
-- [ ] **US-009**: As a user, i want to view the most recent downloads so I know what has been downloaded
-- [ ] **US-010**: As a user, I want to see storage usage information so that I can manage disk space effectively
-- [ ] **US-011**: As a user, I want to view logs in the docker log so I know how to begin debugging if there are issues.
+
+The user stories are organized into categories and are documented in detail in the `/docs/stories/` directory:
+
+#### Foundation
+- **[Story-000: Infrastructure Setup](stories/story-000-infrastructure-setup.md)** - Core technical infrastructure and project foundation
+
+#### Core Channel Management
+- **[US-001: Add Channel via Web UI](stories/story-001-add-channel-web-ui.md)** - Add YouTube channels through web interface
+- **[US-002: Configure Channel Video Limit](stories/story-002-configure-channel-video-limit.md)** - Set per-channel video retention limits  
+- **[US-003: Set Global Default Video Limit](stories/story-003-set-global-default-video-limit.md)** - Configure default limits for new channels
+- **[US-004: Toggle Channel Enable/Disable](stories/story-004-toggle-channel-enable-disable.md)** - Temporarily pause channel monitoring
+- **[US-005: Automatic Video Cleanup](stories/story-005-automatic-video-cleanup.md)** - Auto-delete old videos when limits exceeded
+- **[US-006: YAML Configuration Management](stories/story-006-yaml-configuration-management.md)** - File-based configuration for advanced users
+
+**US-012: Remove/Delete Channels**
+- **Story**: As a user, I want to delete channels from monitoring so that I can remove channels I no longer want to track
+- **Value**: Provides complete CRUD functionality for channel management
+- **Acceptance Criteria**:
+  - User can delete channels via web UI with confirmation dialog
+  - Deletion removes channel from database and YAML configuration
+  - User can choose to preserve or delete existing downloaded videos
+  - Bulk deletion available for multiple channels
+  - Deleted channels can be re-added without conflicts
+
+**US-013: Manual Download Trigger**
+- **Story**: As a user, I want to manually trigger downloads for specific channels so that I can get new videos immediately without waiting
+- **Value**: Provides user control over download timing for urgent content updates
+- **Acceptance Criteria**:
+  - User can trigger immediate download for individual channels
+  - Manual downloads respect channel settings (limits, quality, enabled status)
+  - Progress is visible in real-time during manual downloads
+  - Manual triggers don't interfere with scheduled downloads
+  - User receives confirmation when manual download completes
+
+**US-014: Channel Health Management**
+- **Story**: As a user, I want the system to detect and handle unhealthy channels so that dead or private channels don't cause system issues
+- **Value**: Maintains system reliability by handling YouTube channel changes gracefully
+- **Acceptance Criteria**:
+  - System detects deleted, private, or inaccessible channels
+  - Users are notified when channels become unavailable
+  - Unhealthy channels are automatically disabled but not deleted
+  - Users can manually verify and re-enable recovered channels
+  - Health check runs periodically and logs status changes
+
+**US-015: Download Quality Configuration**
+- **Story**: As a user, I want to configure video quality settings per channel so that I can optimize storage vs quality based on content type
+- **Value**: Enables storage optimization while maintaining quality for important content
+- **Acceptance Criteria**:
+  - User can select quality presets per channel (best, 1080p, 720p, 480p)
+  - Global default quality setting applies to new channels
+  - Quality changes take effect on next download cycle
+  - System falls back gracefully when preferred quality unavailable
+  - Quality settings sync between web UI and YAML configuration
+
+**US-016: Schedule Configuration**
+- **Story**: As a user, I want to set custom download schedules per channel so that I can optimize download timing based on channel activity
+- **Value**: Reduces unnecessary system load while ensuring timely updates for active channels
+- **Acceptance Criteria**:
+  - User can set custom cron schedules per channel (daily, weekly, hourly)
+  - Global default schedule applies to channels without custom settings
+  - Schedule changes take effect immediately for future downloads
+  - Visual schedule indicator shows next expected download time
+  - Schedule overrides are clearly marked in channel listings
+
+#### Monitoring & Status  
+- **[US-007: Channel Status Dashboard](stories/story-007-channel-status-dashboard.md)** - Centralized channel overview and health monitoring
+- **[US-008: Active Download Progress](stories/story-008-active-download-progress.md)** - Real-time download progress and queue status
+- **[US-009: Download History View](stories/story-009-download-history-view.md)** - Historical record of completed downloads
+- **[US-010: Storage Usage Monitoring](stories/story-010-storage-usage-monitoring.md)** - Storage consumption tracking and alerts
+- **[US-011: System Logging Access](stories/story-011-system-logging-access.md)** - Troubleshooting through Docker logs
+
+Each story file contains:
+- Detailed acceptance criteria and context
+- Engineering tasks broken down by component
+- Technical considerations and dependencies  
+- Definition of done with quality requirements
 
 ### 6. Requirements
 
