@@ -5,7 +5,7 @@
 - Date: 2025-07-27
 
 ### 2. Summary / Scope
-- Refer to PRD in file `prd.md`
+- Refer to PRD in file @prd.md
 
 ### 3. Background / Context
 - Technical/business context

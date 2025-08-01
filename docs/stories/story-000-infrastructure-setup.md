@@ -115,16 +115,16 @@ Establish FastAPI + NextJS development environment with Docker deployment and da
   - [x] API client can successfully call backend health endpoint
   - [x] Hot reloading works for both code and style changes via volume mounts
 
-#### 5. [ ] Development Tooling - Code Quality and Documentation
+#### 5. [x] Development Tooling - Code Quality and Documentation
 - **Description:** Set up code formatting, linting, and basic project documentation that works entirely within Docker containers. Configure development scripts and establish patterns for consistent code quality.
 - **Estimation:** 2-3 hours
 - **Acceptance Criteria:**
-  - [ ] Python code formatted with Black and linted with Flake8 via Docker
-  - [ ] TypeScript/React code formatted with Prettier and linted with ESLint via Docker
-  - [ ] Development scripts work via docker compose exec commands
+  - [x] Python code formatted with Black and linted with Flake8 via Docker
+  - [x] TypeScript/React code formatted with Prettier and linted with ESLint via Docker
+  - [x] Development scripts work via docker compose exec commands
   - [x] README.md with clear Docker-only setup and development instructions
-  - [ ] API documentation structure established (OpenAPI/Swagger)
-  - [ ] All tooling accessible without local installations
+  - [x] API documentation structure established (OpenAPI/Swagger)
+  - [x] All tooling accessible without local installations
 
 #### 6. [ ] Integration Testing - End-to-End Verification
 - **Description:** Create basic integration tests to verify the complete stack works together. Test API endpoints, database operations, and frontend-backend communication.

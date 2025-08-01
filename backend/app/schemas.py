@@ -22,9 +22,13 @@ class ChannelBase(BaseModel):
     quality_preset: str = Field(default="best", description="Video quality preset")
 
 
-class ChannelCreate(ChannelBase):
+class ChannelCreate(BaseModel):
     """Schema for creating a new channel."""
-    pass
+    url: HttpUrl = Field(..., description="YouTube channel URL")
+    limit: int = Field(default=10, ge=1, le=100, description="Maximum videos to keep")
+    enabled: bool = Field(default=True, description="Whether channel monitoring is enabled")
+    schedule_override: Optional[str] = Field(None, description="Custom cron schedule for this channel")
+    quality_preset: str = Field(default="best", description="Video quality preset")
 
 
 class ChannelUpdate(BaseModel):

@@ -15,11 +15,45 @@ logger = logging.getLogger(__name__)
 # Get settings
 settings = get_settings()
 
-# Create FastAPI app
+# Create FastAPI app with comprehensive OpenAPI documentation
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="YouTube channel monitoring and video downloading application"
+    description="""
+    **ChannelFinWatcher** is a YouTube channel monitoring system that automatically downloads 
+    the latest videos from configured channels for offline viewing.
+    
+    ## Features
+    
+    * **Channel Management**: Add, configure, and monitor YouTube channels
+    * **Automated Downloads**: Scheduled downloads with configurable limits
+    * **Real-time Status**: Monitor download progress and system health
+    * **File Organization**: Jellyfin-compatible media organization
+    
+    ## API Documentation
+    
+    This API provides endpoints for:
+    - Channel CRUD operations
+    - Download status and history
+    - System configuration and health monitoring
+    
+    ## Getting Started
+    
+    1. Use the `/health` endpoint to verify system status
+    2. Add channels via the channels API
+    3. Monitor downloads through the status endpoints
+    """,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/api/v1/openapi.json",
+    contact={
+        "name": "ChannelFinWatcher",
+        "url": "https://github.com/yourusername/channelfinwatcher",
+    },
+    license_info={
+        "name": "MIT License",
+        "url": "https://opensource.org/licenses/MIT",
+    },
 )
 
 # Include API routes
@@ -45,19 +79,34 @@ async def startup_event():
         raise
 
 
-@app.get("/")
+@app.get("/", tags=["System"])
 async def root():
-    """Root endpoint."""
+    """
+    Welcome endpoint providing basic API information.
+    
+    Returns system information and links to documentation.
+    """
     return {
         "message": f"{settings.app_name} API",
         "version": settings.app_version,
-        "docs": "/docs"
+        "description": "YouTube channel monitoring and video downloading system",
+        "documentation": {
+            "swagger_ui": "/docs",
+            "redoc": "/redoc",
+            "openapi_spec": "/api/v1/openapi.json"
+        },
+        "health_check": "/health"
     }
 
 
-@app.get("/health")
+@app.get("/health", tags=["System"])
 async def health_check(db: Session = Depends(get_db)):
-    """Health check endpoint with database connectivity test."""
+    """
+    System health check endpoint.
+    
+    Verifies database connectivity and directory structure.
+    Returns comprehensive system status information.
+    """
     try:
         # Test database connection
         from sqlalchemy import text

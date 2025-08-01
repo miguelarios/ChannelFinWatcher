@@ -6,14 +6,18 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "lint:fix": "next lint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "next": "14.0.3",
     "react": "^18",
     "react-dom": "^18",
     "@tanstack/react-query": "^5.8.4",
-    "socket.io-client": "^4.7.4"
+    "socket.io-client": "^4.7.4",
+    "lucide-react": "^0.294.0"
   },
   "devDependencies": {
     "typescript": "^5",
@@ -26,6 +30,9 @@
     "eslint": "^8",
     "eslint-config-next": "14.0.3",
     "@typescript-eslint/eslint-plugin": "^6.12.0",
-    "@typescript-eslint/parser": "^6.12.0"
+    "@typescript-eslint/parser": "^6.12.0",
+    "prettier": "^3.1.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-prettier": "^5.0.1"
   }
 }

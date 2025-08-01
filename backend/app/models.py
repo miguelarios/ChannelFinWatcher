@@ -6,20 +6,41 @@ from app.database import Base
 
 
 class Channel(Base):
-    """YouTube channel model."""
+    """
+    YouTube channel configuration for monitoring and downloading.
+    
+    This model stores channel information and monitoring settings.
+    Each channel represents a YouTube channel that will be periodically
+    checked for new videos to download.
+    
+    Key Design Decisions:
+    - channel_id is unique to prevent duplicate channels with different URLs
+    - url is also unique for user clarity and consistency
+    - limit controls how many recent videos to keep per channel
+    - enabled allows temporary disabling without deletion
+    """
     __tablename__ = "channels"
 
+    # Primary key
     id = Column(Integer, primary_key=True, index=True)
-    url = Column(String, unique=True, index=True, nullable=False)
-    channel_id = Column(String, unique=True, index=True)
-    name = Column(String, nullable=False)
-    limit = Column(Integer, default=10)
-    enabled = Column(Boolean, default=True, index=True)
-    schedule_override = Column(String, nullable=True)
-    quality_preset = Column(String, default="best")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    last_check = Column(DateTime, nullable=True)
+    
+    # YouTube identifiers (both unique to prevent duplicates)
+    url = Column(String, unique=True, index=True, nullable=False)          # User-provided URL (normalized)
+    channel_id = Column(String, unique=True, index=True)                   # YouTube's unique channel ID
+    
+    # Channel metadata (extracted from YouTube)
+    name = Column(String, nullable=False)                                  # Channel display name
+    
+    # Monitoring configuration
+    limit = Column(Integer, default=10)                                    # Max videos to keep
+    enabled = Column(Boolean, default=True, index=True)                    # Enable/disable monitoring
+    schedule_override = Column(String, nullable=True)                      # Custom cron schedule
+    quality_preset = Column(String, default="best")                       # Video quality preference
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)                 # When channel was added
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)  # Last modified
+    last_check = Column(DateTime, nullable=True)                           # Last time videos were checked
 
     # Relationships
     downloads = relationship("Download", back_populates="channel", cascade="all, delete-orphan")

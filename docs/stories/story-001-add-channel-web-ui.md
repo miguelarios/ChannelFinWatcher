@@ -1,118 +1,120 @@
-# US-001: Add Channel via Web UI
+# User Story: Add New Channel
 
-## Story Description
+## Section 1: Story Definition
 
-As a user, I want to add a YouTube channel URL through the web interface so that I can start monitoring it for new videos.
+### Feature
+Simple form to add YouTube channels for monitoring with configurable video limits
 
-## Context
-
-This is the primary entry point for users to begin monitoring YouTube channels. The web interface should provide immediate feedback and validation to ensure successful channel addition without requiring technical knowledge or file editing.
-
-## Value
-
-Enables quick channel addition without file editing, making the application accessible to non-technical users.
-
-## Detailed Acceptance Criteria
-
-### Core Functionality
-- [ ] User can access a "Add Channel" form in the web interface
-- [ ] Form accepts YouTube channel URLs in multiple formats:
-  - `https://www.youtube.com/c/ChannelName`
-  - `https://www.youtube.com/@ChannelHandle` 
-  - `https://www.youtube.com/channel/UC...`
-- [ ] System validates URL format before processing
-- [ ] System extracts channel information (name, ID, subscriber count)
-- [ ] Channel appears in monitoring list immediately after addition
-
-### Default Settings
-- [ ] New channels are created with 10 video limit (global default)
-- [ ] New channels are enabled by default
-- [ ] System assigns appropriate download quality preset ("best")
-
-### User Feedback
-- [ ] Success message displays channel name and confirmation
-- [ ] Clear error messages for invalid URLs
-- [ ] Loading indicator during channel validation process
-- [ ] Form validation prevents empty submissions
-
-### Error Handling
-- [ ] Invalid URLs show specific error messages
-- [ ] Private/unavailable channels display appropriate warnings
-- [ ] Duplicate channels are detected and prevented
-- [ ] Network errors are handled gracefully
-
-## Engineering Tasks
-
-### Frontend (NextJS)
-- [ ] Create AddChannelForm component with form validation
-- [ ] Implement URL format validation regex patterns
-- [ ] Add loading states and success/error notifications
-- [ ] Create channel display component for confirmation
-- [ ] Add form submission handling with API integration
-
-### Backend (FastAPI)
-- [ ] Create POST /api/channels endpoint
-- [ ] Implement YouTube URL parsing and validation
-- [ ] Add yt-dlp integration for channel information extraction
-- [ ] Create channel database model and CRUD operations
-- [ ] Add duplicate channel detection logic
-- [ ] Implement error handling and response formatting
-
-### Database
-- [ ] Design channels table schema (id, url, name, channel_id, limit, enabled, created_at)
-- [ ] Add unique constraints on channel URLs
-- [ ] Create database migration scripts
-
-## Technical Considerations
-
-### YouTube API Limitations
-- No official API usage - rely on yt-dlp for channel information
-- Handle rate limiting and temporary failures gracefully
-- Consider caching channel metadata for performance
-
-### URL Parsing Strategy
-- Support multiple YouTube URL formats
-- Extract canonical channel ID for consistent identification
-- Validate channel accessibility before database storage
-
-### State Management
-- Update frontend channel list immediately after successful addition
-- Sync with YAML configuration file
-- Handle concurrent additions properly
-
-## Dependencies
-
-### Prerequisites
-- FastAPI backend framework setup
-- NextJS frontend framework setup
-- Database connection and schema
-- yt-dlp integration
-
-### Dependent Stories
-- This story is independent and can be implemented first
-- Other stories will build upon the channel management foundation
-
-## Definition of Done
+### User Story
+- **As a** user
+- **I want** to add YouTube channels through a simple web form
+- **So that** I can start monitoring channels for new videos without technical setup
 
 ### Functional Requirements
-- [ ] User can successfully add valid YouTube channels via web form
-- [ ] Channel information is extracted and stored correctly
-- [ ] Invalid inputs show appropriate error messages
-- [ ] Channel appears in monitoring dashboard immediately
 
-### Technical Requirements
-- [ ] API endpoint responds within 5 seconds for valid channels
-- [ ] Frontend form validation prevents invalid submissions
-- [ ] Database constraints prevent duplicate channels
-- [ ] Error handling covers all edge cases
+#### [x] Scenario: Add Valid YouTube Channel - Happy Path
+- **Given** the user is on the main page
+  - And the "Add New Channel" form is visible
+  - And the form has fields for "YouTube Channel URL" and "Number of Recent Videos to Download"
+- **When** the user enters a valid YouTube channel URL (e.g., "https://www.youtube.com/@MrsRachel")
+  - And enters a number for recent videos (e.g., "10")
+  - And clicks the "+ Add Channel & Download Videos" button
+- **Then** the system validates and extracts channel information
+  - And a small rectangular card appears below the form showing the new channel
+  - And the card displays channel name, URL, and video limit
+  - And the channel is saved to the database
+  - But no actual video downloading occurs yet (future feature)
 
-### Quality Assurance
-- [ ] Manual testing with various YouTube URL formats
-- [ ] Error scenarios tested (invalid URLs, network issues, duplicates)
-- [ ] Cross-browser compatibility verified
-- [ ] Mobile responsiveness confirmed
+#### [x] Scenario: Form Validation - Invalid Inputs
+- **Given** the user is on the main page with the form visible
+- **When** the user submits the form with empty URL field
+  - Or enters an invalid URL format
+  - Or enters non-numeric value for video count
+- **Then** appropriate validation error messages are displayed
+  - And the form is not submitted
+  - And no database changes occur
 
-### Documentation
-- [ ] API endpoint documented with request/response examples
-- [ ] Component usage documented for future developers
-- [ ] Error codes and messages documented
+#### [x] Scenario: Multiple Channel Addition
+- **Given** the user has already added one channel successfully
+- **When** the user adds another valid channel
+- **Then** a new card appears below the previous one
+  - And both channels are visible in the interface
+  - And both channels are stored in the database
+
+### Non-functional Requirements
+- **Performance:** Form submission completes within 3 seconds for valid channels
+- **Security:** Input validation prevents XSS and injection attacks
+- **Reliability:** Database operations are atomic, failed additions don't leave partial data
+- **Usability:** Clear visual feedback, intuitive form layout, mobile-responsive design
+
+### Implementation Notes
+
+#### Key Technical Decisions
+- **YouTube URL Validation**: Supports multiple formats (/@handle, /c/channel, /channel/UC..., /user/username)
+- **Metadata Extraction**: Uses yt-dlp to extract channel name and ID without downloading videos
+- **Duplicate Prevention**: Checks channel_id (not just URL) to prevent duplicate channels with different URL formats
+- **URL Normalization**: Backend normalizes URLs to consistent format while avoiding double-www issues
+
+#### Channel Deduplication Strategy
+The system prevents duplicate channels by checking the extracted YouTube channel_id rather than just the URL. This handles cases where the same channel can be accessed via multiple URL formats:
+- `https://www.youtube.com/@ChannelName` 
+- `https://www.youtube.com/channel/UCxxxxxxxxxxxxxxxxxxxx`
+
+When a duplicate is detected, users receive a clear message: "This channel is already being monitored as 'Channel Name' with URL: [existing_url]"
+
+#### Engineering TODOs Completed
+- ✅ Support multiple YouTube URL formats (/@handle, /c/channel, /channel/UC...)
+- ✅ Use yt-dlp to extract channel metadata without downloading videos
+- ✅ Design simple card component for channel display
+- ✅ Implement robust duplicate detection via channel_id
+
+---
+
+## Section 2: Engineering Tasks
+
+### Task Breakdown
+*Each task should follow INVEST principles (Independent, Negotiable, Valuable, Estimable, Small, Testable)*
+
+#### 1. [x] Frontend Form Component - User Interface
+- **Description:** Create "Add New Channel" form with two input fields and submit button, plus channel cards display
+- **Estimation:** 2-3 hours
+- **Acceptance Criteria:**
+  - [x] Form has YouTube URL input field with proper validation
+  - [x] Form has numeric input for "Number of Recent Videos to Download"
+  - [x] Submit button labeled "+ Add Channel for Monitoring"
+  - [x] Form validates inputs client-side before submission
+  - [x] Channel cards display below form showing added channels
+  - [x] Responsive design works on mobile and desktop
+
+#### 2. [x] Backend API Endpoint - Channel Processing
+- **Description:** Create POST endpoint to validate YouTube URLs, extract channel info, and store in database
+- **Estimation:** 3-4 hours
+- **Acceptance Criteria:**
+  - [x] POST /api/v1/channels endpoint accepts URL and video_limit
+  - [x] Validates YouTube URL format using regex patterns
+  - [x] Uses yt-dlp to extract channel name and ID without downloading
+  - [x] Stores channel information in database
+  - [x] Returns channel data for frontend display
+  - [x] Handles errors gracefully with proper HTTP status codes
+  - [x] Prevents duplicate channels via channel_id checking
+
+#### 3. [x] Database Schema - Channel Storage
+- **Description:** Create channels table with necessary fields for basic channel information
+- **Estimation:** 1-2 hours
+- **Acceptance Criteria:**
+  - [x] Channels table with id, url, name, channel_id, video_limit, created_at fields
+  - [x] Unique constraint on channel_id to prevent duplicates (improved from URL-only)
+  - [x] Database migration script created and tested
+  - [x] Basic channel model created in SQLAlchemy
+
+#### 4. [x] Integration & Testing - End-to-End Flow
+- **Description:** Connect frontend form to backend API and verify complete user flow
+- **Estimation:** 2-3 hours
+- **Acceptance Criteria:**
+  - [x] Form submission successfully calls backend API
+  - [x] API response updates frontend display with new channel card
+  - [x] Error handling works for invalid URLs and network failures
+  - [x] Multiple channels can be added in sequence
+  - [x] Database persists channel data correctly
+  - [x] Manual testing with real YouTube channels confirms functionality
+  - [x] Duplicate channel detection tested with different URL formats
