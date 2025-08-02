@@ -1,12 +1,42 @@
 import React, { useState, useEffect } from 'react'
 import { Settings as SettingsIcon, Save, AlertCircle, CheckCircle, Info } from 'lucide-react'
 
+/**
+ * Interface for the default video limit settings response from API.
+ * 
+ * This matches the DefaultVideoLimitResponse schema from the backend
+ * and ensures type safety in the frontend component.
+ */
 interface DefaultVideoLimitSettings {
   limit: number
   description: string
   updated_at: string
 }
 
+/**
+ * Settings Component for User Story 3: Set Global Default Video Limit
+ * 
+ * This component provides a user interface for configuring the global default
+ * video limit that gets applied to new channels automatically. Key features:
+ * 
+ * Architecture Decisions:
+ * - Real-time validation with immediate feedback
+ * - Optimistic UI updates (show changes before server confirmation)
+ * - Graceful error handling with user-friendly messages
+ * - Auto-clearing success messages to reduce UI clutter
+ * - Loading states for better perceived performance
+ * 
+ * UX Patterns:
+ * - Disabled save button when no changes or invalid values
+ * - Change detection to prevent unnecessary API calls
+ * - Informational panel explaining how the setting works
+ * - Timestamp display for transparency and debugging
+ * 
+ * Integration:
+ * - Uses Next.js API proxy routes for backend communication
+ * - Follows FastAPI error response format for consistent error handling
+ * - Syncs with YAML configuration automatically via backend
+ */
 export function Settings() {
   const [defaultLimit, setDefaultLimit] = useState<number>(10)
   const [originalLimit, setOriginalLimit] = useState<number>(10)
@@ -16,7 +46,21 @@ export function Settings() {
   const [success, setSuccess] = useState<string>('')
   const [lastUpdated, setLastUpdated] = useState<string>('')
 
-  // Fetch current default video limit setting
+  /**
+   * Fetch current default video limit setting from backend API.
+   * 
+   * This function implements the "load current settings" part of User Story 3.
+   * It handles various error scenarios gracefully and provides specific error
+   * messages based on the type of failure.
+   * 
+   * Error Handling Strategy:
+   * - Network errors: Check connection and try again
+   * - Backend unavailable: Service-level issue
+   * - Other errors: Display the specific error message
+   * 
+   * Uses Next.js API proxy route (/api/v1/settings/default-video-limit)
+   * which forwards to FastAPI backend (/api/v1/settings/default-video-limit)
+   */
   const fetchDefaultLimit = async () => {
     try {
       setLoading(true)
@@ -54,7 +98,25 @@ export function Settings() {
     }
   }
 
-  // Save updated default video limit
+  /**
+   * Save updated default video limit to backend API.
+   * 
+   * This function implements the "update default setting" part of User Story 3.
+   * It validates the input, sends the update to the backend, and provides
+   * user feedback through success/error messages.
+   * 
+   * Features:
+   * - Validates input range (1-100) before sending to API
+   * - Updates local state with server response (source of truth)
+   * - Auto-clears success message after 3 seconds
+   * - Provides specific error messages for different failure types
+   * - Updates "original" value to reset change detection
+   * 
+   * API Integration:
+   * - Sends PUT request to Next.js proxy route
+   * - Expects DefaultVideoLimitResponse format back
+   * - Handles Pydantic validation errors (422 responses)
+   */
   const saveDefaultLimit = async () => {
     try {
       setSaving(true)
@@ -109,7 +171,24 @@ export function Settings() {
     fetchDefaultLimit()
   }, [])
 
-  // Handle input change with validation
+  /**
+   * Handle input change with real-time validation.
+   * 
+   * This function provides immediate feedback as the user types, implementing
+   * the "real-time validation" UX pattern. It only updates state for valid
+   * values and clears error messages when input becomes valid.
+   * 
+   * Validation Logic:
+   * - Accept only numbers between 1-100 (inclusive)
+   * - Reset to default (10) if input is cleared
+   * - Clear validation errors when input becomes valid
+   * - Ignore invalid inputs (prevents broken UI state)
+   * 
+   * UX Benefits:
+   * - Immediate feedback prevents user confusion
+   * - No need to wait for form submission to see validation errors
+   * - Graceful handling of edge cases (empty input, non-numbers)
+   */
   const handleLimitChange = (value: string) => {
     const numValue = parseInt(value)
     if (!isNaN(numValue) && numValue >= 1 && numValue <= 100) {

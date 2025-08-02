@@ -1,4 +1,16 @@
-"""Add default application settings
+"""Add default application settings for User Story 3: Set Global Default Video Limit
+
+This migration initializes the application_settings table with default values
+required for User Story 3. It ensures that the system has sensible defaults
+on first run while allowing users to customize them later.
+
+Settings Added:
+- default_video_limit: Controls how many recent videos to keep per channel (default: 10)
+- default_quality_preset: Default video quality for new channels (default: "best")  
+- default_schedule: Default cron schedule for new channels (default: "0 2 * * *")
+
+These settings provide a foundation for user customization while ensuring
+the system works out-of-the-box with reasonable defaults.
 
 Revision ID: b8e7f3d9c1a2
 Revises: a5dc5e4ba46b

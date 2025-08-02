@@ -93,8 +93,22 @@ export function YouTubeDownloader() {
   }
 
   /**
-   * Load the default video limit setting from the backend.
-   * This supports User Story 3 by showing the current default in the form.
+   * Load the default video limit setting from the backend (User Story 3).
+   * 
+   * This function integrates the global default setting into the channel
+   * creation form, allowing users to see what the default will be and
+   * choose whether to use it or specify a custom limit.
+   * 
+   * Integration Points:
+   * - Fetches current default from settings API
+   * - Pre-populates form with default value
+   * - Updates radio button labels to show current default
+   * - Gracefully handles API failures (keeps hardcoded fallback)
+   * 
+   * UX Benefits:
+   * - Users see what default they're getting
+   * - Clear indication of "recommended" option
+   * - Form initializes with sensible default value
    */
   const loadDefaultVideoLimit = async () => {
     try {
@@ -152,14 +166,16 @@ export function YouTubeDownloader() {
 
     try {
       // Call backend API to add channel
-      // Only send limit if user chose a custom value (User Story 3)
+      // User Story 3 Integration: Only send custom limit, let backend apply default
       const requestBody: any = {
         url: channelUrl,
         enabled: true,
         quality_preset: 'best'
       }
       
-      // Only include limit if not using default
+      // Only include limit if user explicitly chose a custom value
+      // If useDefaultLimit is true, we omit the limit field entirely,
+      // which tells the backend to apply the current global default
       if (!useDefaultLimit) {
         requestBody.limit = videoCount
       }

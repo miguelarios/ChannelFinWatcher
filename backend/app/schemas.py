@@ -164,14 +164,50 @@ class SystemHealth(BaseModel):
     directories: dict[str, DirectoryInfo]
 
 
-# Global Settings schemas for User Story 3
+# Global Settings schemas for User Story 3: Set Global Default Video Limit
 class DefaultVideoLimitUpdate(BaseModel):
-    """Schema for updating the default video limit setting."""
+    """
+    Schema for updating the default video limit setting.
+    
+    This schema validates input for the PUT /settings/default-video-limit endpoint
+    in User Story 3. The constraint (1-100) ensures reasonable storage usage
+    while providing flexibility for different channel types.
+    
+    Validation:
+    - limit: Must be between 1 and 100 (inclusive)
+    - Pydantic automatically returns 422 for invalid values
+    
+    Example Valid Requests:
+        {"limit": 25}  # Valid
+        {"limit": 1}   # Valid (minimum)
+        {"limit": 100} # Valid (maximum)
+        
+    Example Invalid Requests:
+        {"limit": 0}   # Invalid - returns 422 Unprocessable Entity
+        {"limit": 101} # Invalid - returns 422 Unprocessable Entity
+    """
     limit: int = Field(..., ge=1, le=100, description="Default video limit for new channels (1-100)")
 
 
 class DefaultVideoLimitResponse(BaseModel):
-    """Schema for default video limit API response."""
+    """
+    Schema for default video limit API responses.
+    
+    Used by both GET and PUT endpoints in User Story 3 to return the current
+    default setting with metadata for debugging and UI display.
+    
+    Fields:
+    - limit: The actual default value (1-100) applied to new channels
+    - description: Human-readable explanation of the setting's purpose
+    - updated_at: Timestamp for change tracking and cache invalidation
+    
+    Example Response:
+        {
+            "limit": 15,
+            "description": "Default number of videos to keep per channel",
+            "updated_at": "2024-01-01T12:30:00.123456"
+        }
+    """
     limit: int = Field(..., description="Current default video limit")
     description: str = Field(..., description="Setting description")
     updated_at: datetime = Field(..., description="When setting was last updated")
