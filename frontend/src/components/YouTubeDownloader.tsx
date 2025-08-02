@@ -38,6 +38,8 @@ interface Channel {
 export function YouTubeDownloader() {
   const [channelUrl, setChannelUrl] = useState('')
   const [videoCount, setVideoCount] = useState(10)
+  const [defaultVideoLimit, setDefaultVideoLimit] = useState(10)
+  const [useDefaultLimit, setUseDefaultLimit] = useState(true)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -60,9 +62,10 @@ export function YouTubeDownloader() {
            url.includes('youtu.be')
   }
 
-  // Load existing channels when component mounts
+  // Load existing channels and default settings when component mounts
   useEffect(() => {
     loadChannels()
+    loadDefaultVideoLimit()
   }, [])
 
   /**
@@ -86,6 +89,24 @@ export function YouTubeDownloader() {
     } catch (error) {
       console.error('Failed to load channels:', error)
       // Fail silently on initial load - user can still add channels
+    }
+  }
+
+  /**
+   * Load the default video limit setting from the backend.
+   * This supports User Story 3 by showing the current default in the form.
+   */
+  const loadDefaultVideoLimit = async () => {
+    try {
+      const response = await fetch('/api/v1/settings/default-video-limit')
+      if (response.ok) {
+        const data = await response.json()
+        setDefaultVideoLimit(data.limit)
+        setVideoCount(data.limit) // Initialize form with default
+      }
+    } catch (error) {
+      console.error('Failed to load default video limit:', error)
+      // Keep using hardcoded default of 10 if API fails
     }
   }
 
@@ -131,17 +152,24 @@ export function YouTubeDownloader() {
 
     try {
       // Call backend API to add channel
+      // Only send limit if user chose a custom value (User Story 3)
+      const requestBody: any = {
+        url: channelUrl,
+        enabled: true,
+        quality_preset: 'best'
+      }
+      
+      // Only include limit if not using default
+      if (!useDefaultLimit) {
+        requestBody.limit = videoCount
+      }
+      
       const response = await fetch('/api/v1/channels', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          url: channelUrl,
-          limit: videoCount,
-          enabled: true,
-          quality_preset: 'best'
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       if (response.ok) {
@@ -236,21 +264,57 @@ export function YouTubeDownloader() {
         </div>
 
         <div>
-          <label
-            htmlFor="video-count"
-            className="block text-sm font-medium text-gray-700 mb-1"
-          >
+          <label className="block text-sm font-medium text-gray-700 mb-3">
             Number of Recent Videos to Keep
           </label>
-          <input
-            id="video-count"
-            type="number"
-            min="1"
-            max="100"
-            value={videoCount}
-            onChange={(e) => setVideoCount(parseInt(e.target.value))}
-            className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:outline-none"
-          />
+          
+          {/* Default/Custom Toggle */}
+          <div className="space-y-3">
+            <label className="flex items-center">
+              <input
+                type="radio"
+                name="limitType"
+                checked={useDefaultLimit}
+                onChange={() => {
+                  setUseDefaultLimit(true)
+                  setVideoCount(defaultVideoLimit)
+                }}
+                className="h-4 w-4 text-red-600 border-gray-300 focus:ring-red-500"
+              />
+              <span className="ml-2 text-sm text-gray-700">
+                Use default ({defaultVideoLimit} videos)
+                <span className="text-gray-500 ml-1">- Recommended</span>
+              </span>
+            </label>
+            
+            <label className="flex items-start">
+              <input
+                type="radio"
+                name="limitType"
+                checked={!useDefaultLimit}
+                onChange={() => setUseDefaultLimit(false)}
+                className="h-4 w-4 text-red-600 border-gray-300 focus:ring-red-500 mt-0.5"
+              />
+              <div className="ml-2 flex-1">
+                <span className="text-sm text-gray-700">Custom limit</span>
+                {!useDefaultLimit && (
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={videoCount}
+                    onChange={(e) => setVideoCount(parseInt(e.target.value))}
+                    className="block w-full mt-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:outline-none text-sm"
+                    placeholder="Enter custom limit (1-100)"
+                  />
+                )}
+              </div>
+            </label>
+          </div>
+          
+          <p className="mt-2 text-xs text-gray-500">
+            The default can be changed in Settings. Custom limits override the default for this channel only.
+          </p>
         </div>
 
         {error && (

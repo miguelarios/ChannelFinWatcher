@@ -25,7 +25,7 @@ class ChannelBase(BaseModel):
 class ChannelCreate(BaseModel):
     """Schema for creating a new channel."""
     url: HttpUrl = Field(..., description="YouTube channel URL")
-    limit: int = Field(default=10, ge=1, le=100, description="Maximum videos to keep")
+    limit: Optional[int] = Field(None, ge=1, le=100, description="Maximum videos to keep (uses default if not specified)")
     enabled: bool = Field(default=True, description="Whether channel monitoring is enabled")
     schedule_override: Optional[str] = Field(None, description="Custom cron schedule for this channel")
     quality_preset: str = Field(default="best", description="Video quality preset")
@@ -162,6 +162,22 @@ class SystemHealth(BaseModel):
     version: str
     database: str
     directories: dict[str, DirectoryInfo]
+
+
+# Global Settings schemas for User Story 3
+class DefaultVideoLimitUpdate(BaseModel):
+    """Schema for updating the default video limit setting."""
+    limit: int = Field(..., ge=1, le=100, description="Default video limit for new channels (1-100)")
+
+
+class DefaultVideoLimitResponse(BaseModel):
+    """Schema for default video limit API response."""
+    limit: int = Field(..., description="Current default video limit")
+    description: str = Field(..., description="Setting description")
+    updated_at: datetime = Field(..., description="When setting was last updated")
+
+    class Config:
+        from_attributes = True
 
 
 # Error response schemas

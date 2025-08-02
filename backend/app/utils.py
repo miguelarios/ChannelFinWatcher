@@ -64,7 +64,12 @@ def get_directory_info():
 
 
 def load_yaml_config() -> Dict[str, Any]:
-    """Load configuration from YAML file."""
+    """
+    Load configuration from YAML file with settings synchronization.
+    
+    For User Story 3, this function ensures the YAML configuration includes
+    the current application settings and provides fallback values.
+    """
     settings = get_settings()
     config_path = Path(settings.config_file)
     
@@ -74,7 +79,7 @@ def load_yaml_config() -> Dict[str, Any]:
             "channels": [],
             "settings": {
                 "default_video_limit": 10,
-                "default_quality": "best",
+                "default_quality_preset": "best",
                 "default_schedule": "0 */6 * * *"  # Every 6 hours
             }
         }
@@ -91,15 +96,23 @@ def load_yaml_config() -> Dict[str, Any]:
         if 'settings' not in config:
             config['settings'] = {
                 "default_video_limit": 10,
-                "default_quality": "best",  
+                "default_quality_preset": "best",  
                 "default_schedule": "0 */6 * * *"
             }
+        else:
+            # Ensure all required settings exist with fallbacks
+            if 'default_video_limit' not in config['settings']:
+                config['settings']['default_video_limit'] = 10
+            if 'default_quality_preset' not in config['settings']:
+                config['settings']['default_quality_preset'] = "best"
+            if 'default_schedule' not in config['settings']:
+                config['settings']['default_schedule'] = "0 */6 * * *"
             
         return config
         
     except Exception as e:
         logger.error(f"Failed to load YAML config: {e}")
-        return {"channels": [], "settings": {}}
+        return {"channels": [], "settings": {"default_video_limit": 10}}
 
 
 def save_yaml_config(config: Dict[str, Any]) -> bool:
@@ -269,4 +282,213 @@ def remove_channel_from_yaml(channel_url: str) -> bool:
             
     except Exception as e:
         logger.error(f"Failed to remove channel from YAML: {e}")
+        return False
+
+
+def get_default_video_limit(db_session=None) -> int:
+    """
+    Get the default video limit setting from database or fallback to YAML.
+    
+    This function supports User Story 3: Set Global Default Video Limit
+    by providing a centralized way to retrieve the default limit for new channels.
+    
+    Priority order:
+    1. Database application_settings table
+    2. YAML configuration file
+    3. Hardcoded fallback (10)
+    
+    Args:
+        db_session: Optional database session for direct queries
+        
+    Returns:
+        int: Default video limit (1-100)
+        
+    Example:
+        limit = get_default_video_limit()  # Returns 10 or configured value
+    """
+    try:
+        # Try database first if session provided
+        if db_session:
+            from app.models import ApplicationSettings
+            setting = db_session.query(ApplicationSettings).filter(
+                ApplicationSettings.key == 'default_video_limit'
+            ).first()
+            if setting and setting.value:
+                return int(setting.value)
+        
+        # Fallback to YAML configuration
+        config = load_yaml_config()
+        if 'settings' in config and 'default_video_limit' in config['settings']:
+            return int(config['settings']['default_video_limit'])
+        
+        # Final fallback
+        logger.warning("No default video limit found in database or YAML, using fallback value 10")
+        return 10
+        
+    except (ValueError, TypeError) as e:
+        logger.error(f"Invalid default video limit value, using fallback: {e}")
+        return 10
+    except Exception as e:
+        logger.error(f"Failed to get default video limit: {e}")
+        return 10
+
+
+def sync_setting_to_yaml(key: str, value: str) -> bool:
+    """
+    Sync a specific application setting from database to YAML configuration.
+    
+    This function supports User Story 3 by ensuring changes made via the API
+    are reflected in the YAML configuration file for transparency and backup.
+    
+    Args:
+        key: Setting key (e.g., 'default_video_limit')
+        value: Setting value to sync
+        
+    Returns:
+        bool: True if sync successful, False on error
+        
+    Thread Safety:
+        Uses yaml_lock to prevent concurrent file modifications
+    """
+    try:
+        # Load current config
+        config = load_yaml_config()
+        
+        # Ensure settings section exists
+        if 'settings' not in config:
+            config['settings'] = {}
+        
+        # Update the specific setting
+        config['settings'][key] = value
+        
+        # Save updated config
+        return save_yaml_config(config)
+        
+    except Exception as e:
+        logger.error(f"Failed to sync setting {key} to YAML: {e}")
+        return False
+
+
+def initialize_default_settings(db_session) -> bool:
+    """
+    Initialize default application settings in database if they don't exist.
+    
+    This function supports User Story 3 by ensuring default settings are
+    available on first run or after database reset.
+    
+    Args:
+        db_session: Database session for queries and inserts
+        
+    Returns:
+        bool: True if initialization successful, False on error
+    """
+    try:
+        from app.models import ApplicationSettings
+        from datetime import datetime
+        
+        # Define default settings
+        default_settings = [
+            {
+                'key': 'default_video_limit',
+                'value': '10',
+                'description': 'Default number of videos to keep per channel (1-100). Applied to new channels automatically.'
+            },
+            {
+                'key': 'default_quality_preset',
+                'value': 'best', 
+                'description': 'Default video quality preset for new channels (best, 1080p, 720p, 480p).'
+            },
+            {
+                'key': 'default_schedule',
+                'value': '0 */6 * * *',
+                'description': 'Default cron schedule for channel monitoring (every 6 hours).'
+            }
+        ]
+        
+        # Check and insert missing settings
+        for setting_data in default_settings:
+            existing = db_session.query(ApplicationSettings).filter(
+                ApplicationSettings.key == setting_data['key']
+            ).first()
+            
+            if not existing:
+                setting = ApplicationSettings(
+                    key=setting_data['key'],
+                    value=setting_data['value'],
+                    description=setting_data['description'],
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                db_session.add(setting)
+                logger.info(f"Initialized default setting: {setting_data['key']} = {setting_data['value']}")
+        
+        db_session.commit()
+        
+        # Sync new defaults to YAML
+        for setting_data in default_settings:
+            sync_setting_to_yaml(setting_data['key'], setting_data['value'])
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize default settings: {e}")
+        db_session.rollback()
+        return False
+
+
+def sync_all_settings_to_yaml(db_session) -> bool:
+    """
+    Sync all application settings from database to YAML configuration.
+    
+    This function supports User Story 3 by ensuring the YAML configuration
+    file reflects the current database state for all application settings.
+    
+    Args:
+        db_session: Database session for queries
+        
+    Returns:
+        bool: True if sync successful, False on error
+    """
+    try:
+        from app.models import ApplicationSettings
+        
+        # Get all settings from database
+        settings = db_session.query(ApplicationSettings).all()
+        
+        if not settings:
+            logger.warning("No application settings found in database for YAML sync")
+            return True  # Not an error if no settings exist yet
+        
+        # Load current YAML config
+        config = load_yaml_config()
+        
+        # Ensure settings section exists
+        if 'settings' not in config:
+            config['settings'] = {}
+        
+        # Sync each setting from database to YAML
+        for setting in settings:
+            try:
+                # Convert database string values to appropriate types for YAML
+                value = setting.value
+                if setting.key == 'default_video_limit':
+                    value = int(setting.value)  # Convert to integer for better YAML readability
+                
+                config['settings'][setting.key] = value
+                logger.debug(f"Synced setting to YAML: {setting.key} = {value}")
+                
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Failed to convert setting {setting.key}={setting.value}: {e}")
+                # Keep as string if conversion fails
+                config['settings'][setting.key] = setting.value
+        
+        # Save updated config
+        success = save_yaml_config(config)
+        if success:
+            logger.info(f"Synced {len(settings)} application settings to YAML configuration")
+        
+        return success
+        
+    except Exception as e:
+        logger.error(f"Failed to sync all settings to YAML: {e}")
         return False

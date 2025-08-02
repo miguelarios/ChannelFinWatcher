@@ -7,13 +7,15 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Channel, Download, DownloadHistory, ApplicationSettings
 from app.youtube_service import youtube_service
-from app.utils import update_channel_in_yaml, remove_channel_from_yaml
+from app.utils import update_channel_in_yaml, remove_channel_from_yaml, sync_setting_to_yaml, get_default_video_limit as get_default_limit_setting
 from app.schemas import (
     Channel as ChannelSchema,
     ChannelCreate,
     ChannelUpdate,
     ChannelList,
     SystemHealth,
+    DefaultVideoLimitUpdate,
+    DefaultVideoLimitResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -85,12 +87,20 @@ async def create_channel(channel: ChannelCreate, db: Session = Depends(get_db)):
             detail=f"This channel is already being monitored as '{existing.name}' with URL: {existing.url}"
         )
     
+    # === APPLY DEFAULT VIDEO LIMIT (User Story 3) ===
+    # If no limit specified, use the global default setting
+    # This implements the core functionality of User Story 3
+    channel_limit = channel.limit
+    if channel_limit is None:
+        channel_limit = get_default_limit_setting(db)
+        logger.info(f"Applied default video limit {channel_limit} to new channel: {channel_info['name']}")
+    
     # Create new channel record with extracted YouTube metadata
     db_channel = Channel(
         url=normalized_url,                              # Normalized URL for consistency
         channel_id=channel_info['channel_id'],           # YouTube's unique channel identifier
         name=channel_info['name'],                       # Channel name extracted from YouTube
-        limit=channel.limit,                             # User-specified video limit
+        limit=channel_limit,                             # User-specified or default video limit
         enabled=channel.enabled,                         # Monitoring enabled/disabled
         schedule_override=channel.schedule_override,     # Custom schedule (if any)
         quality_preset=channel.quality_preset,          # Video quality preference
@@ -224,3 +234,163 @@ async def delete_channel(channel_id: int, db: Session = Depends(get_db)):
         # Don't fail the API call if YAML sync fails
     
     return {"message": "Channel deleted successfully"}
+
+
+# === APPLICATION SETTINGS ENDPOINTS (User Story 3) ===
+
+@router.get("/settings/default-video-limit", response_model=DefaultVideoLimitResponse)
+async def get_default_video_limit(db: Session = Depends(get_db)):
+    """
+    Get the current default video limit setting.
+    
+    This endpoint supports User Story 3: Set Global Default Video Limit
+    by providing access to the current default limit configuration.
+    
+    The default video limit is applied to new channels automatically
+    when they are created without specifying a custom limit.
+    
+    Returns:
+        DefaultVideoLimitResponse: Current default limit with metadata
+        
+    Raises:
+        HTTPException 404: If default setting is not found
+        HTTPException 500: If database error occurs
+        
+    Example:
+        GET /api/v1/settings/default-video-limit
+        Response: {
+            "limit": 10,
+            "description": "Default number of videos to keep per channel...",
+            "updated_at": "2024-01-01T12:00:00"
+        }
+    """
+    try:
+        # Query the default video limit setting from database
+        setting = db.query(ApplicationSettings).filter(
+            ApplicationSettings.key == 'default_video_limit'
+        ).first()
+        
+        if not setting:
+            raise HTTPException(
+                status_code=404, 
+                detail="Default video limit setting not found. Please check application initialization."
+            )
+        
+        # Convert string value to integer with validation
+        try:
+            limit_value = int(setting.value)
+            if not (1 <= limit_value <= 100):
+                raise ValueError(f"Invalid limit value: {limit_value}")
+        except (ValueError, TypeError) as e:
+            logger.error(f"Invalid default video limit in database: {setting.value}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Invalid default video limit value in database: {setting.value}"
+            )
+        
+        return DefaultVideoLimitResponse(
+            limit=limit_value,
+            description=setting.description or "Default video limit for new channels",
+            updated_at=setting.updated_at
+        )
+        
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions as-is
+    except Exception as e:
+        logger.error(f"Failed to get default video limit: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error while retrieving default video limit"
+        )
+
+
+@router.put("/settings/default-video-limit", response_model=DefaultVideoLimitResponse)
+async def update_default_video_limit(
+    setting_update: DefaultVideoLimitUpdate,
+    db: Session = Depends(get_db)
+):
+    """
+    Update the default video limit setting.
+    
+    This endpoint supports User Story 3: Set Global Default Video Limit
+    by allowing users to configure the default limit applied to new channels.
+    
+    The new default will apply to:
+    - All channels created after this change
+    - Channels imported from YAML without explicit limits
+    - Manual channel additions via web UI (unless user specifies custom limit)
+    
+    Existing channels are NOT affected and retain their current limits.
+    
+    Args:
+        setting_update: New default video limit (1-100)
+        
+    Returns:
+        DefaultVideoLimitResponse: Updated setting with metadata
+        
+    Raises:
+        HTTPException 400: If limit is outside valid range (handled by Pydantic)
+        HTTPException 404: If default setting is not found
+        HTTPException 500: If database error occurs
+        
+    Example:
+        PUT /api/v1/settings/default-video-limit
+        Body: {"limit": 25}
+        Response: {
+            "limit": 25,
+            "description": "Default number of videos to keep per channel...",
+            "updated_at": "2024-01-01T12:30:00"
+        }
+    """
+    try:
+        # Find the existing default video limit setting
+        setting = db.query(ApplicationSettings).filter(
+            ApplicationSettings.key == 'default_video_limit'
+        ).first()
+        
+        if not setting:
+            raise HTTPException(
+                status_code=404,
+                detail="Default video limit setting not found. Please check application initialization."
+            )
+        
+        # Update the setting value and timestamp
+        from datetime import datetime
+        setting.value = str(setting_update.limit)
+        setting.updated_at = datetime.utcnow()
+        
+        # Commit to database
+        db.commit()
+        db.refresh(setting)
+        
+        logger.info(f"Default video limit updated to {setting_update.limit}")
+        
+        # === YAML CONFIGURATION SYNC ===
+        # Sync the updated setting to YAML configuration for transparency
+        # This ensures the YAML file reflects the current database state
+        try:
+            sync_success = sync_setting_to_yaml('default_video_limit', str(setting_update.limit))
+            if sync_success:
+                logger.info("Default video limit synced to YAML configuration")
+            else:
+                logger.warning("Failed to sync default video limit to YAML configuration")
+                # Don't fail the API call since database update succeeded
+        except Exception as e:
+            logger.warning(f"YAML sync failed for default video limit: {e}")
+            # Continue - YAML sync is supplementary to database update
+        
+        return DefaultVideoLimitResponse(
+            limit=setting_update.limit,
+            description=setting.description or "Default video limit for new channels",
+            updated_at=setting.updated_at
+        )
+        
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions as-is
+    except Exception as e:
+        logger.error(f"Failed to update default video limit: {e}")
+        db.rollback()  # Rollback any partial database changes
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error while updating default video limit"
+        )

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import get_db, create_tables
-from app.utils import ensure_directories, get_directory_info
+from app.utils import ensure_directories, get_directory_info, initialize_default_settings, sync_all_settings_to_yaml
 from app.api import router as api_router
 
 # Configure logging
@@ -57,7 +57,7 @@ app = FastAPI(
 )
 
 # Include API routes
-app.include_router(api_router, prefix="/api/v1", tags=["channels"])
+app.include_router(api_router, prefix="/api/v1", tags=["channels", "settings"])
 
 
 @app.on_event("startup")
@@ -73,6 +73,20 @@ async def startup_event():
         # Create database tables
         create_tables()
         logger.info("Database tables initialized")
+        
+        # Initialize default application settings (User Story 3)
+        # This ensures default video limit and other settings are available
+        from app.database import SessionLocal
+        db = SessionLocal()
+        try:
+            initialize_default_settings(db)
+            logger.info("Default application settings initialized")
+            
+            # Sync all settings from database to YAML configuration
+            sync_all_settings_to_yaml(db)
+            logger.info("Application settings synced to YAML configuration")
+        finally:
+            db.close()
         
     except Exception as e:
         logger.error(f"Startup failed: {e}")
