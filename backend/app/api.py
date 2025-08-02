@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Channel, Download, DownloadHistory, ApplicationSettings
 from app.youtube_service import youtube_service
+from app.utils import update_channel_in_yaml, remove_channel_from_yaml
 from app.schemas import (
     Channel as ChannelSchema,
     ChannelCreate,
@@ -100,6 +101,21 @@ async def create_channel(channel: ChannelCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_channel)  # Refresh to get auto-generated fields (id, timestamps)
     
+    # Sync to YAML configuration
+    try:
+        channel_dict = {
+            "url": db_channel.url,
+            "name": db_channel.name,
+            "limit": db_channel.limit,
+            "enabled": db_channel.enabled,
+            "quality_preset": db_channel.quality_preset,
+            "schedule_override": db_channel.schedule_override,
+        }
+        update_channel_in_yaml(channel_dict)
+    except Exception as e:
+        logger.warning(f"Failed to sync new channel to YAML: {e}")
+        # Don't fail the API call if YAML sync fails
+    
     return db_channel
 
 
@@ -118,7 +134,41 @@ async def update_channel(
     channel_update: ChannelUpdate, 
     db: Session = Depends(get_db)
 ):
-    """Update a channel's settings."""
+    """
+    Update a channel's settings including video limit.
+    
+    This endpoint implements User Story 2: Configure Channel Video Limit
+    
+    Supports partial updates - only provided fields are modified:
+    - limit: Video limit (1-100, validated by Pydantic)
+    - enabled: Enable/disable monitoring 
+    - name: Channel display name
+    - schedule_override: Custom cron schedule
+    - quality_preset: Video quality preference
+    
+    Features:
+    - Input validation via Pydantic schemas (1-100 range for limits)
+    - Automatic YAML configuration sync after database update
+    - Graceful error handling - YAML sync failures don't fail API call
+    - Returns complete updated channel object
+    
+    Args:
+        channel_id: Database ID of channel to update
+        channel_update: Partial channel update data (only changed fields)
+        
+    Returns:
+        Channel: Complete updated channel object with new timestamps
+        
+    Raises:
+        HTTPException 404: Channel not found
+        HTTPException 422: Validation error (invalid limit range, etc.)
+        
+    Example:
+        PUT /api/v1/channels/123
+        {
+            "limit": 25
+        }
+    """
     channel = db.query(Channel).filter(Channel.id == channel_id).first()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -130,6 +180,26 @@ async def update_channel(
     
     db.commit()
     db.refresh(channel)
+    
+    # === YAML CONFIGURATION SYNC ===
+    # Keep YAML config file in sync with database changes for User Story 2
+    # This ensures web UI changes are reflected in the configuration file
+    try:
+        channel_dict = {
+            "url": channel.url,
+            "name": channel.name,
+            "limit": channel.limit,                    # Updated limit from user input
+            "enabled": channel.enabled,
+            "quality_preset": channel.quality_preset,
+            "schedule_override": channel.schedule_override,
+        }
+        update_channel_in_yaml(channel_dict)          # Thread-safe YAML update
+    except Exception as e:
+        # Graceful degradation: Log warning but don't fail the API call
+        # Database update succeeded, YAML sync is supplementary
+        logger.warning(f"Failed to sync channel update to YAML: {e}")
+        # API continues to return success since database update worked
+    
     return channel
 
 
@@ -140,6 +210,17 @@ async def delete_channel(channel_id: int, db: Session = Depends(get_db)):
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
     
+    # Store URL for YAML cleanup before deletion
+    channel_url = channel.url
+    
     db.delete(channel)
     db.commit()
+    
+    # Remove from YAML configuration
+    try:
+        remove_channel_from_yaml(channel_url)
+    except Exception as e:
+        logger.warning(f"Failed to remove channel from YAML: {e}")
+        # Don't fail the API call if YAML sync fails
+    
     return {"message": "Channel deleted successfully"}

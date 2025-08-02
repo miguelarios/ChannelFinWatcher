@@ -195,6 +195,16 @@ export function YouTubeDownloader() {
     }
   }
 
+  const handleUpdateChannel = (channelId: number, updates: Partial<Channel>) => {
+    setChannels(prevChannels =>
+      prevChannels.map(channel =>
+        channel.id === channelId
+          ? { ...channel, ...updates, updated_at: new Date().toISOString() }
+          : channel
+      )
+    )
+  }
+
   return (
     <div className="bg-white rounded-lg shadow-md p-6 max-w-3xl mx-auto">
       <h2 className="text-xl font-semibold mb-6">
@@ -301,6 +311,7 @@ export function YouTubeDownloader() {
             selectedChannelId={selectedChannelId}
             onSelectChannel={handleSelectChannel}
             onRemoveChannel={handleRemoveChannel}
+            onUpdateChannel={handleUpdateChannel}
           />
         </div>
       )}
