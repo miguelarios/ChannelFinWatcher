@@ -53,6 +53,10 @@ The goal is to make each development session a learning opportunity, not just co
 
 For project-specific development commands, tooling, and workflows, see @docs/development-guide.md.
 
+For testing framework usage and patterns, see @docs/testing-guide.md.
+
+For code documentation standards, see @docs/code-documentation-guide.md.
+
 ## Docker Development Commands
 
 For consistent testing environment across different machines:

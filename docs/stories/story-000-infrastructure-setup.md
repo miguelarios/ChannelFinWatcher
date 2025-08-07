@@ -126,13 +126,35 @@ Establish FastAPI + NextJS development environment with Docker deployment and da
   - [x] API documentation structure established (OpenAPI/Swagger)
   - [x] All tooling accessible without local installations
 
-#### 6. [ ] Integration Testing - End-to-End Verification
-- **Description:** Create basic integration tests to verify the complete stack works together. Test API endpoints, database operations, and frontend-backend communication.
+#### 6. [x] Unit Testing Framework - Foundation Testing
+- **Description:** Set up unit testing frameworks for both backend and frontend with coverage reporting. Configure test runners that work within Docker containers.
 - **Estimation:** 2-3 hours
 - **Acceptance Criteria:**
-  - [ ] Backend API endpoints can be called and return expected responses
-  - [ ] Database CRUD operations work through API layer
-  - [ ] Frontend can successfully fetch data from backend
-  - [x] Docker environment starts cleanly without manual intervention
-  - [x] Basic smoke tests verify all services are healthy after startup
-  - [ ] Error scenarios are handled gracefully with proper error messages
+  - [x] pytest configured for backend with async support (pytest-asyncio)
+  - [x] Jest configured for frontend with React Testing Library
+  - [x] Test coverage tools configured (coverage.py for backend, Jest coverage for frontend)
+  - [x] Sample unit tests for each layer demonstrating patterns (models, components)
+  - [x] Test commands work via docker compose exec (npm test, pytest)
+  - [x] Coverage reports generated in CI-friendly format (HTML + terminal)
+
+#### 7. [x] Integration Testing - API and Database Testing
+- **Description:** Set up integration testing for API endpoints and database operations. Configure test database and fixtures for realistic testing scenarios.
+- **Estimation:** 3-4 hours
+- **Acceptance Criteria:**
+  - [x] Test database configuration separate from development database (in-memory SQLite)
+  - [x] API endpoint testing with FastAPI TestClient and async support
+  - [x] Database transaction rollback between tests (fresh DB per test)
+  - [x] Test fixtures and factories for common data scenarios (conftest.py)
+  - [x] Integration tests for critical user paths (channel CRUD, settings)
+  - [x] Mock external dependencies (YouTube service mocked in API tests)
+
+#### 8. [ ] E2E Testing Setup - Full Stack Verification [OPTIONAL/DEFERRED]
+- **Description:** Configure end-to-end testing framework for critical user journeys. Set up browser automation and full stack testing capabilities.
+- **Estimation:** 3-4 hours
+- **Acceptance Criteria:**
+  - [ ] [Playwright/Cypress] installed and configured in Docker
+  - [ ] E2E test structure established with page objects pattern
+  - [ ] Sample E2E test for critical user journey (e.g., add channel flow)
+  - [ ] Headless browser configuration for CI environments
+  - [ ] Test data seeding and cleanup strategies
+  - [ ] Screenshots/videos on test failure for debugging
