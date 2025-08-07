@@ -165,3 +165,44 @@ ChannelFinWatcher/
 2. Generate migration: `alembic revision --autogenerate -m "description"`
 3. Review generated migration file
 4. Apply migration: `alembic upgrade head`
+
+## Testing
+
+### Running Tests
+
+The project includes comprehensive test suites for both backend and frontend. See the full [Testing Guide](testing-guide.md) for detailed information.
+
+**Backend Tests:**
+```bash
+# All backend tests
+docker compose -f docker-compose.dev.yml exec backend python -m pytest
+
+# Unit tests only
+docker compose -f docker-compose.dev.yml exec backend python -m pytest tests/unit/ -v
+
+# Integration tests only  
+docker compose -f docker-compose.dev.yml exec backend python -m pytest tests/integration/ -v
+
+# With coverage report
+docker compose -f docker-compose.dev.yml exec backend python -m pytest --cov=app --cov-report=html
+```
+
+**Frontend Tests:**
+```bash
+# All frontend tests
+docker compose -f docker-compose.dev.yml exec frontend npm test
+
+# With coverage
+docker compose -f docker-compose.dev.yml exec frontend npm run test:coverage
+
+# Watch mode for development
+docker compose -f docker-compose.dev.yml exec frontend npm run test:watch
+```
+
+### Test-Driven Development Workflow
+
+1. **Write failing test** for new feature
+2. **Run tests** to confirm failure
+3. **Implement minimal code** to pass test
+4. **Refactor** while keeping tests green
+5. **Add integration tests** for user workflows
