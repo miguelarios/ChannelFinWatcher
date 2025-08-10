@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { YoutubeIcon, TrashIcon, CheckCircleIcon, EditIcon, CheckIcon, XIcon } from 'lucide-react'
+import { YoutubeIcon, TrashIcon, CheckCircleIcon, EditIcon, CheckIcon, XIcon, RefreshCwIcon, AlertCircleIcon, HardDriveIcon } from 'lucide-react'
 
 /**
  * ChannelsList Component - Displays and manages YouTube channels with inline limit editing
@@ -39,6 +39,12 @@ interface Channel {
   enabled: boolean
   created_at: string
   updated_at: string
+  metadata_status: string
+  metadata_path?: string
+  directory_path?: string
+  last_metadata_update?: string
+  cover_image_path?: string
+  backdrop_image_path?: string
 }
 
 interface ChannelsListProps {
@@ -81,6 +87,11 @@ export function ChannelsList({
   
   // Reference to the number input for programmatic focus and text selection
   const editInputRef = useRef<HTMLInputElement>(null)
+  
+  // === METADATA REFRESH STATE ===
+  // Track which channel is currently having its metadata refreshed
+  const [refreshingChannelId, setRefreshingChannelId] = useState<number | null>(null)
+  const [refreshError, setRefreshError] = useState<string>('')
 
   if (!channels || channels.length === 0) {
     return null
@@ -260,6 +271,88 @@ export function ChannelsList({
     }
   }
 
+  /**
+   * Refreshes channel metadata including directory structure and images
+   */
+  const refreshChannelMetadata = async (channelId: number, e: React.MouseEvent) => {
+    e.stopPropagation()
+    
+    setRefreshingChannelId(channelId)
+    setRefreshError('')
+    
+    try {
+      const response = await fetch(`/api/v1/channels/${channelId}/refresh-metadata`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        
+        // Update parent component to refresh channel data
+        if (onUpdateChannel) {
+          // Trigger a full refresh of channels list
+          window.location.reload() // Simple approach for now
+        }
+        
+        if (result.warnings && result.warnings.length > 0) {
+          setRefreshError(`Refreshed with warnings: ${result.warnings.join(', ')}`)
+        }
+      } else {
+        const errorData = await response.json()
+        setRefreshError(errorData.detail || 'Failed to refresh metadata')
+      }
+    } catch (error) {
+      console.error('Error refreshing channel metadata:', error)
+      setRefreshError('Network error: Failed to refresh metadata')
+    } finally {
+      setRefreshingChannelId(null)
+    }
+  }
+
+  /**
+   * Get metadata status icon and color based on status
+   */
+  const getMetadataStatusIcon = (status: string, isRefreshing: boolean = false) => {
+    if (isRefreshing) {
+      return <RefreshCwIcon className="h-3 w-3 text-blue-600 animate-spin" />
+    }
+    
+    switch (status) {
+      case 'completed':
+        return <HardDriveIcon className="h-3 w-3 text-green-600" />
+      case 'failed':
+        return <AlertCircleIcon className="h-3 w-3 text-red-600" />
+      case 'refreshing':
+        return <RefreshCwIcon className="h-3 w-3 text-blue-600 animate-spin" />
+      case 'pending':
+      default:
+        return <HardDriveIcon className="h-3 w-3 text-gray-400" />
+    }
+  }
+
+  /**
+   * Get metadata status text and tooltip
+   */
+  const getMetadataStatusText = (channel: Channel) => {
+    const { metadata_status, last_metadata_update } = channel
+    const lastUpdate = last_metadata_update ? new Date(last_metadata_update).toLocaleDateString() : 'Never'
+    
+    switch (metadata_status) {
+      case 'completed':
+        return { text: `Metadata ready (${lastUpdate})`, color: 'text-green-600' }
+      case 'failed':
+        return { text: `Metadata failed (${lastUpdate})`, color: 'text-red-600' }
+      case 'refreshing':
+        return { text: 'Refreshing metadata...', color: 'text-blue-600' }
+      case 'pending':
+      default:
+        return { text: 'Metadata pending', color: 'text-gray-500' }
+    }
+  }
+
   return (
     <div>
       <h3 className="text-lg font-medium mb-4">Your Channels</h3>
@@ -283,6 +376,13 @@ export function ChannelsList({
                 <p className="text-xs text-gray-500 truncate mt-0.5">
                   {channel.url}
                 </p>
+                {/* Metadata status indicator */}
+                <div className="flex items-center mt-1">
+                  {getMetadataStatusIcon(channel.metadata_status, refreshingChannelId === channel.id)}
+                  <span className={`text-xs ml-1 ${getMetadataStatusText(channel).color}`}>
+                    {getMetadataStatusText(channel).text}
+                  </span>
+                </div>
               </div>
             </div>
             <div className="flex items-center ml-4">
@@ -353,6 +453,16 @@ export function ChannelsList({
                   >
                     <EditIcon className="h-3 w-3" />
                   </button>
+                  
+                  {/* Refresh metadata button */}
+                  <button
+                    onClick={(e) => refreshChannelMetadata(channel.id, e)}
+                    disabled={refreshingChannelId === channel.id}
+                    className="text-gray-400 hover:text-blue-600 p-1 disabled:text-gray-300"
+                    title="Refresh metadata"
+                  >
+                    <RefreshCwIcon className={`h-3 w-3 ${refreshingChannelId === channel.id ? 'animate-spin' : ''}`} />
+                  </button>
                 </div>
               )}
               
@@ -374,6 +484,22 @@ export function ChannelsList({
           </div>
         ))}
       </div>
+
+      {/* === REFRESH ERROR DISPLAY === */}
+      {refreshError && (
+        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+          <div className="flex items-center">
+            <AlertCircleIcon className="h-4 w-4 text-red-600 mr-2" />
+            <span className="text-sm text-red-700">{refreshError}</span>
+            <button
+              onClick={() => setRefreshError('')}
+              className="ml-auto text-red-600 hover:text-red-700"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* === CONFIRMATION DIALOG FOR SIGNIFICANT LIMIT REDUCTIONS === */}
       {/* Only shown when user attempts to reduce limit by >50% on channels with limit >10 */}

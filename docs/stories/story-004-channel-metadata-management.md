@@ -16,42 +16,66 @@ When channels are added, we need to collect comprehensive metadata about the cha
 ### Functional Requirements
 
 #### [ ] Scenario: Download Channel Metadata - Happy Path
-- **Given** a valid YouTube channel has been added to the system
+- **Given** a valid YouTube channel URL has been submitted
   - And the channel metadata has not been downloaded yet
   - And the /media directory is accessible
-- **When** the metadata download process is triggered
-  - And the channel information is successfully retrieved from YouTube
-- **Then** channel metadata is saved as JSON file
-  - And a directory structure is created following the naming convention
-  - And channel artwork/thumbnails are downloaded if available
-  - But no video files are downloaded (future feature)
+  - And the channel directory doesn't yet exist
+  - And yt-dlp Python library is available
+- **When** the button is clicked for `Add Channel for Monitoring` in the UI
+- **Then** the metadata download process is triggered using yt-dlp Python extract_info() method
+  - And the channel_id is extracted from the metadata response
+  - And the channel_id is checked against existing channels in database to prevent duplicates
+  - And if duplicate channel_id found, the operation is rejected with clear error message "Channel already being monitored"
+  - And if unique, the process continues with directory creation and metadata storage
 
 #### [ ] Scenario: Directory Structure Creation
 - **Given** channel metadata has been successfully downloaded
   - And the channel name is "Mrs. Rachel - Toddler Learning Videos"
-  - And the channel ID is "UC9_p50tH3WmMslWRWKnM7dQ"
+  - And the channel ID is "UCG2CL6EUjG8TVT1Tpl9nJdg"
+  - And the channel ID has been verified as unique in the system
 - **When** the directory creation process runs
-- **Then** a directory is created at `/media/channels/Mrs_Rachel_-_Toddler_Learning_Videos_[UC9_p50tH3WmMslWRWKnM7dQ]/`
-  - And the directory name uses safe filesystem characters
+- **Then** a directory is created at `/media/Ms Rachel - Toddler Learning Videos [UCG2CL6EUjG8TVT1Tpl9nJdg]/`
   - And the channel ID is included for uniqueness
-  - And subdirectories are created: `metadata/`, `thumbnails/`, `videos/`
 
 #### [ ] Scenario: Metadata JSON Structure
-- **Given** channel metadata has been retrieved from YouTube
-- **When** the metadata is saved to JSON file
-- **Then** the JSON includes: channel_id, name, description, subscriber_count, video_count, thumbnail_urls, upload_playlist_id, created_date
-  - And the file is saved as `metadata/channel_info.json`
-  - And the JSON structure is properly formatted and validated
-  - And timestamp of metadata retrieval is included
+- **Given** channel metadata has been extracted using yt-dlp extract_info()
+- **When** the metadata is processed and saved to JSON file
+- **Then** the complete channel metadata is saved including: channel_id, title, description, channel_follower_count, thumbnails array, and all other channel fields
+  - And the `entries` key is removed to reduce file size from 24MB to ~5KB
+  - And the file is saved as `Channel Name [channel_id].info.json`
+  - And thumbnails array contains `avatar_uncropped` and `banner_uncropped` URLs directly accessible
+  - And timestamp of metadata retrieval is included via epoch field
+
+#### [ ] Scenario: Cover image is downloaded
+- **Given** channel metadata has been extracted using yt-dlp extract_info()
+  - And the channel name is "Mrs. Rachel - Toddler Learning Videos"
+  - And the channel ID is "UCG2CL6EUjG8TVT1Tpl9nJdg"
+  - And the thumbnails array is available in the extracted metadata
+- **When** the cover image download process runs
+- **Then** the cover image URL is found directly in thumbnails array where id = `avatar_uncropped`
+  - And the image is downloaded from that URL
+  - And the file is named `cover.ext` in the location `/media/Ms Rachel - Toddler Learning Videos [UCG2CL6EUjG8TVT1Tpl9nJdg]/`
+
+#### [ ] Scenario: Backdrop image is downloaded
+- **Given** channel metadata has been extracted using yt-dlp extract_info()
+  - And the channel name is "Mrs. Rachel - Toddler Learning Videos"
+  - And the channel ID is "UCG2CL6EUjG8TVT1Tpl9nJdg"
+  - And the thumbnails array is available in the extracted metadata
+- **When** the backdrop image download process runs
+- **Then** the backdrop image URL is found directly in thumbnails array where id = `banner_uncropped`
+  - And the image is downloaded from that URL
+  - And the file is named `backdrop.ext` in the location `/media/Ms Rachel - Toddler Learning Videos [UCG2CL6EUjG8TVT1Tpl9nJdg]/`
 
 #### [ ] Scenario: Handle Existing Directories
 - **Given** a channel directory already exists
   - And channel metadata is being refreshed
+  - And channel is being monitored
 - **When** the metadata download process runs
-- **Then** existing metadata is backed up with timestamp
-  - And new metadata overwrites the current file
+- **Then** channel metadata is extracted using yt-dlp Python extract_info() method
+  - And channel metadata JSON file is updated with new information
+  - And metadata saved in database is refreshed with latest data
   - And directory structure remains intact
-  - But existing video files are not affected
+  - And cover and backdrop images are redownloaded and overwrite existing file if any
 
 #### [ ] Scenario: Error Handling - Invalid Channel
 - **Given** a channel ID that no longer exists or is private
@@ -63,18 +87,19 @@ When channels are added, we need to collect comprehensive metadata about the cha
 
 ### Non-functional Requirements
 - **Performance:** Metadata download completes within 30 seconds per channel
-- **Security:** API credentials are properly managed and not logged
+- **Security:** Image downloads validate URLs, file types, and enforce size limits to prevent malicious content
 - **Reliability:** Failed metadata downloads can be retried without data corruption
-- **Usability:** Directory names are filesystem-safe and human-readable
+- **Storage:** JSON files optimized to ~5KB by removing entries key to minimize disk usage
 
 ### Dependencies
 - **Blocked by:** Story 1 (Add Channel via Web UI) - need channels in system
 - **Blocks:** Future video download stories - need organized structure first
 
 ### Engineering TODOs
-- [ ] Determine optimal directory naming convention for media servers (Jellyfin compatibility)
-- [ ] Research YouTube API rate limits for metadata retrieval
-- [ ] Design metadata refresh strategy (daily? weekly? on-demand?)
+- [x] Determine optimal directory naming convention for media servers (Jellyfin compatibility)
+- [ ] Define metadata refresh strategy (manual vs automatic scheduling)
+- [ ] Establish storage cleanup policies for old metadata and images
+- [ ] Design error recovery patterns for partial metadata failures
 
 ---
 
@@ -83,87 +108,95 @@ When channels are added, we need to collect comprehensive metadata about the cha
 ### Task Breakdown
 *Each task should follow INVEST principles (Independent, Negotiable, Valuable, Estimable, Small, Testable)*
 
-#### 1. [ ] Backend API - Metadata Download Service
-- **Description:** Create service to fetch YouTube channel metadata using yt-dlp
-- **Estimation:** 4-6 hours
+#### 1. [ ] Backend Work - Metadata Extraction Optimization
+- **Description:** Extend YouTubeService to implement single extract_info() call with entries removal optimization
+- **Estimation:** 2-3 days
 - **Acceptance Criteria:** 
-  - [ ] Service can extract comprehensive channel information
-  - [ ] Handles API rate limiting and errors gracefully
-  - [ ] Returns structured metadata object
-  - [ ] Logs all operations for debugging
+  - [ ] Modify extract_channel_info() to remove entries key for 24MB→5KB optimization
+  - [ ] Preserve all essential channel metadata (channel_id, title, description, thumbnails)
+  - [ ] Add JSON file saving functionality with proper encoding
+  - [ ] Include epoch timestamp for metadata retrieval tracking
 
-#### 2. [ ] Backend Logic - Directory Management
-- **Description:** Create directory structure management with safe naming conventions
-- **Estimation:** 3-4 hours
+#### 2. [ ] Backend Work - Thumbnail and Image Processing
+- **Description:** Create services for thumbnail extraction and secure image downloading
+- **Estimation:** 3-4 days
 - **Acceptance Criteria:** 
-  - [ ] Generates filesystem-safe directory names from channel names
-  - [ ] Creates consistent directory structure (metadata/, thumbnails/, videos/)
-  - [ ] Handles special characters and international names properly
-  - [ ] Ensures directory uniqueness using channel ID
+  - [ ] Parse thumbnails array to extract avatar_uncropped and banner_uncropped URLs
+  - [ ] Implement secure image download with URL validation and file type checking
+  - [ ] Create cover.ext and backdrop.ext files with proper extension detection
+  - [ ] Handle download failures without breaking metadata save process
 
-#### 3. [ ] Database Schema - Metadata Storage
-- **Description:** Extend channel model to track metadata status and file paths
-- **Estimation:** 2-3 hours
+#### 3. [ ] Backend Work - Error Recovery Patterns
+- **Description:** Implement comprehensive error handling and rollback mechanisms
+- **Estimation:** 2-3 days
 - **Acceptance Criteria:** 
-  - [ ] Add fields: metadata_path, directory_path, last_metadata_update, metadata_status
-  - [ ] Create database migration for new fields
-  - [ ] Update channel model and relationships
+  - [ ] Rollback directory creation if metadata extraction fails completely
+  - [ ] Handle partial failures (metadata succeeds, images fail) gracefully
+  - [ ] Implement retry logic for failed image downloads
+  - [ ] Ensure no orphaned files or directories remain after failures
 
-#### 4. [ ] Backend API - Metadata Management Endpoints
-- **Description:** Create endpoints to trigger and monitor metadata download
-- **Estimation:** 3-4 hours
+#### 4. [ ] Database Work - Schema and Duplicate Detection
+- **Description:** Add metadata tracking fields and implement duplicate channel checking
+- **Estimation:** 2 days
 - **Acceptance Criteria:** 
-  - [ ] POST /api/v1/channels/{id}/metadata endpoint for manual trigger
-  - [ ] GET /api/v1/channels/{id}/metadata endpoint for status check
-  - [ ] Proper error responses and status codes
-  - [ ] Background job integration for async processing
+  - [ ] Add columns: metadata_path, directory_path, last_metadata_update, metadata_status
+  - [ ] Create migration with proper indexes for efficient status queries
+  - [ ] Implement channel_id duplicate checking with clear error messages
+  - [ ] Support metadata status tracking (pending, completed, failed, refreshing)
 
-#### 5. [ ] File System Operations - JSON Storage
-- **Description:** Implement JSON file creation and management with proper structure
-- **Estimation:** 2-3 hours
+#### 5. [ ] Integration Work - File System Operations
+- **Description:** Create secure directory management with filesystem-safe naming
+- **Estimation:** 2 days
 - **Acceptance Criteria:** 
-  - [ ] Creates well-structured channel_info.json files
-  - [ ] Handles file backup and versioning
-  - [ ] Validates JSON structure before writing
-  - [ ] Manages file permissions properly
+  - [ ] Implement filesystem-safe naming function (preserve spaces, remove problematic chars)
+  - [ ] Create directory structure: `/media/[Channel Name] [channel_id]/`
+  - [ ] Validate paths to prevent directory traversal attacks
+  - [ ] Handle filesystem permission errors with clear logging
 
-#### 6. [ ] Testing Work - Comprehensive Test Coverage
-- **Description:** Unit and integration tests for metadata download functionality
-- **Estimation:** 4-5 hours
+#### 6. [ ] Frontend Work - Metadata Status Integration
+- **Description:** Add minimal UI elements to show metadata download status and errors
+- **Estimation:** 1-2 days
 - **Acceptance Criteria:** 
-  - [ ] Unit tests for directory naming functions
-  - [ ] Integration tests for metadata download flow
-  - [ ] Error handling tests for various failure scenarios
-  - [ ] File system operation tests
+  - [ ] Display metadata download status in channel management interface
+  - [ ] Show error messages for failed metadata downloads with retry options
+  - [ ] Add progress indicators during metadata extraction process
+  - [ ] Display channel cover/backdrop images once downloaded
 
-#### 7. [ ] Frontend Integration - UI Indicators
-- **Description:** Add UI elements to show metadata status and trigger manual updates
-- **Estimation:** 2-3 hours
+#### 7. [ ] Testing Work - Metadata Workflow Coverage
+- **Description:** Comprehensive testing of metadata extraction, optimization, and error scenarios
+- **Estimation:** 3 days
 - **Acceptance Criteria:** 
-  - [ ] Channel cards show metadata status (downloaded/pending/error)
-  - [ ] Manual "Update Metadata" button for each channel
-  - [ ] Progress indicators during metadata download
-  - [ ] Error messages displayed to user
+  - [ ] Unit tests for entries removal and JSON size optimization verification
+  - [ ] Unit tests for thumbnail URL extraction from yt-dlp response structure
+  - [ ] Integration tests for complete metadata download workflow
+  - [ ] Error scenario testing (invalid channels, network failures, filesystem errors)
+  - [ ] Performance testing to verify 30-second completion requirement
+
+#### 8. [ ] Documentation Work - Technical Specifications
+- **Description:** Document new metadata structure, processes, and troubleshooting
+- **Estimation:** 1-2 days
+- **Acceptance Criteria:** 
+  - [ ] Document optimized JSON structure (entries removed) with size comparisons
+  - [ ] Update API documentation for any endpoint changes
+  - [ ] Create troubleshooting guide for metadata download failures
+  - [ ] Document filesystem-safe naming conventions and directory structure
 
 ---
 
 ## Definition of Done
 
 ### Must Have
-- [ ] Channel metadata is successfully downloaded and stored
-- [ ] Directory structure is created with proper naming convention
-- [ ] JSON files contain comprehensive channel information
-- [ ] Error handling works for failed downloads
+- [ ] All happy path scenarios work
+- [ ] Error cases handled gracefully
+- [ ] Code works in target environment
 
 ### Should Have  
-- [ ] Unit and integration tests cover core functionality
-- [ ] UI shows metadata status and allows manual triggers
-- [ ] Logging provides sufficient debugging information
+- [ ] Basic tests written
+- [ ] Key functionality documented
+- [ ] No obvious performance issues
 
 ### Notes for Future
 - Consider implementing metadata refresh scheduling (daily/weekly)
-- Thumbnail download and management could be expanded
-- Directory structure might need adjustment for different media servers
 
 ---
 
@@ -172,49 +205,226 @@ When channels are added, we need to collect comprehensive metadata about the cha
 ### Directory Naming Convention
 ```bash
 # Target directory structure:
-/media/channels/
-├── Channel_Name_Safe_[CHANNEL_ID]/
-│   ├── metadata/
-│   │   ├── channel_info.json
-│   │   └── channel_info.backup.YYYY-MM-DD.json
-│   ├── thumbnails/
-│   │   ├── channel_avatar.jpg
-│   │   └── channel_banner.jpg
-│   └── videos/
-│       └── (future video files)
+/media/
+    Channel Name [channel_id]/                                                 # Show folder
+        cover.ext                                                              # channel thumbnail
+        backdrop.ext                                                           # channel banner
+        Channel Name [channel_id].info.json                                    # channel metadata
+        tvshow.nfo                                                             # NFO for TV Show (future feature)
+        [Year:YYYY]/                                                           # Season folder (by year)
+            season.nfo                                                         # NFO Season file
+            Channel Name - YYYYMMDD - Title [video_id]/                        # Episode folder
+                Channel Name - YYYYMMDD - Title [video_id].nfo                 # NFO Episode file
+                Channel Name - YYYYMMDD - Title [video_id]-thumb.jpg           # thumbnail poster
+                Channel Name - YYYYMMDD - Title [video_id].info.json           # metadata from youtube
+                Channel Name - YYYYMMDD - Title [video_id].mkv                 # video
+                Channel Name - YYYYMMDD - Title [video_id].[subtitles ext]     # subtitles
 
-# Example for "Mrs. Rachel - Toddler Learning Videos":
-/media/channels/Mrs_Rachel_-_Toddler_Learning_Videos_[UC9_p50tH3WmMslWRWKnM7dQ]/
+# Example for "Ms Rachel - Toddler Learning Videos":
+`/media/Ms Rachel - Toddler Learning Videos [UCG2CL6EUjG8TVT1Tpl9nJdg]/`
 ```
 
-### Channel Metadata JSON Structure
+### yt-dlp Python Library for Complete Channel Metadata
+```python
+# Extract complete channel metadata with single extract_info() call
+import json
+import yt_dlp
+
+def extract_and_save_channel_metadata(url, output_path):
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'playlistend': 10,  # Limit entries for faster extraction
+    }
+    
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        # Extract all channel info without downloading
+        info = ydl.extract_info(url, download=False)
+        
+        # Remove entries to reduce file size from 24MB to ~5KB
+        if 'entries' in info:
+            del info['entries']
+        
+        # Sanitize for JSON serialization
+        sanitized_info = ydl.sanitize_info(info)
+        
+        # Save to file
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(sanitized_info, f, indent=2, ensure_ascii=False)
+        
+        return sanitized_info
+
+# Usage example:
+# metadata = extract_and_save_channel_metadata(
+#     "https://www.youtube.com/@msrachel",
+#     "/media/channel_name/channel_info.json"
+# )
+# 
+# # Access thumbnails directly:
+# for thumb in metadata.get('thumbnails', []):
+#     if thumb.get('id') == 'avatar_uncropped':
+#         cover_url = thumb['url']
+#     elif thumb.get('id') == 'banner_uncropped':
+#         backdrop_url = thumb['url']
+```
+
+
+### Optimized Metadata Processing
+```bash
+# Single extract_info() call provides:
+# 1. Complete channel metadata (channel_id, title, description, subscriber_count)
+# 2. Direct thumbnail access (avatar_uncropped, banner_uncropped)
+# 3. Compact file size (~5KB after removing entries)
+
+# Example directory structure:
+# /media/Ms Rachel - Toddler Learning Videos [UCG2CL6EUjG8TVT1Tpl9nJdg]/
+#   ├── Ms Rachel - Toddler Learning Videos [UCG2CL6EUjG8TVT1Tpl9nJdg].info.json  (5KB)
+#   ├── cover.jpg     (from avatar_uncropped)
+#   └── backdrop.jpg  (from banner_uncropped)
+```
+
+#### Actual Channel Metadata JSON Structure (entries removed for size optimization)
 ```json
 {
-  "channel_id": "UC9_p50tH3WmMslWRWKnM7dQ",
-  "name": "Mrs. Rachel - Toddler Learning Videos",
-  "display_name": "Mrs. Rachel - Toddler Learning Videos",
-  "description": "Channel description...",
-  "subscriber_count": 1500000,
-  "video_count": 245,
-  "view_count": 850000000,
-  "created_date": "2019-04-15T00:00:00Z",
-  "upload_playlist_id": "UU9_p50tH3WmMslWRWKnM7dQ",
-  "thumbnails": {
-    "avatar": "https://yt3.googleusercontent.com/...",
-    "banner": "https://yt3.googleusercontent.com/..."
-  },
-  "metadata_retrieved_at": "2024-08-07T15:30:00Z",
-  "metadata_version": "1.0"
+    "id": "UCG2CL6EUjG8TVT1Tpl9nJdg",
+    "channel": "Ms Rachel - Toddler Learning Videos",
+    "channel_id": "UCG2CL6EUjG8TVT1Tpl9nJdg",
+    "title": "Ms Rachel - Toddler Learning Videos - Videos",
+    "channel_follower_count": 16100000,
+    "description": "Toddler Learning Videos and Baby Learning Videos with a real teacher, Ms Rachel! Ms Rachel uses techniques recommended by speech therapists and early childhood experts to help children learn important milestones and preschool skills! You can trust Ms Rachel to provide interactive, high quality screen time!\n\nMs Rachel also gets kids moving through fun nursery rhymes & kids songs videos! Her videos for toddlers are informed by research and are full of learning standards that will help preschoolers thrive! Ms Rachel loves teaching letters, numbers, colors, animal sounds and more! She also has learn to talk videos and incorporates sign language!\n\nMs Rachel has a masters in music education from NYU and is almost finished a second masters in early childhood education. Parents and children can watch and learn together. Ms Rachel loves to teach and loves your wonderful family! Let's learn, grow and thrive! \n",
+    "tags": [
+        "toddler learning video",
+        "toddler videos",
+        "preschool",
+        "toddler learning videos",
+        "educational videos for toddlers",
+        "first words",
+        "toddler speech",
+        "speech toddler",
+        "baby's first words",
+        "first words for babies",
+        "songs for littles",
+        "ms rachel",
+        "miss rachel",
+        "baby learning",
+        "toddler learning",
+        "best toddler learning video",
+        "babies",
+        "toddler shows",
+        "wheels on the bus",
+        "baby sign",
+        "baby signs",
+        "videos for toddlers",
+        "learn colors",
+        "learn to talk",
+        "songs for kids",
+        "kids songs",
+        "nursery rhymes",
+        "toddlers",
+        "baby"
+    ],
+    "thumbnails": [
+        {
+            "url": "https://yt3.googleusercontent.com/DXRchzoMYp84nYIUeKWNZMyTK_0nMckzY3wQVe2RcvujPKw3E2DO9Y4scQUNlSxx_HsME7lP=w1060-fcrop64=1,00005a57ffffa5a8-k-c0xffffffff-no-nd-rj",
+            "height": 175,
+            "width": 1060,
+            "preference": -10,
+            "id": "0",
+            "resolution": "1060x175"
+        },
+        {
+            "url": "https://yt3.googleusercontent.com/DXRchzoMYp84nYIUeKWNZMyTK_0nMckzY3wQVe2RcvujPKw3E2DO9Y4scQUNlSxx_HsME7lP=w1138-fcrop64=1,00005a57ffffa5a8-k-c0xffffffff-no-nd-rj",
+            "height": 188,
+            "width": 1138,
+            "preference": -10,
+            "id": "1",
+            "resolution": "1138x188"
+        },
+        {
+            "url": "https://yt3.googleusercontent.com/DXRchzoMYp84nYIUeKWNZMyTK_0nMckzY3wQVe2RcvujPKw3E2DO9Y4scQUNlSxx_HsME7lP=w1707-fcrop64=1,00005a57ffffa5a8-k-c0xffffffff-no-nd-rj",
+            "height": 283,
+            "width": 1707,
+            "preference": -10,
+            "id": "2",
+            "resolution": "1707x283"
+        },
+        {
+            "url": "https://yt3.googleusercontent.com/DXRchzoMYp84nYIUeKWNZMyTK_0nMckzY3wQVe2RcvujPKw3E2DO9Y4scQUNlSxx_HsME7lP=w2120-fcrop64=1,00005a57ffffa5a8-k-c0xffffffff-no-nd-rj",
+            "height": 351,
+            "width": 2120,
+            "preference": -10,
+            "id": "3",
+            "resolution": "2120x351"
+        },
+        {
+            "url": "https://yt3.googleusercontent.com/DXRchzoMYp84nYIUeKWNZMyTK_0nMckzY3wQVe2RcvujPKw3E2DO9Y4scQUNlSxx_HsME7lP=w2276-fcrop64=1,00005a57ffffa5a8-k-c0xffffffff-no-nd-rj",
+            "height": 377,
+            "width": 2276,
+            "preference": -10,
+            "id": "4",
+            "resolution": "2276x377"
+        },
+        {
+            "url": "https://yt3.googleusercontent.com/DXRchzoMYp84nYIUeKWNZMyTK_0nMckzY3wQVe2RcvujPKw3E2DO9Y4scQUNlSxx_HsME7lP=w2560-fcrop64=1,00005a57ffffa5a8-k-c0xffffffff-no-nd-rj",
+            "height": 424,
+            "width": 2560,
+            "preference": -10,
+            "id": "5",
+            "resolution": "2560x424"
+        },
+        {
+            "url": "https://yt3.googleusercontent.com/DXRchzoMYp84nYIUeKWNZMyTK_0nMckzY3wQVe2RcvujPKw3E2DO9Y4scQUNlSxx_HsME7lP=s0",
+            "id": "banner_uncropped",
+            "preference": -5
+        },
+        {
+            "url": "https://yt3.googleusercontent.com/C2nKGvtlPIpTO80svL80ZRRArA_512rEBMiZH6IWForDdVLd0SlVYQVObnmHxzVTeH9sOeNO=s900-c-k-c0x00ffffff-no-rj",
+            "height": 900,
+            "width": 900,
+            "id": "7",
+            "resolution": "900x900"
+        },
+        {
+            "url": "https://yt3.googleusercontent.com/C2nKGvtlPIpTO80svL80ZRRArA_512rEBMiZH6IWForDdVLd0SlVYQVObnmHxzVTeH9sOeNO=s0",
+            "id": "avatar_uncropped",
+            "preference": 1
+        }
+    ],
+    "uploader_id": "@msrachel",
+    "uploader_url": "https://www.youtube.com/@msrachel",
+    "uploader": "Ms Rachel - Toddler Learning Videos",
+    "channel_url": "https://www.youtube.com/channel/UCG2CL6EUjG8TVT1Tpl9nJdg",
+    "_type": "playlist",
+    "extractor_key": "YoutubeTab",
+    "extractor": "youtube:tab",
+    "webpage_url": "https://www.youtube.com/@msrachel/videos",
+    "webpage_url_basename": "videos",
+    "webpage_url_domain": "youtube.com",
+    "epoch": 1754539997,
+    "_version": {
+        "version": "2025.07.21",
+        "release_git_head": "9951fdd0d08b655cb1af8cd7f32a3fb7e2b1324e",
+        "repository": "yt-dlp/yt-dlp"
+    }
 }
 ```
 
-### yt-dlp Command for Metadata Extraction
-```bash
-# Extract channel info without downloading videos
-yt-dlp --dump-json --playlist-end 0 "https://www.youtube.com/@MrsRachel"
+#### Image Metadata Download
 
-# Extract just channel metadata
-yt-dlp --dump-json --no-download --skip-download "https://www.youtube.com/@MrsRachel/videos"
+**Cover image download**
+From json file example above the image file would come from `thumbnails[int].url` where id = `avatar_uncropped`
+
+```bash
+# Example filename
+`/media/Ms Rachel - Toddler Learning Videos [UCG2CL6EUjG8TVT1Tpl9nJdg]/cover.[ext]`
+```
+
+**Backdrop image download**
+From json file example above the image file would come from `thumbnails[int].url` where id = `banner_uncropped`
+
+```bash
+# Example filename
+`/media/Ms Rachel - Toddler Learning Videos [UCG2CL6EUjG8TVT1Tpl9nJdg]/backdrop.[ext]`
 ```
 
 ### Filesystem Safe Name Generation (Python)
@@ -223,24 +433,24 @@ import re
 import unicodedata
 
 def make_filesystem_safe(name, max_length=100):
-    """Convert channel name to filesystem-safe directory name."""
+    """Convert channel name to filesystem-safe directory name, preserving spaces."""
     # Normalize unicode characters
     name = unicodedata.normalize('NFKD', name)
     
-    # Replace problematic characters
-    name = re.sub(r'[<>:"/\\|?*]', '_', name)
-    name = re.sub(r'\s+', '_', name)  # Replace spaces with underscores
-    name = re.sub(r'_{2,}', '_', name)  # Collapse multiple underscores
-    name = name.strip('._')  # Remove leading/trailing dots and underscores
+    # Replace problematic filesystem characters but preserve spaces
+    name = re.sub(r'[<>:"/\\|?*]', '', name)  # Remove problematic chars
+    name = re.sub(r'\.+$', '', name)  # Remove trailing dots
+    name = re.sub(r'\s+', ' ', name)  # Collapse multiple spaces to single space
+    name = name.strip()  # Remove leading/trailing whitespace
     
     # Truncate if too long, but preserve channel ID space
     if len(name) > max_length:
-        name = name[:max_length]
+        name = name[:max_length].strip()
     
     return name
 
 # Example usage:
-# "Mrs. Rachel - Toddler Learning Videos" -> "Mrs_Rachel_-_Toddler_Learning_Videos"
+# "Mrs. Rachel - Toddler Learning Videos" -> "Mrs Rachel - Toddler Learning Videos"
 ```
 
 ### Database Migration Example

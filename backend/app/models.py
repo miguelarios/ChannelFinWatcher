@@ -37,6 +37,14 @@ class Channel(Base):
     schedule_override = Column(String, nullable=True)                      # Custom cron schedule
     quality_preset = Column(String, default="best")                       # Video quality preference
     
+    # Metadata management (Story 004)
+    metadata_path = Column(String, nullable=True)                         # Path to channel metadata JSON
+    directory_path = Column(String, nullable=True)                        # Path to channel directory
+    last_metadata_update = Column(DateTime, nullable=True)                # Last metadata extraction
+    metadata_status = Column(String, default="pending", index=True)       # pending, completed, failed, refreshing
+    cover_image_path = Column(String, nullable=True)                      # Path to cover image
+    backdrop_image_path = Column(String, nullable=True)                   # Path to backdrop image
+    
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)                 # When channel was added
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)  # Last modified
@@ -48,6 +56,7 @@ class Channel(Base):
     # Indexes
     __table_args__ = (
         Index('idx_channel_enabled_lastcheck', 'enabled', 'last_check'),
+        Index('idx_channel_metadata_status', 'metadata_status'),
     )
 
 

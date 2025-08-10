@@ -45,6 +45,14 @@ class Channel(ChannelBase, TimestampMixin):
     id: int
     channel_id: Optional[str] = Field(None, description="YouTube's internal channel ID")
     last_check: Optional[datetime] = Field(None, description="Last time channel was checked")
+    
+    # Metadata management fields (Story 004)
+    metadata_path: Optional[str] = Field(None, description="Path to channel metadata JSON file")
+    directory_path: Optional[str] = Field(None, description="Path to channel directory")
+    last_metadata_update: Optional[datetime] = Field(None, description="Last metadata extraction")
+    metadata_status: str = Field(default="pending", description="Metadata processing status")
+    cover_image_path: Optional[str] = Field(None, description="Path to cover image")
+    backdrop_image_path: Optional[str] = Field(None, description="Path to backdrop image")
 
     class Config:
         from_attributes = True  # Allows creation from SQLAlchemy models

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Channel, Download, DownloadHistory, ApplicationSettings
 from app.youtube_service import youtube_service
+from app.metadata_service import metadata_service
 from app.utils import update_channel_in_yaml, remove_channel_from_yaml, sync_setting_to_yaml, get_default_video_limit as get_default_limit_setting
 from app.schemas import (
     Channel as ChannelSchema,
@@ -104,12 +105,22 @@ async def create_channel(channel: ChannelCreate, db: Session = Depends(get_db)):
         enabled=channel.enabled,                         # Monitoring enabled/disabled
         schedule_override=channel.schedule_override,     # Custom schedule (if any)
         quality_preset=channel.quality_preset,          # Video quality preference
+        metadata_status="pending",                       # Initial metadata status
     )
     
     # Persist to database
     db.add(db_channel)
     db.commit()
     db.refresh(db_channel)  # Refresh to get auto-generated fields (id, timestamps)
+    
+    # === METADATA PROCESSING (Story 004) ===
+    # Process complete channel metadata including directory creation and image downloads
+    metadata_success, metadata_errors = metadata_service.process_channel_metadata(db, db_channel, normalized_url)
+    
+    if not metadata_success:
+        logger.warning(f"Metadata processing failed for channel {db_channel.id}: {metadata_errors}")
+        # Channel was created successfully, metadata processing is supplementary
+        # Don't fail the API call, but log the warnings
     
     # Sync to YAML configuration
     try:
@@ -211,6 +222,45 @@ async def update_channel(
         # API continues to return success since database update worked
     
     return channel
+
+
+@router.post("/channels/{channel_id}/refresh-metadata")
+async def refresh_channel_metadata(channel_id: int, db: Session = Depends(get_db)):
+    """
+    Refresh channel metadata including directory structure and images.
+    
+    This endpoint implements metadata refresh functionality for Story 004.
+    It extracts fresh metadata from YouTube, updates the JSON file,
+    and redownloads cover/backdrop images.
+    
+    Args:
+        channel_id: Database ID of channel to refresh
+        
+    Returns:
+        dict: Status message and any warnings
+        
+    Raises:
+        HTTPException 404: Channel not found
+        HTTPException 400: Metadata refresh failed
+    """
+    channel = db.query(Channel).filter(Channel.id == channel_id).first()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    
+    # Refresh metadata using metadata service
+    success, errors = metadata_service.refresh_channel_metadata(db, channel)
+    
+    if not success:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Metadata refresh failed: {'; '.join(errors)}"
+        )
+    
+    response_data = {"message": "Channel metadata refreshed successfully"}
+    if errors:
+        response_data["warnings"] = errors
+    
+    return response_data
 
 
 @router.delete("/channels/{channel_id}")

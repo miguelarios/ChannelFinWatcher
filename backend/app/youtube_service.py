@@ -1,6 +1,10 @@
 """YouTube service for channel metadata extraction using yt-dlp."""
 import re
 import logging
+import json
+import os
+import time
+from pathlib import Path
 from typing import Dict, Optional, Tuple
 from urllib.parse import urlparse
 import yt_dlp
@@ -176,6 +180,109 @@ class YouTubeService:
         url = url.replace('://www.www.youtube.com', '://www.youtube.com')
         
         return url
+    
+    def extract_channel_metadata_full(self, url: str, output_dir: str) -> Tuple[bool, Optional[Dict], Optional[str]]:
+        """
+        Extract complete channel metadata and save to JSON file.
+        
+        This method downloads full channel metadata using yt-dlp's extract_info()
+        method, removes the 'entries' key to reduce file size from ~24MB to ~5KB,
+        and saves the optimized metadata to a JSON file.
+        
+        Args:
+            url: YouTube channel URL
+            output_dir: Directory path where metadata JSON will be saved
+            
+        Returns:
+            Tuple of (success, full_metadata_dict, error_message)
+        """
+        if not self.validate_youtube_url(url):
+            return False, None, "Invalid YouTube channel URL format"
+        
+        try:
+            # Configure yt-dlp for full metadata extraction
+            full_metadata_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'playlistend': 10,  # Limit entries for faster extraction
+            }
+            
+            with yt_dlp.YoutubeDL(full_metadata_opts) as ydl:
+                # Extract all channel info without downloading
+                info = ydl.extract_info(url, download=False)
+                
+                if not info:
+                    return False, None, "Could not extract channel metadata"
+                
+                # Remove entries to reduce file size from 24MB to ~5KB
+                if 'entries' in info:
+                    del info['entries']
+                
+                # Sanitize for JSON serialization
+                sanitized_info = ydl.sanitize_info(info)
+                
+                # Add epoch timestamp for metadata retrieval tracking
+                sanitized_info['epoch'] = int(time.time())
+                
+                # Ensure output directory exists
+                os.makedirs(output_dir, exist_ok=True)
+                
+                # Generate filesystem-safe filename
+                channel_name = sanitized_info.get('channel') or sanitized_info.get('title', 'Unknown')
+                channel_id = sanitized_info.get('channel_id') or sanitized_info.get('id')
+                
+                if not channel_id:
+                    return False, None, "Could not extract channel ID from metadata"
+                
+                safe_name = self._make_filesystem_safe(channel_name)
+                filename = f"{safe_name} [{channel_id}].info.json"
+                output_path = os.path.join(output_dir, filename)
+                
+                # Save to file
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    json.dump(sanitized_info, f, indent=2, ensure_ascii=False)
+                
+                logger.info(f"Saved channel metadata to: {output_path}")
+                
+                return True, sanitized_info, None
+                
+        except yt_dlp.DownloadError as e:
+            error_msg = str(e)
+            if "Private video" in error_msg or "This channel does not exist" in error_msg:
+                return False, None, "Channel is private or does not exist"
+            return False, None, f"YouTube error: {error_msg}"
+            
+        except Exception as e:
+            logger.error(f"Unexpected error extracting full metadata from {url}: {e}")
+            return False, None, f"Failed to extract channel metadata: {str(e)}"
+    
+    def _make_filesystem_safe(self, name: str, max_length: int = 100) -> str:
+        """
+        Convert channel name to filesystem-safe directory name, preserving spaces.
+        
+        Args:
+            name: Original channel name
+            max_length: Maximum length for the safe name
+            
+        Returns:
+            str: Filesystem-safe name
+        """
+        import unicodedata
+        
+        # Normalize unicode characters
+        name = unicodedata.normalize('NFKD', name)
+        
+        # Replace problematic filesystem characters but preserve spaces
+        name = re.sub(r'[<>:"/\\|?*]', '', name)  # Remove problematic chars
+        name = re.sub(r'\.+$', '', name)  # Remove trailing dots
+        name = re.sub(r'\s+', ' ', name)  # Collapse multiple spaces to single space
+        name = name.strip()  # Remove leading/trailing whitespace
+        
+        # Truncate if too long, but preserve channel ID space
+        if len(name) > max_length:
+            name = name[:max_length].strip()
+        
+        return name
 
 
 # Global instance
