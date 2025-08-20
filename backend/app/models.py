@@ -68,7 +68,7 @@ class Download(Base):
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False, index=True)
     video_id = Column(String, unique=True, index=True, nullable=False)
     title = Column(String, nullable=False)
-    upload_date = Column(String, nullable=False)
+    upload_date = Column(String, nullable=True)
     duration = Column(String, nullable=True)
     file_path = Column(String, nullable=True)
     file_size = Column(Integer, nullable=True)
@@ -102,6 +102,7 @@ class DownloadHistory(Base):
     duration_seconds = Column(Integer, nullable=True)
     error_message = Column(Text, nullable=True)
     status = Column(String, default="running")  # running, completed, failed
+    completed_at = Column(DateTime, nullable=True)
 
     # Indexes
     __table_args__ = (

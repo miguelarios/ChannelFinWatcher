@@ -72,7 +72,7 @@ class DownloadCreate(DownloadBase):
     channel_id: int = Field(..., description="Associated channel ID")
 
 
-class Download(DownloadBase, TimestampMixin):
+class Download(DownloadBase):
     """Complete download schema for API responses."""
     id: int
     channel_id: int
@@ -80,6 +80,7 @@ class Download(DownloadBase, TimestampMixin):
     file_size: Optional[int] = Field(None, description="File size in bytes")
     status: str = Field(..., description="Download status")
     error_message: Optional[str] = Field(None, description="Error message if failed")
+    created_at: datetime = Field(..., description="When download was created")
     completed_at: Optional[datetime] = Field(None, description="When download completed")
 
     class Config:
@@ -152,6 +153,14 @@ class DownloadList(BaseModel):
     """Schema for download list responses."""
     downloads: List[Download]
     total: int = Field(..., description="Total number of downloads")
+
+
+class DownloadTriggerResponse(BaseModel):
+    """Schema for download trigger responses."""
+    success: bool = Field(..., description="Whether download was successful")
+    videos_downloaded: int = Field(..., description="Number of videos downloaded")
+    error_message: Optional[str] = Field(None, description="Error message if failed")
+    download_history_id: Optional[int] = Field(None, description="ID of the download history record")
 
 
 # Health check and system schemas

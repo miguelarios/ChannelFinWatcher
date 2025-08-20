@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models import Channel, Download, DownloadHistory, ApplicationSettings
 from app.youtube_service import youtube_service
 from app.metadata_service import metadata_service
+from app.video_download_service import video_download_service
 from app.utils import update_channel_in_yaml, remove_channel_from_yaml, sync_setting_to_yaml, get_default_video_limit as get_default_limit_setting
 from app.schemas import (
     Channel as ChannelSchema,
@@ -17,6 +18,10 @@ from app.schemas import (
     SystemHealth,
     DefaultVideoLimitUpdate,
     DefaultVideoLimitResponse,
+    Download as DownloadSchema,
+    DownloadList,
+    DownloadHistory as DownloadHistorySchema,
+    DownloadTriggerResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -121,6 +126,20 @@ async def create_channel(channel: ChannelCreate, db: Session = Depends(get_db)):
         logger.warning(f"Metadata processing failed for channel {db_channel.id}: {metadata_errors}")
         # Channel was created successfully, metadata processing is supplementary
         # Don't fail the API call, but log the warnings
+    else:
+        # === VIDEO DOWNLOADS (Story 005) ===
+        # After successful metadata extraction, automatically start downloading recent videos
+        logger.info(f"Triggering initial video downloads for new channel: {db_channel.name}")
+        try:
+            download_success, videos_downloaded, download_error = video_download_service.process_channel_downloads(db_channel, db)
+            if download_success:
+                logger.info(f"Initial download completed for {db_channel.name}: {videos_downloaded} videos downloaded")
+            else:
+                logger.warning(f"Initial download failed for {db_channel.name}: {download_error}")
+                # Don't fail channel creation if initial downloads fail
+        except Exception as e:
+            logger.error(f"Unexpected error during initial downloads for {db_channel.name}: {e}")
+            # Don't fail channel creation if downloads encounter errors
     
     # Sync to YAML configuration
     try:
@@ -444,3 +463,185 @@ async def update_default_video_limit(
             status_code=500,
             detail="Internal server error while updating default video limit"
         )
+
+
+# === DOWNLOAD ENDPOINTS (User Story 5) ===
+
+@router.post("/channels/{channel_id}/download", response_model=DownloadTriggerResponse)
+async def trigger_channel_download(channel_id: int, db: Session = Depends(get_db)):
+    """
+    Manually trigger download process for a specific channel.
+    
+    This endpoint initiates the download process for a channel's recent videos,
+    implementing the core functionality of User Story 5. Downloads are processed
+    sequentially to avoid overwhelming system resources.
+    
+    Args:
+        channel_id: Database ID of the channel to download from
+        db: Database session dependency
+    
+    Returns:
+        DownloadTriggerResponse: Results of the download operation
+        
+    Raises:
+        HTTPException 404: If channel not found
+        HTTPException 400: If channel is disabled
+        HTTPException 500: If download process fails unexpectedly
+        
+    Example:
+        POST /api/v1/channels/123/download
+        Response:
+        {
+            "success": true,
+            "videos_downloaded": 3,
+            "error_message": null,
+            "download_history_id": 456
+        }
+    """
+    # Find the channel
+    channel = db.query(Channel).filter(Channel.id == channel_id).first()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    
+    if not channel.enabled:
+        raise HTTPException(status_code=400, detail="Channel is disabled")
+    
+    logger.info(f"Manual download triggered for channel: {channel.name} (ID: {channel_id})")
+    
+    try:
+        # Process channel downloads using the video download service
+        success, videos_downloaded, error_message = video_download_service.process_channel_downloads(channel, db)
+        
+        # Get the most recent download history record for this channel
+        download_history = db.query(DownloadHistory).filter(
+            DownloadHistory.channel_id == channel_id
+        ).order_by(DownloadHistory.run_date.desc()).first()
+        
+        return DownloadTriggerResponse(
+            success=success,
+            videos_downloaded=videos_downloaded,
+            error_message=error_message,
+            download_history_id=download_history.id if download_history else None
+        )
+        
+    except Exception as e:
+        logger.error(f"Unexpected error during manual download for channel {channel_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Download process failed: {str(e)}"
+        )
+
+
+@router.get("/channels/{channel_id}/downloads", response_model=DownloadList)
+async def get_channel_downloads(
+    channel_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db)
+):
+    """
+    Get download history for a specific channel.
+    
+    Returns a paginated list of video downloads for the specified channel,
+    ordered by creation date (most recent first). Useful for monitoring
+    download activity and troubleshooting issues.
+    
+    Args:
+        channel_id: Database ID of the channel
+        limit: Maximum number of downloads to return (default: 50)
+        offset: Number of downloads to skip for pagination (default: 0)
+        db: Database session dependency
+    
+    Returns:
+        DownloadList: Paginated list of downloads
+        
+    Raises:
+        HTTPException 404: If channel not found
+        
+    Example:
+        GET /api/v1/channels/123/downloads?limit=10&offset=0
+    """
+    # Verify channel exists
+    channel = db.query(Channel).filter(Channel.id == channel_id).first()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    
+    # Query downloads for this channel with pagination
+    downloads_query = db.query(Download).filter(
+        Download.channel_id == channel_id
+    ).order_by(Download.created_at.desc())
+    
+    total_downloads = downloads_query.count()
+    downloads = downloads_query.offset(offset).limit(limit).all()
+    
+    return DownloadList(
+        downloads=downloads,
+        total=total_downloads
+    )
+
+
+@router.get("/downloads/{download_id}", response_model=DownloadSchema)
+async def get_download_details(download_id: int, db: Session = Depends(get_db)):
+    """
+    Get details for a specific download.
+    
+    Returns complete information about an individual video download,
+    including status, file information, and any error messages.
+    
+    Args:
+        download_id: Database ID of the download
+        db: Database session dependency
+    
+    Returns:
+        Download: Complete download information
+        
+    Raises:
+        HTTPException 404: If download not found
+        
+    Example:
+        GET /api/v1/downloads/789
+    """
+    download = db.query(Download).filter(Download.id == download_id).first()
+    if not download:
+        raise HTTPException(status_code=404, detail="Download not found")
+    
+    return download
+
+
+@router.get("/channels/{channel_id}/download-history", response_model=List[DownloadHistorySchema])
+async def get_channel_download_history(
+    channel_id: int,
+    limit: int = 20,
+    db: Session = Depends(get_db)
+):
+    """
+    Get download run history for a channel.
+    
+    Returns a list of download runs (each representing one execution of the
+    download process for this channel), showing summary statistics and timing.
+    
+    Args:
+        channel_id: Database ID of the channel
+        limit: Maximum number of history records to return (default: 20)
+        db: Database session dependency
+    
+    Returns:
+        List[DownloadHistory]: List of download run records
+        
+    Raises:
+        HTTPException 404: If channel not found
+        
+    Example:
+        GET /api/v1/channels/123/download-history?limit=10
+    """
+    # Verify channel exists
+    channel = db.query(Channel).filter(Channel.id == channel_id).first()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    
+    # Query download history for this channel
+    history = db.query(DownloadHistory).filter(
+        DownloadHistory.channel_id == channel_id
+    ).order_by(DownloadHistory.run_date.desc()).limit(limit).all()
+    
+    return history
