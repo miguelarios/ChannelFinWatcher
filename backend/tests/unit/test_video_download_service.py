@@ -95,7 +95,6 @@ class TestVideoDownloadService:
         
         assert service.media_path == mock_settings.media_dir
         assert service.temp_path == mock_settings.temp_dir
-        assert "archive.txt" in service.archive_file
         assert service.download_opts['format'] == 'bv*+ba/b'
         assert service.download_opts['merge_output_format'] == 'mkv'
 

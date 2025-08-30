@@ -1,4 +1,5 @@
 """API endpoints for the application."""
+import os
 import logging
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,7 +10,7 @@ from app.models import Channel, Download, DownloadHistory, ApplicationSettings
 from app.youtube_service import youtube_service
 from app.metadata_service import metadata_service
 from app.video_download_service import video_download_service
-from app.utils import update_channel_in_yaml, remove_channel_from_yaml, sync_setting_to_yaml, get_default_video_limit as get_default_limit_setting
+from app.utils import update_channel_in_yaml, remove_channel_from_yaml, sync_setting_to_yaml, get_default_video_limit as get_default_limit_setting, channel_dir_name
 from app.schemas import (
     Channel as ChannelSchema,
     ChannelCreate,
@@ -282,27 +283,182 @@ async def refresh_channel_metadata(channel_id: int, db: Session = Depends(get_db
     return response_data
 
 
-@router.delete("/channels/{channel_id}")
-async def delete_channel(channel_id: int, db: Session = Depends(get_db)):
-    """Delete a channel and all its downloads."""
+@router.post("/channels/{channel_id}/reindex")
+async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
+    """
+    Reindex a channel's media folder to sync database with disk state.
+    
+    This will:
+    - Find all video files on disk
+    - Update/create Download records to match
+    - Mark missing files as file_exists=False
+    
+    Args:
+        channel_id: Database ID of channel to reindex
+        db: Database session
+        
+    Returns:
+        dict: Statistics about reindex operation
+        
+    Raises:
+        HTTPException 404: If channel not found
+    """
+    from app.config import get_settings
+    from datetime import datetime
+    import re
+    
     channel = db.query(Channel).filter(Channel.id == channel_id).first()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
     
-    # Store URL for YAML cleanup before deletion
+    settings = get_settings()
+    channel_dir = channel_dir_name(channel)  # Safe path construction
+    media_path = os.path.join(settings.media_dir, channel_dir)
+    
+    stats = {
+        "channel": channel.name,
+        "found": 0,
+        "missing": 0,
+        "added": 0,
+        "errors": []
+    }
+    
+    try:
+        # Find all video files on disk
+        video_ids_on_disk = set()
+        if os.path.exists(media_path):
+            for root, dirs, files in os.walk(media_path):
+                for file in files:
+                    # Skip partial downloads
+                    if file.endswith('.part'):
+                        continue
+                    
+                    # Extract video ID from filename [video_id]
+                    match = re.search(r'\[([a-zA-Z0-9_-]{11})\]', file)
+                    if match:
+                        video_id = match.group(1)
+                        video_ids_on_disk.add(video_id)
+                        
+                        # Check if we have a record
+                        download = db.query(Download).filter(
+                            Download.video_id == video_id,
+                            Download.channel_id == channel_id
+                        ).first()
+                        
+                        if download:
+                            if not download.file_exists:
+                                download.file_exists = True
+                                download.file_path = os.path.join(root, file)
+                                stats["found"] += 1
+                        else:
+                            # Create new record for orphaned file
+                            try:
+                                download = Download(
+                                    channel_id=channel_id,
+                                    video_id=video_id,
+                                    title=file.split('[')[0].strip() if '[' in file else "Found on disk",
+                                    status='completed',
+                                    file_exists=True,
+                                    file_path=os.path.join(root, file),
+                                    completed_at=datetime.utcnow()
+                                )
+                                db.add(download)
+                                stats["added"] += 1
+                            except Exception as e:
+                                stats["errors"].append(f"Failed to add record for {video_id}: {str(e)}")
+        
+        # Mark missing files in database
+        db_downloads = db.query(Download).filter(
+            Download.channel_id == channel_id,
+            Download.status == 'completed'
+        ).all()
+        
+        for download in db_downloads:
+            if download.video_id not in video_ids_on_disk:
+                if download.file_exists:
+                    download.file_exists = False
+                    stats["missing"] += 1
+        
+        db.commit()
+        
+        logger.info(f"Reindex completed for channel {channel.name}: found={stats['found']}, missing={stats['missing']}, added={stats['added']}")
+        
+        return stats
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error during reindex of channel {channel_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Reindex failed: {str(e)}"
+        )
+
+
+@router.delete("/channels/{channel_id}")
+async def delete_channel(
+    channel_id: int, 
+    delete_media: bool = False,
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a channel with optional media deletion.
+    
+    Args:
+        channel_id: ID of channel to delete
+        delete_media: If True, also delete downloaded video files
+        db: Database session
+        
+    Returns:
+        dict: Deletion status with media deletion summary
+    """
+    from app.config import get_settings
+    
+    channel = db.query(Channel).filter(Channel.id == channel_id).first()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    
+    # Store info for response before deletion
+    settings = get_settings()
+    channel_name = channel.name
+    channel_dir = channel_dir_name(channel)  # Safe path construction helper
+    media_path = os.path.join(settings.media_dir, channel_dir)
     channel_url = channel.url
     
+    # Optionally delete media files BEFORE database (for better consistency)
+    media_deleted = False
+    files_deleted = 0
+    if delete_media and os.path.exists(media_path):
+        try:
+            # Safety check - ensure we're only deleting within media directory
+            media_path = os.path.abspath(media_path)
+            media_root = os.path.abspath(settings.media_dir)
+            # Use commonpath for safer validation
+            if os.path.commonpath([media_path, media_root]) == media_root:
+                import shutil
+                # Count files before deletion
+                for root, dirs, files in os.walk(media_path):
+                    files_deleted += len(files)
+                shutil.rmtree(media_path)
+                media_deleted = True
+                logger.info(f"Deleted {files_deleted} files from {media_path}")
+        except Exception as e:
+            logger.warning(f"Failed to delete media for channel {channel_id}: {e}")
+    
+    # Delete from database AFTER filesystem operations (cascade deletes Download records)
     db.delete(channel)
     db.commit()
     
-    # Remove from YAML configuration
+    # Remove from YAML config
     try:
         remove_channel_from_yaml(channel_url)
     except Exception as e:
         logger.warning(f"Failed to remove channel from YAML: {e}")
-        # Don't fail the API call if YAML sync fails
     
-    return {"message": "Channel deleted successfully"}
+    return {
+        "message": f"Channel '{channel_name}' deleted successfully",
+        "media_deleted": media_deleted,
+        "files_deleted": files_deleted if media_deleted else 0
+    }
 
 
 # === APPLICATION SETTINGS ENDPOINTS (User Story 3) ===

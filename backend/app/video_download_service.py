@@ -11,6 +11,7 @@ import yt_dlp
 
 from app.models import Channel, Download, DownloadHistory
 from app.config import get_settings
+from app.utils import channel_dir_name
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class VideoDownloadService:
     - Status tracking and error handling
     
     Key Features:
-    - Uses archive.txt to prevent duplicate downloads
+    - Uses database records to prevent duplicate downloads
     - Organizes files in Jellyfin-compatible directory structure
     - Sequential downloads to avoid overwhelming system resources
     - Comprehensive error handling for network and storage issues
@@ -51,11 +52,7 @@ class VideoDownloadService:
         self.media_path = settings.media_dir
         self.temp_path = settings.temp_dir
         
-        # Derive data and config paths from the database URL and config file
-        data_path = os.path.dirname(settings.database_url.replace("sqlite:///", "/app/"))
-        config_path = os.path.dirname(settings.config_file)
-        
-        self.archive_file = os.path.join(data_path, "archive.txt")
+        # Configuration file path
         self.cookie_file = settings.cookies_file
         
         # Ensure required directories exist
@@ -87,7 +84,6 @@ class VideoDownloadService:
                 'upload_date:(?s)(?P<meta_DATE_RELEASED>.+)',
                 'uploader:%(meta_ARTIST)s'
             ],
-            'download_archive': self.archive_file,
             'concurrent_fragments': 4,
             'ignoreerrors': True,  # Continue on individual video errors
             'no_warnings': False,  # Show warnings for troubleshooting
@@ -170,6 +166,60 @@ class VideoDownloadService:
                     return extracted_id
         
         return None
+    
+    def should_download_video(self, video_id: str, channel: Channel, db: Session) -> Tuple[bool, Optional[Download]]:
+        """
+        Determine if a video should be downloaded based on database and disk state.
+        
+        Args:
+            video_id: YouTube video ID
+            channel: Channel database model
+            db: Database session
+        
+        Returns:
+            Tuple of (should_download, existing_download_record)
+        """
+        # Check database first
+        download = db.query(Download).filter(
+            Download.video_id == video_id,
+            Download.channel_id == channel.id
+        ).first()
+        
+        if download:
+            if download.status == 'completed' and download.file_exists:
+                return False, download  # Skip - already have it
+            elif not download.file_exists:
+                return True, download   # Re-download missing file
+        
+        # No DB record - check disk
+        settings = get_settings()
+        channel_dir = channel_dir_name(channel)  # Helper function for safe path construction
+        media_path = os.path.join(settings.media_dir, channel_dir)
+        if self.check_video_on_disk(video_id, media_path):
+            # Create DB record for existing file
+            download = Download(
+                channel_id=channel.id,
+                video_id=video_id,
+                title="Found on disk",
+                status='completed',
+                file_exists=True
+            )
+            db.add(download)
+            db.commit()
+            return False, download  # Skip - found on disk
+        
+        return True, None  # Need to download
+    
+    def check_video_on_disk(self, video_id: str, media_path: str) -> bool:
+        """Check if video file exists on disk by looking for [video_id] in filename."""
+        if not os.path.exists(media_path):
+            return False
+        
+        for root, dirs, files in os.walk(media_path):
+            for file in files:
+                if f"[{video_id}]" in file and not file.endswith('.part'):
+                    return True
+        return False
     
     def get_recent_videos(self, channel_url: str, limit: int = 10, channel_id: str = None) -> Tuple[bool, List[Dict], Optional[str]]:
         """
@@ -502,15 +552,12 @@ class VideoDownloadService:
             skipped_count = 0
             
             for video_info in videos:
-                # Check if video already downloaded via archive.txt or database
-                existing = db.query(Download).filter(
-                    Download.video_id == video_info['id'],
-                    Download.status == 'completed'
-                ).first()
+                # Use new deduplication logic
+                should_download, existing_download = self.should_download_video(video_info['id'], channel, db)
                 
-                if existing:
+                if not should_download:
                     skipped_count += 1
-                    logger.info(f"Skipping already downloaded video: {video_info['title']}")
+                    logger.info(f"Skipping already available video: {video_info['title']}")
                     continue
                 
                 # Download the video

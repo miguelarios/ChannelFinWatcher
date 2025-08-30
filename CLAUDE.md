@@ -126,7 +126,7 @@ git tag -a v0.1-story-1 -m "Complete Story 1: Quick even split"
 git push origin main --tags
 ```
 
-### GitHub CLI Integration (when installed)
+### GitHub CLI Integration
 ```bash
 # Create issue for next story
 gh issue create --title "Story 2: Photo OCR" --body "Implement receipt photo capture and OCR"
@@ -138,7 +138,7 @@ gh pr create --title "feat: add quick split functionality" --body "Implements St
 gh workflow view
 ```
 
-### Branching Strategy (optional)
+### Branching Strategy
 ```bash
 # Create feature branch for each story
 git checkout -b feature/story-1-quick-split

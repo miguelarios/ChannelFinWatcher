@@ -87,58 +87,58 @@ Currently, the system uses a global archive.txt file shared by all channels, mak
 
 ### Task Breakdown
 
-#### 1. [ ] Database Schema Update
+#### 1. [x] Database Schema Update
 - **Description:** Add file_exists column to track whether downloaded files are present on disk
 - **Estimation:** 1 hour
 - **Acceptance Criteria:** 
-  - [ ] Migration adds file_exists Boolean column to downloads table
-  - [ ] Column defaults to True for existing records
-  - [ ] Column is NOT NULL with proper indexing
-  - [ ] Add indexes on channel_id, status, and compound (channel_id, status) for query performance
+  - [x] Migration adds file_exists Boolean column to downloads table
+  - [x] Column defaults to True for existing records
+  - [x] Column is NOT NULL with proper indexing
+  - [x] Add indexes on channel_id, status, and compound (channel_id, status) for query performance
 
-#### 2. [ ] Remove Archive.txt Dependencies
+#### 2. [x] Remove Archive.txt Dependencies
 - **Description:** Eliminate all references to archive.txt from the video download service
 - **Estimation:** 2 hours
 - **Acceptance Criteria:** 
-  - [ ] Remove download_archive from yt-dlp configuration
-  - [ ] Remove self.archive_file initialization
-  - [ ] Update tests to not expect archive.txt
-  - [ ] Delete existing archive.txt file (or rename to archive_legacy.txt)
+  - [x] Remove download_archive from yt-dlp configuration
+  - [x] Remove self.archive_file initialization
+  - [x] Update tests to not expect archive.txt
+  - [x] Delete existing archive.txt file (or rename to archive_legacy.txt)
 
-#### 3. [ ] Implement Database Deduplication
+#### 3. [x] Implement Database Deduplication
 - **Description:** Replace archive.txt checking with database and disk checks
 - **Estimation:** 3 hours
 - **Acceptance Criteria:** 
-  - [ ] Check Download table for video_id before downloading
-  - [ ] Implement batch disk scanning (single pass) for [video_id] pattern in filenames
-  - [ ] Create Download records for files found on disk with proper file paths
-  - [ ] Handle file_exists=false cases with re-download
-  - [ ] Optimize for O(1) lookups with pre-scanned Set/Dict of video_ids
+  - [x] Check Download table for video_id before downloading
+  - [x] Implement batch disk scanning (single pass) for [video_id] pattern in filenames
+  - [x] Create Download records for files found on disk with proper file paths
+  - [x] Handle file_exists=false cases with re-download
+  - [x] Optimize for O(1) lookups with pre-scanned Set/Dict of video_ids
 
-#### 4. [ ] Enhanced Channel Deletion API
+#### 4. [x] Enhanced Channel Deletion API
 - **Description:** Add optional media deletion to channel delete endpoint
 - **Estimation:** 2 hours
 - **Acceptance Criteria:** 
-  - [ ] Add delete_media boolean parameter to DELETE endpoint
-  - [ ] Use settings.media_dir instead of hardcoded paths
-  - [ ] Implement path validation using os.path.commonpath
-  - [ ] Create channel_dir_name() helper for safe path construction
-  - [ ] Safely delete media folder when requested (FS operation before DB)
-  - [ ] Handle missing folders gracefully
-  - [ ] Return structured result with files_deleted count
+  - [x] Add delete_media boolean parameter to DELETE endpoint
+  - [x] Use settings.media_dir instead of hardcoded paths
+  - [x] Implement path validation using os.path.commonpath
+  - [x] Create channel_dir_name() helper for safe path construction
+  - [x] Safely delete media folder when requested (FS operation before DB)
+  - [x] Handle missing folders gracefully
+  - [x] Return structured result with files_deleted count
 
-#### 5. [ ] Channel Reindex Endpoint
+#### 5. [x] Channel Reindex Endpoint
 - **Description:** Create endpoint to reconcile database with actual disk state
 - **Estimation:** 3 hours
 - **Acceptance Criteria:** 
-  - [ ] POST /api/v1/channels/{id}/reindex endpoint created
-  - [ ] Single-pass scan of channel media folder for video files
-  - [ ] Prefetch all channel downloads into dict for O(1) lookups
-  - [ ] Batch database operations for performance
-  - [ ] Update Download records based on disk state with file paths
-  - [ ] Return statistics (found, missing, added)
-  - [ ] Ignore .part files during scan
-  - [ ] Handle IntegrityError on concurrent inserts gracefully
+  - [x] POST /api/v1/channels/{id}/reindex endpoint created
+  - [x] Single-pass scan of channel media folder for video files
+  - [x] Prefetch all channel downloads into dict for O(1) lookups
+  - [x] Batch database operations for performance
+  - [x] Update Download records based on disk state with file paths
+  - [x] Return statistics (found, missing, added)
+  - [x] Ignore .part files during scan
+  - [x] Handle IntegrityError on concurrent inserts gracefully
 
 #### 6. [ ] Update Frontend (Optional - Future Story)
 - **Description:** Add UI controls for new deletion and reindex features

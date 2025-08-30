@@ -3,6 +3,7 @@ import os
 import logging
 import yaml
 import threading
+import re
 from pathlib import Path
 from typing import Dict, Any, List
 from app.config import get_settings
@@ -11,6 +12,31 @@ logger = logging.getLogger(__name__)
 
 # Thread lock for YAML file operations
 yaml_lock = threading.Lock()
+
+
+def channel_dir_name(channel) -> str:
+    """
+    Generate safe directory name for channel.
+    Sanitizes channel name to prevent path traversal.
+    
+    Args:
+        channel: Channel database model
+    
+    Returns:
+        Safe directory name in format "ChannelName [channel_id]"
+        
+    Raises:
+        ValueError: If channel has no channel_id
+    """
+    # Remove unsafe characters from channel name
+    safe_name = re.sub(r'[^\w\s-]', '', channel.name)
+    safe_name = re.sub(r'[-\s]+', ' ', safe_name).strip()
+    
+    # Ensure channel_id is present and valid
+    if not channel.channel_id:
+        raise ValueError(f"Channel {channel.id} has no channel_id")
+    
+    return f"{safe_name} [{channel.channel_id}]"
 
 
 def ensure_directories():

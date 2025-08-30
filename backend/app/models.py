@@ -74,6 +74,7 @@ class Download(Base):
     file_size = Column(Integer, nullable=True)
     status = Column(String, default="pending", index=True)  # pending, downloading, completed, failed
     error_message = Column(Text, nullable=True)
+    file_exists = Column(Boolean, default=True, nullable=False)  # Track if downloaded file exists on disk
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
 
@@ -85,6 +86,7 @@ class Download(Base):
         Index('idx_download_channel_status', 'channel_id', 'status'),
         Index('idx_download_video_id', 'video_id'),
         Index('idx_download_upload_date', 'upload_date'),
+        Index('idx_download_file_exists', 'file_exists'),
     )
 
 
