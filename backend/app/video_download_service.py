@@ -354,12 +354,14 @@ class VideoDownloadService:
                     
                     logger.info(f"Attempt {attempt_num}: Found {len(videos)} valid videos, skipped {skipped_count}")
                     
+                    # Success! Return even if videos list is empty (valid channel with no videos)
                     if videos:
-                        # Success! Log first few video titles for validation
+                        # Log first few video titles for validation
                         sample_titles = [v['title'][:50] + '...' if len(v['title']) > 50 else v['title'] 
                                        for v in videos[:3]]
                         logger.info(f"Sample video titles: {sample_titles}")
-                        return True, videos, None
+                    
+                    return True, videos, None
                         
             except yt_dlp.DownloadError as e:
                 error_msg = str(e)

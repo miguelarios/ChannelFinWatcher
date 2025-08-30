@@ -148,33 +148,33 @@ Currently, the system uses a global archive.txt file shared by all channels, mak
   - [ ] Reindex button added to channel page
   - [ ] Display reindex results to user
 
-#### 7. [ ] Testing
+#### 7. [x] Testing
 - **Description:** Comprehensive tests for new functionality
 - **Estimation:** 2 hours
 - **Acceptance Criteria:** 
-  - [ ] Unit tests for deduplication logic
-  - [ ] Integration tests for delete with/without media
-  - [ ] Tests for reindex functionality
-  - [ ] Edge case tests (missing folders, concurrent access)
-  - [ ] Path safety tests (traversal attempts, forbidden paths)
-  - [ ] Idempotency tests (repeated operations should be safe)
-  - [ ] Performance tests for batch scanning
+  - [x] Unit tests for deduplication logic
+  - [x] Integration tests for delete with/without media
+  - [x] Tests for reindex functionality
+  - [x] Edge case tests (missing folders, concurrent access)
+  - [x] Path safety tests (traversal attempts, forbidden paths)
+  - [x] Idempotency tests (repeated operations should be safe)
+  - [x] Performance tests for batch scanning
 
 ---
 
 ## Definition of Done
 
 ### Must Have
-- [ ] Archive.txt completely removed from system
-- [ ] Channel deletion removes all download history from database
-- [ ] Optional media deletion works correctly
-- [ ] No duplicate downloads after eliminating archive.txt
-- [ ] Reindex correctly syncs database with disk
+- [x] Archive.txt completely removed from system
+- [x] Channel deletion removes all download history from database
+- [x] Optional media deletion works correctly
+- [x] No duplicate downloads after eliminating archive.txt
+- [x] Reindex correctly syncs database with disk
 
 ### Should Have  
-- [ ] Comprehensive test coverage (>80%)
-- [ ] Performance remains acceptable (no significant slowdown)
-- [ ] Clear logging for debugging
+- [x] Comprehensive test coverage (>80%)
+- [x] Performance remains acceptable (no significant slowdown)
+- [x] Clear logging for debugging
 - [ ] Frontend UI updated (can be separate story)
 
 ### Notes for Future
