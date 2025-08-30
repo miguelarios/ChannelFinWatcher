@@ -1,0 +1,170 @@
+# User Story: [Story Title]
+
+## Section 1: Story Definition
+
+### Feature
+[Concise title - explains the user story and AC in a nutshell]
+
+### User Story
+- **As a** [user type/role]
+- **I want** [functionality/capability]
+- **So that** [business value/benefit]
+
+### Context
+[1-2 sentences on WHY this matters and any important background]
+
+### Functional Requirements
+
+#### [ ] Scenario: [Specific test case name - Happy Path]
+- **Given** [initial context/preconditions]
+  - And [additional precondition]
+  - And [another precondition if needed]
+- **When** [action/event trigger]
+  - And [additional action if needed]
+- **Then** [expected outcome]
+  - And [additional expected outcome]
+  - But [negative condition/exception if applicable]
+
+#### [ ] Scenario: [Alternative/Edge case scenario]
+- **Given** [different context]
+- **When** [different action]
+- **Then** [different outcome]
+
+#### [ ] Scenario: [Error/Exception scenario]
+- **Given** [error context]
+- **When** [error trigger]
+- **Then** [error handling outcome]
+
+### Non-functional Requirements
+- **Performance:** [response times, throughput requirements]
+- **Security:** [authentication, authorization, data protection needs]
+- **Reliability:** [uptime requirements, error handling expectations]
+- **Usability:** [accessibility standards, user experience requirements]
+
+### Dependencies
+- **Blocked by:** [Stories/tasks that must be done first]
+- **Blocks:** [Stories/tasks waiting on this]
+
+### Engineering TODOs
+- [ ] [High-level architecture notes]
+- [ ] [Third-party integrations or external dependencies]
+- [ ] [Open questions to research/decide]
+
+---
+
+## Section 2: Engineering Tasks
+
+### Task Breakdown
+*Each task should follow INVEST principles (Independent, Negotiable, Valuable, Estimable, Small, Testable)*
+*Note: Not all task categories will be applicable to every story*
+
+#### 1. [ ] [Task Title - Frontend Work]
+- **Description:** [UI components, user interactions]
+- **Estimation:** [Time estimate or story points]
+- **Acceptance Criteria:** 
+  - [ ] [Specific AC requirement 1]
+  - [ ] [Specific AC requirement 2]
+  - [ ] [Specific AC requirement 3]
+
+#### 2. [ ] [Task Title - Backend Work]
+- **Description:** [APIs, business logic, data processing]
+- **Estimation:** [Time estimate or story points]
+- **Acceptance Criteria:** 
+  - [ ] [API contract requirement]
+  - [ ] [Business rule verification]
+  - [ ] [Error handling requirement]
+
+#### 3. [ ] [Task Title - Database Work]
+- **Description:** [Schema changes, data migrations]
+- **Estimation:** [Time estimate or story points]
+- **Acceptance Criteria:** 
+  - [ ] [Schema change requirement]
+  - [ ] [Migration success criteria]
+  - [ ] [Data integrity verification]
+
+#### 4. [ ] [Task Title - Integration Work]
+- **Description:** [Third-party services, existing systems]
+- **Estimation:** [Time estimate or story points]
+- **Acceptance Criteria:** 
+  - [ ] [Integration success requirement]
+  - [ ] [Error handling requirement]
+  - [ ] [Fallback behavior requirement]
+
+#### 5. [ ] [Task Title - Testing Work]
+- **Description:** [Unit tests, integration tests, end-to-end tests]
+- **Estimation:** [Time estimate or story points]
+- **Acceptance Criteria:** 
+  - [ ] [Unit test coverage requirement]
+  - [ ] [Integration test scenarios]
+  - [ ] [E2E test scenarios]
+
+#### 6. [ ] [Task Title - Documentation]
+- **Description:** [Documentation updates needed]
+- **Estimation:** [Time estimate or story points]
+- **Acceptance Criteria:** 
+  - [ ] [API documentation updated]
+  - [ ] [User guide updated]
+  - [ ] [Technical specs updated]
+
+---
+
+## Definition of Done
+
+### Must Have
+- [ ] All happy path scenarios work
+- [ ] Error cases handled gracefully
+- [ ] Code works in target environment
+
+### Should Have  
+- [ ] Basic tests written
+- [ ] Key functionality documented
+- [ ] No obvious performance issues
+
+### Notes for Future
+[Any technical debt, improvements, or refactoring opportunities created by this story]
+
+---
+
+## Reference Materials
+
+*Include any code, configurations, or research needed for Claude Code to implement this story without looking elsewhere.*
+
+### What to Include Here:
+- **Existing code** that needs to be modified or followed as a pattern
+- **API responses** or data formats you've researched
+- **Configuration examples** (YAML, JSON, environment variables)
+- **SQL queries** or database schemas required
+- **Shell commands** for testing or deployment
+- **Error messages** you've encountered that need handling
+- **Working code snippets** from proofs of concept
+- **Third-party library usage** examples
+- **Business logic or algorithms** that need implementation
+- **Important findings** from research or testing
+
+### Example Format:
+```[language]
+# Add your reference code/config/commands here
+# Include comments explaining context if needed
+```
+### Benefits of the Reference Materials Section
+
+1. **Self-contained stories** - Claude Code has everything needed without hunting through other files
+2. **Preserves research** - That Stack Overflow solution or API quirk you discovered is right there
+3. **Code consistency** - Show existing patterns to maintain consistency
+4. **Faster implementation** - No context switching to find that config format or SQL query
+5. **Better handoff** - If you return to this story months later (or someone else picks it up), everything is there
+
+### Usage Tips
+
+- Keep code snippets focused and relevant
+- Include "gotchas" or non-obvious things you discovered
+- Add the actual error messages you encountered during research
+- Include working examples from proof-of-concepts
+- Document the "why" behind non-obvious design decisions
+
+This section is especially valuable for:
+- Complex integrations with third-party services
+- Database migrations with specific SQL requirements
+- Refactoring work where you need to show the current implementation
+- Stories that depend on specific configuration formats
+- Any story where you've already done research or POC work

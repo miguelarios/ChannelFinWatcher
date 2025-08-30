@@ -15,7 +15,7 @@ When channels are added, we need to collect comprehensive metadata about the cha
 
 ### Functional Requirements
 
-#### [ ] Scenario: Download Channel Metadata - Happy Path
+#### [x] Scenario: Download Channel Metadata - Happy Path
 - **Given** a valid YouTube channel URL has been submitted
   - And the channel metadata has not been downloaded yet
   - And the /media directory is accessible
@@ -28,7 +28,7 @@ When channels are added, we need to collect comprehensive metadata about the cha
   - And if duplicate channel_id found, the operation is rejected with clear error message "Channel already being monitored"
   - And if unique, the process continues with directory creation and metadata storage
 
-#### [ ] Scenario: Directory Structure Creation
+#### [x] Scenario: Directory Structure Creation
 - **Given** channel metadata has been successfully downloaded
   - And the channel name is "Mrs. Rachel - Toddler Learning Videos"
   - And the channel ID is "UCG2CL6EUjG8TVT1Tpl9nJdg"
@@ -37,7 +37,7 @@ When channels are added, we need to collect comprehensive metadata about the cha
 - **Then** a directory is created at `/media/Ms Rachel - Toddler Learning Videos [UCG2CL6EUjG8TVT1Tpl9nJdg]/`
   - And the channel ID is included for uniqueness
 
-#### [ ] Scenario: Metadata JSON Structure
+#### [x] Scenario: Metadata JSON Structure
 - **Given** channel metadata has been extracted using yt-dlp extract_info()
 - **When** the metadata is processed and saved to JSON file
 - **Then** the complete channel metadata is saved including: channel_id, title, description, channel_follower_count, thumbnails array, and all other channel fields
@@ -46,7 +46,7 @@ When channels are added, we need to collect comprehensive metadata about the cha
   - And thumbnails array contains `avatar_uncropped` and `banner_uncropped` URLs directly accessible
   - And timestamp of metadata retrieval is included via epoch field
 
-#### [ ] Scenario: Cover image is downloaded
+#### [x] Scenario: Cover image is downloaded
 - **Given** channel metadata has been extracted using yt-dlp extract_info()
   - And the channel name is "Mrs. Rachel - Toddler Learning Videos"
   - And the channel ID is "UCG2CL6EUjG8TVT1Tpl9nJdg"
@@ -56,7 +56,7 @@ When channels are added, we need to collect comprehensive metadata about the cha
   - And the image is downloaded from that URL
   - And the file is named `cover.ext` in the location `/media/Ms Rachel - Toddler Learning Videos [UCG2CL6EUjG8TVT1Tpl9nJdg]/`
 
-#### [ ] Scenario: Backdrop image is downloaded
+#### [x] Scenario: Backdrop image is downloaded
 - **Given** channel metadata has been extracted using yt-dlp extract_info()
   - And the channel name is "Mrs. Rachel - Toddler Learning Videos"
   - And the channel ID is "UCG2CL6EUjG8TVT1Tpl9nJdg"
@@ -66,7 +66,7 @@ When channels are added, we need to collect comprehensive metadata about the cha
   - And the image is downloaded from that URL
   - And the file is named `backdrop.ext` in the location `/media/Ms Rachel - Toddler Learning Videos [UCG2CL6EUjG8TVT1Tpl9nJdg]/`
 
-#### [ ] Scenario: Handle Existing Directories
+#### [x] Scenario: Handle Existing Directories
 - **Given** a channel directory already exists
   - And channel metadata is being refreshed
   - And channel is being monitored
@@ -77,7 +77,7 @@ When channels are added, we need to collect comprehensive metadata about the cha
   - And directory structure remains intact
   - And cover and backdrop images are redownloaded and overwrite existing file if any
 
-#### [ ] Scenario: Error Handling - Invalid Channel
+#### [x] Scenario: Error Handling - Invalid Channel
 - **Given** a channel ID that no longer exists or is private
 - **When** metadata download is attempted
 - **Then** an error is logged with specific failure reason
@@ -97,9 +97,9 @@ When channels are added, we need to collect comprehensive metadata about the cha
 
 ### Engineering TODOs
 - [x] Determine optimal directory naming convention for media servers (Jellyfin compatibility)
-- [ ] Define metadata refresh strategy (manual vs automatic scheduling)
-- [ ] Establish storage cleanup policies for old metadata and images
-- [ ] Design error recovery patterns for partial metadata failures
+- [x] Define metadata refresh strategy (manual vs automatic scheduling)
+- [x] Establish storage cleanup policies for old metadata and images
+- [x] Design error recovery patterns for partial metadata failures
 
 ---
 
@@ -108,92 +108,92 @@ When channels are added, we need to collect comprehensive metadata about the cha
 ### Task Breakdown
 *Each task should follow INVEST principles (Independent, Negotiable, Valuable, Estimable, Small, Testable)*
 
-#### 1. [ ] Backend Work - Metadata Extraction Optimization
+#### 1. [x] Backend Work - Metadata Extraction Optimization
 - **Description:** Extend YouTubeService to implement single extract_info() call with entries removal optimization
 - **Estimation:** 2-3 days
 - **Acceptance Criteria:** 
-  - [ ] Modify extract_channel_info() to remove entries key for 24MB→5KB optimization
-  - [ ] Preserve all essential channel metadata (channel_id, title, description, thumbnails)
-  - [ ] Add JSON file saving functionality with proper encoding
-  - [ ] Include epoch timestamp for metadata retrieval tracking
+  - [x] Modify extract_channel_info() to remove entries key for 24MB→5KB optimization
+  - [x] Preserve all essential channel metadata (channel_id, title, description, thumbnails)
+  - [x] Add JSON file saving functionality with proper encoding
+  - [x] Include epoch timestamp for metadata retrieval tracking
 
-#### 2. [ ] Backend Work - Thumbnail and Image Processing
+#### 2. [x] Backend Work - Thumbnail and Image Processing
 - **Description:** Create services for thumbnail extraction and secure image downloading
 - **Estimation:** 3-4 days
 - **Acceptance Criteria:** 
-  - [ ] Parse thumbnails array to extract avatar_uncropped and banner_uncropped URLs
-  - [ ] Implement secure image download with URL validation and file type checking
-  - [ ] Create cover.ext and backdrop.ext files with proper extension detection
-  - [ ] Handle download failures without breaking metadata save process
+  - [x] Parse thumbnails array to extract avatar_uncropped and banner_uncropped URLs
+  - [x] Implement secure image download with URL validation and file type checking
+  - [x] Create cover.ext and backdrop.ext files with proper extension detection
+  - [x] Handle download failures without breaking metadata save process
 
-#### 3. [ ] Backend Work - Error Recovery Patterns
+#### 3. [x] Backend Work - Error Recovery Patterns
 - **Description:** Implement comprehensive error handling and rollback mechanisms
 - **Estimation:** 2-3 days
 - **Acceptance Criteria:** 
-  - [ ] Rollback directory creation if metadata extraction fails completely
-  - [ ] Handle partial failures (metadata succeeds, images fail) gracefully
-  - [ ] Implement retry logic for failed image downloads
-  - [ ] Ensure no orphaned files or directories remain after failures
+  - [x] Rollback directory creation if metadata extraction fails completely
+  - [x] Handle partial failures (metadata succeeds, images fail) gracefully
+  - [x] Implement retry logic for failed image downloads
+  - [x] Ensure no orphaned files or directories remain after failures
 
-#### 4. [ ] Database Work - Schema and Duplicate Detection
+#### 4. [x] Database Work - Schema and Duplicate Detection
 - **Description:** Add metadata tracking fields and implement duplicate channel checking
 - **Estimation:** 2 days
 - **Acceptance Criteria:** 
-  - [ ] Add columns: metadata_path, directory_path, last_metadata_update, metadata_status
-  - [ ] Create migration with proper indexes for efficient status queries
-  - [ ] Implement channel_id duplicate checking with clear error messages
-  - [ ] Support metadata status tracking (pending, completed, failed, refreshing)
+  - [x] Add columns: metadata_path, directory_path, last_metadata_update, metadata_status
+  - [x] Create migration with proper indexes for efficient status queries
+  - [x] Implement channel_id duplicate checking with clear error messages
+  - [x] Support metadata status tracking (pending, completed, failed, refreshing)
 
-#### 5. [ ] Integration Work - File System Operations
+#### 5. [x] Integration Work - File System Operations
 - **Description:** Create secure directory management with filesystem-safe naming
 - **Estimation:** 2 days
 - **Acceptance Criteria:** 
-  - [ ] Implement filesystem-safe naming function (preserve spaces, remove problematic chars)
-  - [ ] Create directory structure: `/media/[Channel Name] [channel_id]/`
-  - [ ] Validate paths to prevent directory traversal attacks
-  - [ ] Handle filesystem permission errors with clear logging
+  - [x] Implement filesystem-safe naming function (preserve spaces, remove problematic chars)
+  - [x] Create directory structure: `/media/[Channel Name] [channel_id]/`
+  - [x] Validate paths to prevent directory traversal attacks
+  - [x] Handle filesystem permission errors with clear logging
 
-#### 6. [ ] Frontend Work - Metadata Status Integration
+#### 6. [x] Frontend Work - Metadata Status Integration
 - **Description:** Add minimal UI elements to show metadata download status and errors
 - **Estimation:** 1-2 days
 - **Acceptance Criteria:** 
-  - [ ] Display metadata download status in channel management interface
-  - [ ] Show error messages for failed metadata downloads with retry options
-  - [ ] Add progress indicators during metadata extraction process
-  - [ ] Display channel cover/backdrop images once downloaded
+  - [x] Display metadata download status in channel management interface
+  - [x] Show error messages for failed metadata downloads with retry options
+  - [x] Add progress indicators during metadata extraction process
+  - [x] Display channel cover/backdrop images once downloaded
 
-#### 7. [ ] Testing Work - Metadata Workflow Coverage
+#### 7. [x] Testing Work - Metadata Workflow Coverage
 - **Description:** Comprehensive testing of metadata extraction, optimization, and error scenarios
 - **Estimation:** 3 days
 - **Acceptance Criteria:** 
-  - [ ] Unit tests for entries removal and JSON size optimization verification
-  - [ ] Unit tests for thumbnail URL extraction from yt-dlp response structure
-  - [ ] Integration tests for complete metadata download workflow
-  - [ ] Error scenario testing (invalid channels, network failures, filesystem errors)
-  - [ ] Performance testing to verify 30-second completion requirement
+  - [x] Unit tests for entries removal and JSON size optimization verification
+  - [x] Unit tests for thumbnail URL extraction from yt-dlp response structure
+  - [x] Integration tests for complete metadata download workflow
+  - [x] Error scenario testing (invalid channels, network failures, filesystem errors)
+  - [x] Performance testing to verify 30-second completion requirement
 
-#### 8. [ ] Documentation Work - Technical Specifications
+#### 8. [x] Documentation Work - Technical Specifications
 - **Description:** Document new metadata structure, processes, and troubleshooting
 - **Estimation:** 1-2 days
 - **Acceptance Criteria:** 
-  - [ ] Document optimized JSON structure (entries removed) with size comparisons
-  - [ ] Update API documentation for any endpoint changes
-  - [ ] Create troubleshooting guide for metadata download failures
-  - [ ] Document filesystem-safe naming conventions and directory structure
+  - [x] Document optimized JSON structure (entries removed) with size comparisons
+  - [x] Update API documentation for any endpoint changes
+  - [x] Create troubleshooting guide for metadata download failures
+  - [x] Document filesystem-safe naming conventions and directory structure
 
 ---
 
 ## Definition of Done
 
 ### Must Have
-- [ ] All happy path scenarios work
-- [ ] Error cases handled gracefully
-- [ ] Code works in target environment
+- [x] All happy path scenarios work
+- [x] Error cases handled gracefully
+- [x] Code works in target environment
 
 ### Should Have  
-- [ ] Basic tests written
-- [ ] Key functionality documented
-- [ ] No obvious performance issues
+- [x] Basic tests written
+- [x] Key functionality documented
+- [x] No obvious performance issues
 
 ### Notes for Future
 - Consider implementing metadata refresh scheduling (daily/weekly)

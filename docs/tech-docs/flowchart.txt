@@ -1,0 +1,50 @@
+flowchart TD
+      A[User adds new channel via API] --> B[Normalize YouTube URL]
+      B --> C[Extract basic channel info with yt-dlp]
+      C --> D{Channel info extraction successful?}
+      D -->|No| E[Return 400 error]
+      D -->|Yes| F[Check for duplicate channel_id in database]
+      F --> G{Duplicate found?}
+      G -->|Yes| H[Return 400 error: Channel already monitored]
+      G -->|No| I[Apply default video limit if not specified]
+      I --> J[Create channel record in database]
+      J --> K[**Story 4: Metadata Processing**]
+
+      K --> L[Create channel directory structure]
+      L --> M[Extract full channel metadata with yt-dlp]
+      M --> N{Metadata extraction successful?}
+      N -->|No| O[Log warning, continue without metadata]
+      N -->|Yes| P[Download cover & backdrop images]
+      P --> Q[Update channel with metadata paths]
+      Q --> R[**Story 5: Video Downloads** 🆕]
+
+      R --> S[Query channel for recent videos]
+      S --> T{Video query successful?}
+      T -->|No| U[Log error, skip downloads]
+      T -->|Yes| V[Create DownloadHistory record]
+      V --> W[For each video found]
+
+      W --> X{Already downloaded?}
+      X -->|Yes| Y[Skip video, increment skipped count]
+      X -->|No| Z[Create Download record with 'downloading' status]
+      Z --> AA[Download video with yt-dlp]
+      AA --> BB{Download successful?}
+      BB -->|No| CC[Mark as 'failed', log error, continue to next]
+      BB -->|Yes| DD[Mark as 'completed', save file path]
+
+      Y --> EE{More videos?}
+      CC --> EE
+      DD --> EE
+      EE -->|Yes| W
+      EE -->|No| FF[Update DownloadHistory with final counts]
+      FF --> GG[Update channel last_check timestamp]
+
+      O --> HH[Sync channel to YAML config]
+      U --> HH
+      GG --> HH
+      HH --> II[Return created channel to user]
+
+      style R fill:#e1f5fe
+      style K fill:#f3e5f5
+      style A fill:#e8f5e8
+      style II fill:#e8f5e8

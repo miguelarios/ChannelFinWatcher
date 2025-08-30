@@ -124,14 +124,62 @@ class VideoDownloadService:
             'sleep_interval': 1,
             'max_sleep_interval': 2,  # Shorter sleep for lighter requests
         }
+        
+        # Add cookie file to query_opts for auth/region context
+        if os.path.exists(self.cookie_file):
+            self.query_opts['cookiefile'] = self.cookie_file
+    
+    def _extract_video_id(self, entry: Dict) -> Optional[str]:
+        """
+        Extract video ID from various entry formats.
+        
+        YouTube entries can provide video IDs in multiple ways:
+        - Direct 'id' field
+        - Embedded in 'url' field (watch?v=, youtu.be/, shorts/)
+        
+        Args:
+            entry: Dictionary containing video entry data
+            
+        Returns:
+            11-character video ID if found, None otherwise
+        """
+        import re
+        
+        # Try direct ID first
+        video_id = entry.get('id')
+        if video_id and len(video_id) == 11 and video_id.isalnum():
+            return video_id
+        
+        # Parse from URL if available
+        url = entry.get('url', '') or entry.get('webpage_url', '')
+        if not url:
+            return None
+        
+        # Match common YouTube URL patterns
+        patterns = [
+            r'watch\?v=([a-zA-Z0-9_-]{11})',      # youtube.com/watch?v=...
+            r'youtu\.be/([a-zA-Z0-9_-]{11})',     # youtu.be/...
+            r'shorts/([a-zA-Z0-9_-]{11})',        # youtube.com/shorts/...
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                extracted_id = match.group(1)
+                if len(extracted_id) == 11:
+                    return extracted_id
+        
+        return None
     
     def get_recent_videos(self, channel_url: str, limit: int = 10, channel_id: str = None) -> Tuple[bool, List[Dict], Optional[str]]:
         """
-        Query channel for recent videos using flat-playlist approach.
+        Query channel for recent videos using robust fallback approach.
         
-        This method uses the lightweight --flat-playlist equivalent approach to get
-        video IDs and titles quickly without triggering bot detection. Based on:
-        yt-dlp --flat-playlist --dump-json --playlist-end 10 "channel_url"
+        This method tries multiple extraction strategies in order:
+        1. Uploads playlist (UC -> UU conversion) - most reliable
+        2. Channel /videos tab with extractor args
+        3. Original channel URL
+        4. Non-flat extraction as last resort
         
         Args:
             channel_url: YouTube channel URL (fallback if channel_id not provided)
@@ -147,75 +195,140 @@ class VideoDownloadService:
                 for video in videos:
                     print(f"Video: {video['title']} ({video['id']})")
         """
-        try:
-            # Configure yt-dlp for flat-playlist extraction (like --flat-playlist --dump-json)
-            opts = self.query_opts.copy()
-            opts['playlistend'] = limit  # Like --playlist-end N
-            
-            # Use channel ID format if available for more reliable results
-            query_url = channel_url
-            if channel_id and channel_id.startswith('UC'):
-                # Use direct channel format which is more reliable
-                query_url = f"https://www.youtube.com/channel/{channel_id}"
-                logger.info(f"Using direct channel ID format: {channel_id}")
-            
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                logger.info(f"Querying {limit} recent videos from: {query_url}")
-                info = ydl.extract_info(query_url, download=False)
+        cookies_applied = os.path.exists(self.cookie_file)
+        logger.info(f"Starting video extraction for channel_id={channel_id}, limit={limit}, cookies={cookies_applied}")
+        
+        # Define fallback URLs to try in order
+        fallback_attempts = []
+        
+        # 1. Uploads playlist (most reliable)
+        if channel_id and channel_id.startswith('UC'):
+            uploads_id = 'UU' + channel_id[2:]  # Convert UC to UU
+            fallback_attempts.append({
+                'url': f"https://www.youtube.com/playlist?list={uploads_id}",
+                'description': 'uploads playlist',
+                'opts_override': {}
+            })
+        
+        # 2. Channel videos tab
+        if channel_id and channel_id.startswith('UC'):
+            fallback_attempts.append({
+                'url': f"https://www.youtube.com/channel/{channel_id}/videos",
+                'description': 'channel videos tab',
+                'opts_override': {'extractor_args': {'youtube': {'tab': ['videos']}}}
+            })
+        
+        # 3. Original channel URL
+        fallback_attempts.append({
+            'url': channel_url,
+            'description': 'original channel URL',
+            'opts_override': {}
+        })
+        
+        # 4. Non-flat extraction (last resort)
+        fallback_attempts.append({
+            'url': channel_url,
+            'description': 'non-flat extraction',
+            'opts_override': {
+                'extract_flat': False,
+                'noplaylist': True,  # Avoid heavy enumeration
+                'quiet': False,      # Show more details for debugging
+                'no_warnings': False
+            }
+        })
+        
+        # Try each fallback in order
+        for attempt_num, attempt in enumerate(fallback_attempts, 1):
+            try:
+                # Configure yt-dlp options
+                opts = self.query_opts.copy()
+                opts['playlistend'] = limit
+                opts.update(attempt['opts_override'])
                 
-                if not info:
-                    return False, [], "Could not extract channel information"
+                logger.info(f"Attempt {attempt_num}/{len(fallback_attempts)}: Trying {attempt['description']} - {attempt['url']}")
                 
-                # Extract video entries from flat playlist
-                entries = info.get('entries', [])
-                if not entries:
-                    logger.info("No videos found in channel")
-                    return True, [], None
-                
-                # Process flat playlist entries - these should be individual videos now
-                videos = []
-                for entry in entries[:limit]:  # Ensure we don't exceed limit
-                    if not entry:
-                        continue
-                        
-                    # With flat-playlist, we get minimal but clean data
-                    video_info = {
-                        'id': entry.get('id'),
-                        'title': entry.get('title', 'Unknown Title'),
-                        # Flat playlist doesn't include these - we'll get them during download
-                        'upload_date': entry.get('upload_date'),  # Usually None with flat
-                        'duration': entry.get('duration'),
-                        'duration_string': entry.get('duration_string'), 
-                        'view_count': entry.get('view_count'),
-                        'webpage_url': entry.get('webpage_url') or f"https://www.youtube.com/watch?v={entry.get('id')}" if entry.get('id') else None,
-                        'channel': entry.get('channel') or entry.get('uploader'),
-                        'channel_id': entry.get('channel_id') or channel_id,
-                    }
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(attempt['url'], download=False)
                     
-                    # Only include videos with valid video IDs (not channel IDs or playlists)
-                    video_id = video_info['id']
-                    if (video_id and 
-                        video_info['title'] and
-                        not video_id.startswith('UC') and  # Not a channel ID
-                        not video_id.startswith('UU') and  # Not an uploads playlist ID
-                        len(video_id) == 11):  # Standard YouTube video ID length
-                        videos.append(video_info)
-                    else:
-                        logger.debug(f"Skipping invalid entry: {video_id} - {video_info['title']}")
+                    if not info:
+                        logger.warning(f"Attempt {attempt_num}: No info returned")
+                        continue
+                    
+                    # Log extraction details
+                    info_type = info.get('_type', 'unknown')
+                    entries = info.get('entries', [])
+                    logger.info(f"Attempt {attempt_num}: info_type={info_type}, entries_count={len(entries)}")
+                    
+                    if entries:
+                        # Log first entry keys for debugging
+                        first_entry = entries[0] if entries else {}
+                        logger.info(f"Attempt {attempt_num}: First entry keys: {list(first_entry.keys())}")
+                    
+                    if not entries:
+                        logger.info(f"Attempt {attempt_num}: No entries found, trying next fallback")
+                        continue
+                    
+                    # Process entries using flexible ID extraction
+                    videos = []
+                    skipped_count = 0
+                    
+                    for entry in entries[:limit]:  # Ensure we don't exceed limit
+                        if not entry:
+                            continue
+                        
+                        # Use flexible video ID extraction
+                        video_id = self._extract_video_id(entry)
+                        if not video_id:
+                            skipped_count += 1
+                            logger.debug(f"Skipping entry with no valid video ID: {entry.get('title', 'Unknown')}")
+                            continue
+                        
+                        # Build video info with flexible parsing
+                        video_info = {
+                            'id': video_id,
+                            'title': entry.get('title', 'Unknown Title'),
+                            'upload_date': entry.get('upload_date'),
+                            'duration': entry.get('duration'),
+                            'duration_string': entry.get('duration_string'), 
+                            'view_count': entry.get('view_count'),
+                            'webpage_url': entry.get('webpage_url') or entry.get('url') or f"https://www.youtube.com/watch?v={video_id}",
+                            'channel': entry.get('channel') or entry.get('uploader'),
+                            'channel_id': entry.get('channel_id') or channel_id,
+                        }
+                        
+                        # Validate video info
+                        if video_info['title'] != 'Unknown Title':
+                            videos.append(video_info)
+                        else:
+                            skipped_count += 1
+                    
+                    logger.info(f"Attempt {attempt_num}: Found {len(videos)} valid videos, skipped {skipped_count}")
+                    
+                    if videos:
+                        # Success! Log first few video titles for validation
+                        sample_titles = [v['title'][:50] + '...' if len(v['title']) > 50 else v['title'] 
+                                       for v in videos[:3]]
+                        logger.info(f"Sample video titles: {sample_titles}")
+                        return True, videos, None
+                        
+            except yt_dlp.DownloadError as e:
+                error_msg = str(e)
+                logger.warning(f"Attempt {attempt_num}: yt-dlp error - {error_msg}")
                 
-                logger.info(f"Found {len(videos)} individual videos")
-                return True, videos, None
+                # Check for permanent errors that shouldn't be retried
+                if any(msg in error_msg.lower() for msg in ["private", "does not exist", "unavailable"]):
+                    return False, [], f"Channel error: {error_msg}"
                 
-        except yt_dlp.DownloadError as e:
-            error_msg = str(e)
-            if "Private video" in error_msg or "This channel does not exist" in error_msg:
-                return False, [], "Channel is private or does not exist"
-            logger.error(f"yt-dlp error querying videos from {channel_url}: {error_msg}")
-            return False, [], f"YouTube error: {error_msg}"
-            
-        except Exception as e:
-            logger.error(f"Unexpected error querying videos from {channel_url}: {e}")
-            return False, [], f"Failed to query channel videos: {str(e)}"
+                # Continue to next fallback for other errors
+                continue
+                
+            except Exception as e:
+                logger.warning(f"Attempt {attempt_num}: Unexpected error - {str(e)}")
+                continue
+        
+        # All fallbacks failed
+        logger.error("All extraction attempts failed")
+        return False, [], "Could not extract videos using any method"
     
     def download_video(self, video_info: Dict, channel: Channel, db: Session) -> Tuple[bool, Optional[str]]:
         """

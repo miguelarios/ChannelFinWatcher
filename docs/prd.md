@@ -33,19 +33,11 @@ The user stories are organized into categories and are documented in detail in t
 - **[US-001: Add Channel via Web UI](stories/story-001-add-channel-web-ui.md)** - Add YouTube channels through web interface
 - **[US-002: Configure Channel Video Limit](stories/story-002-configure-channel-video-limit.md)** - Set per-channel video retention limits  
 - **[US-003: Set Global Default Video Limit](stories/story-003-set-global-default-video-limit.md)** - Configure default limits for new channels
-- **[US-004: Toggle Channel Enable/Disable](stories/story-004-toggle-channel-enable-disable.md)** - Temporarily pause channel monitoring
-- **[US-005: Automatic Video Cleanup](stories/story-005-automatic-video-cleanup.md)** - Auto-delete old videos when limits exceeded
-- **[US-006: YAML Configuration Management](stories/story-006-yaml-configuration-management.md)** - File-based configuration for advanced users
-
-**US-012: Remove/Delete Channels**
-- **Story**: As a user, I want to delete channels from monitoring so that I can remove channels I no longer want to track
-- **Value**: Provides complete CRUD functionality for channel management
-- **Acceptance Criteria**:
-  - User can delete channels via web UI with confirmation dialog
-  - Deletion removes channel from database and YAML configuration
-  - User can choose to preserve or delete existing downloaded videos
-  - Bulk deletion available for multiple channels
-  - Deleted channels can be re-added without conflicts
+- **[US-004: Channel Metadata Management](stories/story-004-channel-metadata-management.md)** - Download and manage channel metadata with organized directory structure
+- **[US-005: [New Story Placeholder]](stories/story-005-template.md)** - Template for new user story
+- **[US-006: Toggle Channel Enable/Disable](stories/story-006-toggle-channel-enable-disable.md)** - Temporarily pause channel monitoring
+- **[US-007: Automatic Video Cleanup](stories/story-007-automatic-video-cleanup.md)** - Auto-delete old videos when limits exceeded
+- **[US-008: YAML Configuration Management](stories/story-008-yaml-configuration-management.md)** - File-based configuration for advanced users
 
 **US-013: Manual Download Trigger**
 - **Story**: As a user, I want to manually trigger downloads for specific channels so that I can get new videos immediately without waiting
@@ -56,16 +48,6 @@ The user stories are organized into categories and are documented in detail in t
   - Progress is visible in real-time during manual downloads
   - Manual triggers don't interfere with scheduled downloads
   - User receives confirmation when manual download completes
-
-**US-014: Channel Health Management**
-- **Story**: As a user, I want the system to detect and handle unhealthy channels so that dead or private channels don't cause system issues
-- **Value**: Maintains system reliability by handling YouTube channel changes gracefully
-- **Acceptance Criteria**:
-  - System detects deleted, private, or inaccessible channels
-  - Users are notified when channels become unavailable
-  - Unhealthy channels are automatically disabled but not deleted
-  - Users can manually verify and re-enable recovered channels
-  - Health check runs periodically and logs status changes
 
 **US-015: Download Quality Configuration**
 - **Story**: As a user, I want to configure video quality settings per channel so that I can optimize storage vs quality based on content type
@@ -88,11 +70,11 @@ The user stories are organized into categories and are documented in detail in t
   - Schedule overrides are clearly marked in channel listings
 
 #### Monitoring & Status  
-- **[US-007: Channel Status Dashboard](stories/story-007-channel-status-dashboard.md)** - Centralized channel overview and health monitoring
-- **[US-008: Active Download Progress](stories/story-008-active-download-progress.md)** - Real-time download progress and queue status
-- **[US-009: Download History View](stories/story-009-download-history-view.md)** - Historical record of completed downloads
-- **[US-010: Storage Usage Monitoring](stories/story-010-storage-usage-monitoring.md)** - Storage consumption tracking and alerts
-- **[US-011: System Logging Access](stories/story-011-system-logging-access.md)** - Troubleshooting through Docker logs
+- **[US-009: Channel Status Dashboard](stories/story-009-channel-status-dashboard.md)** - Centralized channel overview and health monitoring
+- **[US-010: Active Download Progress](stories/story-010-active-download-progress.md)** - Real-time download progress and queue status
+- **[US-011: Download History View](stories/story-011-download-history-view.md)** - Historical record of completed downloads
+- **[US-012: Storage Usage Monitoring](stories/story-012-storage-usage-monitoring.md)** - Storage consumption tracking and alerts
+- **[US-013: System Logging Access](stories/story-013-system-logging-access.md)** - Troubleshooting through Docker logs
 
 Each story file contains:
 - Detailed acceptance criteria and context

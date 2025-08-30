@@ -4,7 +4,7 @@
   "channel_id": "UCX6OQ3DkcsbYNE6H8uQQuVA",
   "title": "MrBeast",
   "availability": null,
-  "channel_follower_count": 420000000,
+  "channel_follower_count": 426000000,
   "description": "SUBSCRIBE FOR A COOKIE!\nNew MrBeast or MrBeast Gaming video every single Saturday at noon eastern time!\nAccomplishments:\n- Raised $20,000,000 To Plant 20,000,000 Trees\n- Removed 30,000,000 pounds of trash from the ocean\n- Helped 2,000 people walk again\n- Helped 1,000 blind people see\n- Helped 1,000 deaf people hear\n- Built wells in Africa\n- Built and gave away 100 houses\n- Adopted every dog in a shelter (twice)\n- Given millions to charity\n- Started my own snack company Feastables\n- Started my own software company Viewstats\n- Started Lunchly, a tasty, better-for-you lunch option\n- Gave away a private island (twice)\n- Gave away 1 million meals\n- I counted to 100k\n- Ran a marathon in the world's largest shoes\n- Survived 50 hours in Antarctica\n- Recreated Squid Game in real life\n- Created the largest competition show with 1000 people (Beast Games)\n- Gave $5,000,000 to one person\n- Passed T-Series to become most subscribed YouTube channel 🥹\nyou get it, I appreciate all of you so much :)\n",
   "tags": [
     "mrbeast6000",
@@ -95,11 +95,14 @@
   "extractor": "youtube:tab",
   "extractor_key": "YoutubeTab",
   "release_year": null,
-  "epoch": 1754793079,
+  "requested_entries": [
+    1
+  ],
+  "epoch": 1756527760,
   "_version": {
-    "version": "2025.07.21",
+    "version": "2025.08.27",
     "current_git_head": null,
-    "release_git_head": "9951fdd0d08b655cb1af8cd7f32a3fb7e2b1324e",
+    "release_git_head": "8cd37b85d492edb56a4f7506ea05527b85a6b02b",
     "repository": "yt-dlp/yt-dlp"
   }
 }

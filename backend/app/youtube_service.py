@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 from urllib.parse import urlparse
 import yt_dlp
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -35,17 +36,37 @@ class YouTubeService:
         """
         Initialize the YouTube service with yt-dlp configuration.
         
-        Configuration optimized for metadata extraction only:
-        - quiet: Suppress yt-dlp output
-        - extract_flat: Don't download videos, just get playlist/channel info
-        - ignoreerrors: Continue processing even if some videos fail
+        Creates shared base configuration with anti-bot measures that both
+        extraction methods can use to avoid HTTP 403 errors.
         """
-        self.ydl_opts = {
+        settings = get_settings()
+        
+        # Base configuration shared by all extraction methods
+        self.base_ydl_opts = {
             'quiet': True,
             'no_warnings': True,
-            'extract_flat': True,  # Don't download, just get metadata
             'ignoreerrors': True,
+            # Anti-bot detection headers - crucial for avoiding 403 errors
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1'
+            },
+            'sleep_interval': 1,        # Wait 1 second between requests
+            'max_sleep_interval': 3,    # Random sleep up to 3 seconds
         }
+        
+        # Add cookies file if it exists
+        if os.path.exists(settings.cookies_file):
+            self.base_ydl_opts['cookiefile'] = settings.cookies_file
+            logger.info(f"Using cookies file: {settings.cookies_file}")
+        
+        # Legacy ydl_opts for backward compatibility (basic extraction)
+        self.ydl_opts = {**self.base_ydl_opts, 'extract_flat': True}
     
     def validate_youtube_url(self, url: str) -> bool:
         """
@@ -105,7 +126,9 @@ class YouTubeService:
             return False, None, "Invalid YouTube channel URL format"
         
         try:
-            with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
+            # Use base configuration with extract_flat for basic info extraction
+            basic_opts = {**self.base_ydl_opts, 'extract_flat': True, 'playlistend': 1}
+            with yt_dlp.YoutubeDL(basic_opts) as ydl:
                 # Extract channel information without downloading
                 info = ydl.extract_info(url, download=False)
                 
@@ -200,12 +223,10 @@ class YouTubeService:
             return False, None, "Invalid YouTube channel URL format"
         
         try:
-            # Configure yt-dlp for full metadata extraction
-            full_metadata_opts = {
-                'quiet': True,
-                'no_warnings': True,
-                'playlistend': 10,  # Limit entries for faster extraction
-            }
+            # Use base configuration with extract_flat=False for comprehensive extraction
+            # This includes all anti-bot headers and delays to avoid HTTP 403 errors
+            # playlistend=1 limits processing to prevent rate limiting
+            full_metadata_opts = {**self.base_ydl_opts, 'extract_flat': False, 'playlistend': 1}
             
             with yt_dlp.YoutubeDL(full_metadata_opts) as ydl:
                 # Extract all channel info without downloading

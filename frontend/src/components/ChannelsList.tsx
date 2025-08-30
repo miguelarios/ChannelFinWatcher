@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { YoutubeIcon, TrashIcon, CheckCircleIcon, EditIcon, CheckIcon, XIcon, RefreshCwIcon, AlertCircleIcon, HardDriveIcon } from 'lucide-react'
+import { YoutubeIcon, TrashIcon, CheckCircleIcon, EditIcon, CheckIcon, XIcon, RefreshCwIcon, AlertCircleIcon, HardDriveIcon, DownloadIcon } from 'lucide-react'
 
 /**
  * ChannelsList Component - Displays and manages YouTube channels with inline limit editing
@@ -92,6 +92,12 @@ export function ChannelsList({
   // Track which channel is currently having its metadata refreshed
   const [refreshingChannelId, setRefreshingChannelId] = useState<number | null>(null)
   const [refreshError, setRefreshError] = useState<string>('')
+
+  // === DOWNLOAD STATE ===
+  // Track which channel is currently downloading videos
+  const [downloadingChannelId, setDownloadingChannelId] = useState<number | null>(null)
+  const [downloadError, setDownloadError] = useState<string>('')
+  const [downloadSuccess, setDownloadSuccess] = useState<string>('')
 
   if (!channels || channels.length === 0) {
     return null
@@ -313,6 +319,55 @@ export function ChannelsList({
   }
 
   /**
+   * Triggers video download for a channel
+   */
+  const downloadChannelVideos = async (channelId: number, e: React.MouseEvent) => {
+    e.stopPropagation()
+    
+    setDownloadingChannelId(channelId)
+    setDownloadError('')
+    setDownloadSuccess('')
+    
+    try {
+      const response = await fetch(`/api/v1/channels/${channelId}/download`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        
+        if (result.success) {
+          const count = result.videos_downloaded
+          if (count > 0) {
+            setDownloadSuccess(`Successfully downloaded ${count} video${count === 1 ? '' : 's'}`)
+          } else {
+            setDownloadSuccess('No new videos to download')
+          }
+        } else {
+          setDownloadError(result.error_message || 'Download failed')
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({}))
+        setDownloadError(`Failed to start download: ${errorData.detail || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Download error:', error)
+      setDownloadError('Network error while starting download')
+    } finally {
+      setDownloadingChannelId(null)
+      
+      // Clear success/error messages after a delay
+      setTimeout(() => {
+        setDownloadSuccess('')
+        setDownloadError('')
+      }, 5000)
+    }
+  }
+
+  /**
    * Get metadata status icon and color based on status
    */
   const getMetadataStatusIcon = (status: string, isRefreshing: boolean = false) => {
@@ -463,6 +518,16 @@ export function ChannelsList({
                   >
                     <RefreshCwIcon className={`h-3 w-3 ${refreshingChannelId === channel.id ? 'animate-spin' : ''}`} />
                   </button>
+                  
+                  {/* Download videos button */}
+                  <button
+                    onClick={(e) => downloadChannelVideos(channel.id, e)}
+                    disabled={downloadingChannelId === channel.id || !channel.enabled}
+                    className="text-gray-400 hover:text-green-600 p-1 disabled:text-gray-300"
+                    title={!channel.enabled ? "Channel disabled" : "Download recent videos"}
+                  >
+                    <DownloadIcon className={`h-3 w-3 ${downloadingChannelId === channel.id ? 'animate-pulse' : ''}`} />
+                  </button>
                 </div>
               )}
               
@@ -493,6 +558,38 @@ export function ChannelsList({
             <span className="text-sm text-red-700">{refreshError}</span>
             <button
               onClick={() => setRefreshError('')}
+              className="ml-auto text-red-600 hover:text-red-700"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* === DOWNLOAD SUCCESS DISPLAY === */}
+      {downloadSuccess && (
+        <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
+          <div className="flex items-center">
+            <CheckCircleIcon className="h-4 w-4 text-green-600 mr-2" />
+            <span className="text-sm text-green-700">{downloadSuccess}</span>
+            <button
+              onClick={() => setDownloadSuccess('')}
+              className="ml-auto text-green-600 hover:text-green-700"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* === DOWNLOAD ERROR DISPLAY === */}
+      {downloadError && (
+        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+          <div className="flex items-center">
+            <AlertCircleIcon className="h-4 w-4 text-red-600 mr-2" />
+            <span className="text-sm text-red-700">{downloadError}</span>
+            <button
+              onClick={() => setDownloadError('')}
               className="ml-auto text-red-600 hover:text-red-700"
             >
               <XIcon className="h-4 w-4" />

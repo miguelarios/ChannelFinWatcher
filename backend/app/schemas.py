@@ -63,7 +63,7 @@ class DownloadBase(BaseModel):
     """Base download schema."""
     video_id: str = Field(..., description="YouTube video ID")
     title: str = Field(..., min_length=1, description="Video title")
-    upload_date: str = Field(..., description="Video upload date (YYYYMMDD format)")
+    upload_date: Optional[str] = Field(None, description="Video upload date (YYYYMMDD format)")
     duration: Optional[str] = Field(None, description="Video duration")
 
 
