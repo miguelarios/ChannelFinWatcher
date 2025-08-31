@@ -27,7 +27,13 @@ describe('ChannelsList Component', () => {
       limit: 10,
       enabled: true,
       created_at: '2024-01-01T00:00:00Z',
-      updated_at: '2024-01-01T00:00:00Z'
+      updated_at: '2024-01-01T00:00:00Z',
+      metadata_status: 'completed',
+      metadata_path: '/media/channel1',
+      directory_path: '/media/Mrs. Rachel [UC123]',
+      last_metadata_update: '2024-01-01T00:00:00Z',
+      cover_image_path: '/media/cover.jpg',
+      backdrop_image_path: '/media/backdrop.jpg'
     },
     {
       id: 2,
@@ -36,7 +42,13 @@ describe('ChannelsList Component', () => {
       limit: 25,
       enabled: true,
       created_at: '2024-01-01T00:00:00Z',
-      updated_at: '2024-01-01T00:00:00Z'
+      updated_at: '2024-01-01T00:00:00Z',
+      metadata_status: 'pending',
+      metadata_path: '/media/channel2',
+      directory_path: '/media/Test Channel [UC456]',
+      last_metadata_update: '2024-01-01T00:00:00Z',
+      cover_image_path: '/media/cover2.jpg',
+      backdrop_image_path: '/media/backdrop2.jpg'
     }
   ]
 
@@ -123,7 +135,7 @@ describe('ChannelsList Component', () => {
       expect(mockOnSelectChannel).toHaveBeenCalledWith(1)
     })
 
-    it('calls onRemoveChannel when remove button is clicked', () => {
+    it('shows delete modal when remove button is clicked', () => {
       render(
         <ChannelsList
           channels={sampleChannels}
@@ -137,7 +149,9 @@ describe('ChannelsList Component', () => {
       const removeButtons = screen.getAllByTitle('Remove channel')
       fireEvent.click(removeButtons[0])
 
-      expect(mockOnRemoveChannel).toHaveBeenCalledWith(1)
+      // Should show confirmation modal instead of immediately deleting
+      expect(screen.getByText('Confirm Channel Deletion')).toBeInTheDocument()
+      expect(screen.getByText('Also delete media files (permanent)')).toBeInTheDocument()
     })
   })
 
@@ -462,6 +476,209 @@ describe('ChannelsList Component', () => {
         expect(screen.queryByText('Confirm Limit Reduction')).not.toBeInTheDocument()
       })
       expect(fetch).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Delete Modal Functionality', () => {
+    it('shows delete modal when delete button clicked', async () => {
+      render(
+        <ChannelsList
+          channels={sampleChannels}
+          selectedChannelId={null}
+          onSelectChannel={mockOnSelectChannel}
+          onRemoveChannel={mockOnRemoveChannel}
+        />
+      )
+
+      const deleteButton = screen.getAllByTitle('Remove channel')[0]
+      fireEvent.click(deleteButton)
+
+      expect(screen.getByText('Confirm Channel Deletion')).toBeInTheDocument()
+      expect(screen.getByText('Also delete media files (permanent)')).toBeInTheDocument()
+    })
+
+    it('calls API with delete_media=false when modal confirmed without checkbox', async () => {
+      ;(fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ message: 'Channel deleted successfully' }),
+      })
+
+      render(
+        <ChannelsList
+          channels={sampleChannels}
+          selectedChannelId={null}
+          onSelectChannel={mockOnSelectChannel}
+          onRemoveChannel={mockOnRemoveChannel}
+        />
+      )
+
+      fireEvent.click(screen.getAllByTitle('Remove channel')[0])
+      fireEvent.click(screen.getByText('Delete Channel'))
+
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalledWith(
+          '/api/v1/channels/1?delete_media=false',
+          expect.objectContaining({ method: 'DELETE' })
+        )
+      })
+    })
+
+    it('calls API with delete_media=true when checkbox checked', async () => {
+      ;(fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ 
+          message: 'Channel deleted successfully', 
+          media_deleted: true, 
+          files_deleted: 5 
+        }),
+      })
+
+      render(
+        <ChannelsList
+          channels={sampleChannels}
+          selectedChannelId={null}
+          onSelectChannel={mockOnSelectChannel}
+          onRemoveChannel={mockOnRemoveChannel}
+        />
+      )
+
+      fireEvent.click(screen.getAllByTitle('Remove channel')[0])
+      fireEvent.click(screen.getByLabelText('Also delete media files (permanent)'))
+      fireEvent.click(screen.getByText('Delete Channel'))
+
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalledWith(
+          '/api/v1/channels/1?delete_media=true',
+          expect.objectContaining({ method: 'DELETE' })
+        )
+      })
+    })
+
+    it('cancels modal when Cancel button is clicked', async () => {
+      render(
+        <ChannelsList
+          channels={sampleChannels}
+          selectedChannelId={null}
+          onSelectChannel={mockOnSelectChannel}
+          onRemoveChannel={mockOnRemoveChannel}
+        />
+      )
+
+      // Open modal
+      fireEvent.click(screen.getAllByTitle('Remove channel')[0])
+      expect(screen.getByText('Confirm Channel Deletion')).toBeInTheDocument()
+
+      // Cancel
+      fireEvent.click(screen.getByText('Cancel'))
+      
+      await waitFor(() => {
+        expect(screen.queryByText('Confirm Channel Deletion')).not.toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('Reindex Functionality', () => {
+    it('calls reindex API when reindex button clicked', async () => {
+      ;(fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ found: 2, missing: 1, added: 0 }),
+      })
+
+      render(
+        <ChannelsList
+          channels={sampleChannels}
+          selectedChannelId={null}
+          onSelectChannel={mockOnSelectChannel}
+          onRemoveChannel={mockOnRemoveChannel}
+        />
+      )
+
+      const reindexButton = screen.getAllByTitle('Reindex media (sync DB with disk)')[0]
+      fireEvent.click(reindexButton)
+
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalledWith(
+          '/api/v1/channels/1/reindex',
+          expect.objectContaining({ 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          })
+        )
+      })
+    })
+
+    it('displays reindex results after successful operation', async () => {
+      ;(fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ found: 2, missing: 1, added: 3 }),
+      })
+
+      render(
+        <ChannelsList
+          channels={sampleChannels}
+          selectedChannelId={null}
+          onSelectChannel={mockOnSelectChannel}
+          onRemoveChannel={mockOnRemoveChannel}
+        />
+      )
+
+      fireEvent.click(screen.getAllByTitle('Reindex media (sync DB with disk)')[0])
+
+      await waitFor(() => {
+        expect(screen.getByText('Reindex complete - found 2, added 3, missing 1')).toBeInTheDocument()
+      })
+    })
+
+    it('displays error message when reindex fails', async () => {
+      ;(fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ detail: 'Reindex failed' }),
+      })
+
+      render(
+        <ChannelsList
+          channels={sampleChannels}
+          selectedChannelId={null}
+          onSelectChannel={mockOnSelectChannel}
+          onRemoveChannel={mockOnRemoveChannel}
+        />
+      )
+
+      fireEvent.click(screen.getAllByTitle('Reindex media (sync DB with disk)')[0])
+
+      await waitFor(() => {
+        expect(screen.getByText('Reindex failed')).toBeInTheDocument()
+      })
+    })
+
+    it('shows loading state during reindex operation', async () => {
+      // Mock a delayed response
+      ;(fetch as jest.Mock).mockImplementation(() => 
+        new Promise(resolve => setTimeout(() => resolve({
+          ok: true,
+          json: async () => ({ found: 1, missing: 0, added: 0 })
+        }), 100))
+      )
+
+      render(
+        <ChannelsList
+          channels={sampleChannels}
+          selectedChannelId={null}
+          onSelectChannel={mockOnSelectChannel}
+          onRemoveChannel={mockOnRemoveChannel}
+        />
+      )
+
+      const reindexButton = screen.getAllByTitle('Reindex media (sync DB with disk)')[0]
+      fireEvent.click(reindexButton)
+
+      // Should show loading state (button disabled and spinning icon)
+      expect(reindexButton).toBeDisabled()
+      
+      // Wait for operation to complete
+      await waitFor(() => {
+        expect(reindexButton).not.toBeDisabled()
+      }, { timeout: 200 })
     })
   })
 })

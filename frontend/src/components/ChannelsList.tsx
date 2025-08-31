@@ -99,6 +99,30 @@ export function ChannelsList({
   const [downloadError, setDownloadError] = useState<string>('')
   const [downloadSuccess, setDownloadSuccess] = useState<string>('')
 
+  // === DELETE MODAL STATE ===
+  // Controls the delete confirmation modal
+  interface DeleteModalState {
+    show: boolean
+    channelId: number | null
+    channelName: string
+    deleteMedia: boolean
+  }
+  
+  const [deleteModal, setDeleteModal] = useState<DeleteModalState>({
+    show: false,
+    channelId: null,
+    channelName: '',
+    deleteMedia: false
+  })
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteSuccess, setDeleteSuccess] = useState('')
+
+  // === REINDEX STATE ===
+  // Track which channel is currently being reindexed
+  const [reindexingChannelId, setReindexingChannelId] = useState<number | null>(null)
+  const [reindexError, setReindexError] = useState<string>('')
+  const [reindexSuccess, setReindexSuccess] = useState<string>('')
+
   if (!channels || channels.length === 0) {
     return null
   }
@@ -408,6 +432,108 @@ export function ChannelsList({
     }
   }
 
+  /**
+   * Shows the delete confirmation modal
+   */
+  const showDeleteModal = (channel: Channel, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setDeleteModal({
+      show: true,
+      channelId: channel.id,
+      channelName: channel.name,
+      deleteMedia: false
+    })
+  }
+
+  /**
+   * Confirms channel deletion with optional media deletion
+   */
+  const confirmDeleteChannel = async () => {
+    if (!deleteModal.channelId) return
+    
+    setIsDeleting(true)
+    
+    try {
+      const response = await fetch(`/api/v1/channels/${deleteModal.channelId}?delete_media=${deleteModal.deleteMedia}`, {
+        method: 'DELETE',
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        
+        // Update parent component state
+        onRemoveChannel(deleteModal.channelId)
+        
+        // Show success message
+        let successMsg = result.message
+        if (result.media_deleted && result.files_deleted > 0) {
+          successMsg += ` (${result.files_deleted} files deleted)`
+        }
+        setDeleteSuccess(successMsg)
+        
+        // Clear success message after 5 seconds
+        setTimeout(() => setDeleteSuccess(''), 5000)
+        
+      } else {
+        const errorData = await response.json()
+        setUpdateError(errorData.detail || 'Failed to delete channel')
+      }
+    } catch (error) {
+      console.error('Error deleting channel:', error)
+      setUpdateError('Network error: Failed to delete channel')
+    } finally {
+      setIsDeleting(false)
+      setDeleteModal({ show: false, channelId: null, channelName: '', deleteMedia: false })
+    }
+  }
+
+  /**
+   * Cancels the delete modal
+   */
+  const cancelDeleteModal = () => {
+    setDeleteModal({ show: false, channelId: null, channelName: '', deleteMedia: false })
+  }
+
+  /**
+   * Reindexes a channel's media folder to sync database with disk state
+   */
+  const reindexChannel = async (channelId: number, e: React.MouseEvent) => {
+    e.stopPropagation()
+    
+    setReindexingChannelId(channelId)
+    setReindexError('')
+    setReindexSuccess('')
+    
+    try {
+      const response = await fetch(`/api/v1/channels/${channelId}/reindex`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        
+        // Display success message with statistics
+        const { found, missing, added } = result
+        setReindexSuccess(`Reindex complete - found ${found}, added ${added}, missing ${missing}`)
+        
+        // Auto-clear success message after 5 seconds
+        setTimeout(() => setReindexSuccess(''), 5000)
+        
+      } else {
+        const errorData = await response.json()
+        setReindexError(errorData.detail || 'Failed to reindex channel')
+      }
+    } catch (error) {
+      console.error('Error reindexing channel:', error)
+      setReindexError('Network error: Failed to reindex channel')
+    } finally {
+      setReindexingChannelId(null)
+    }
+  }
+
   return (
     <div>
       <h3 className="text-lg font-medium mb-4">Your Channels</h3>
@@ -519,6 +645,16 @@ export function ChannelsList({
                     <RefreshCwIcon className={`h-3 w-3 ${refreshingChannelId === channel.id ? 'animate-spin' : ''}`} />
                   </button>
                   
+                  {/* Reindex button */}
+                  <button
+                    onClick={(e) => reindexChannel(channel.id, e)}
+                    disabled={reindexingChannelId === channel.id}
+                    className="text-gray-400 hover:text-yellow-600 p-1 disabled:text-gray-300"
+                    title="Reindex media (sync DB with disk)"
+                  >
+                    <RefreshCwIcon className={`h-3 w-3 ${reindexingChannelId === channel.id ? 'animate-spin' : ''}`} />
+                  </button>
+                  
                   {/* Download videos button */}
                   <button
                     onClick={(e) => downloadChannelVideos(channel.id, e)}
@@ -537,10 +673,7 @@ export function ChannelsList({
               
               <button
                 className="text-gray-400 hover:text-red-600 p-1 ml-2"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onRemoveChannel(channel.id)
-                }}
+                onClick={(e) => showDeleteModal(channel, e)}
                 title="Remove channel"
               >
                 <TrashIcon className="h-4 w-4" />
@@ -594,6 +727,103 @@ export function ChannelsList({
             >
               <XIcon className="h-4 w-4" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* === DELETE SUCCESS MESSAGE === */}
+      {deleteSuccess && (
+        <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
+          <div className="flex items-center">
+            <CheckCircleIcon className="h-4 w-4 text-green-600 mr-2" />
+            <span className="text-sm text-green-700">{deleteSuccess}</span>
+            <button
+              onClick={() => setDeleteSuccess('')}
+              className="ml-auto text-green-600 hover:text-green-700"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* === REINDEX SUCCESS MESSAGE === */}
+      {reindexSuccess && (
+        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+          <div className="flex items-center">
+            <CheckCircleIcon className="h-4 w-4 text-blue-600 mr-2" />
+            <span className="text-sm text-blue-700">{reindexSuccess}</span>
+            <button
+              onClick={() => setReindexSuccess('')}
+              className="ml-auto text-blue-600 hover:text-blue-700"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* === REINDEX ERROR MESSAGE === */}
+      {reindexError && (
+        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+          <div className="flex items-center">
+            <AlertCircleIcon className="h-4 w-4 text-red-600 mr-2" />
+            <span className="text-sm text-red-700">{reindexError}</span>
+            <button
+              onClick={() => setReindexError('')}
+              className="ml-auto text-red-600 hover:text-red-700"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* === DELETE CONFIRMATION MODAL === */}
+      {deleteModal.show && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md mx-4">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">
+              Confirm Channel Deletion
+            </h3>
+            
+            <p className="text-sm text-gray-600 mb-4">
+              Are you sure you want to delete <strong>{deleteModal.channelName}</strong>?
+              This will remove all download history for this channel.
+            </p>
+            
+            <div className="mb-6">
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={deleteModal.deleteMedia}
+                  onChange={(e) => setDeleteModal(prev => ({ ...prev, deleteMedia: e.target.checked }))}
+                  className="mr-2"
+                  disabled={isDeleting}
+                />
+                <span className="text-sm text-gray-700">
+                  Also delete media files (permanent)
+                </span>
+              </label>
+            </div>
+            
+            <div className="flex space-x-3">
+              <button
+                onClick={confirmDeleteChannel}
+                disabled={isDeleting}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium disabled:bg-red-400"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete Channel'}
+              </button>
+              
+              <button
+                onClick={cancelDeleteModal}
+                disabled={isDeleting}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-md text-sm font-medium disabled:bg-gray-200"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

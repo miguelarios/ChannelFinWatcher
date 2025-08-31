@@ -4,36 +4,30 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ detail: 'Method not allowed' })
+  }
+
   const { id } = req.query
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://backend:8000'
   
   try {
-    let url = `${backendUrl}/api/v1/channels/${id}`
-    
-    // For DELETE requests, add delete_media query parameter
-    if (req.method === 'DELETE' && req.query.delete_media !== undefined) {
-      const deleteMedia = req.query.delete_media === 'true'
-      url += `?delete_media=${deleteMedia}`
-    }
-    
-    const response = await fetch(url, {
-      method: req.method,
+    const response = await fetch(`${backendUrl}/api/v1/channels/${id}/reindex`, {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: req.method !== 'GET' && req.method !== 'DELETE' ? JSON.stringify(req.body) : undefined,
     })
 
     const data = await response.json()
     
     if (response.ok) {
-      // Pass through the complete backend response (includes message, media_deleted, files_deleted)
       res.status(200).json(data)
     } else {
       res.status(response.status).json(data)
     }
   } catch (error) {
-    console.error('API proxy error:', error)
+    console.error('Reindex API proxy error:', error)
     res.status(500).json({ 
       detail: 'Backend service unavailable',
       error: 'Failed to connect to backend'
