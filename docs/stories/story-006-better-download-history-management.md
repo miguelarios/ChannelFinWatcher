@@ -140,13 +140,49 @@ Currently, the system uses a global archive.txt file shared by all channels, mak
   - [x] Ignore .part files during scan
   - [x] Handle IntegrityError on concurrent inserts gracefully
 
-#### 6. [ ] Update Frontend (Optional - Future Story)
+#### 6. [x] Update Frontend
 - **Description:** Add UI controls for new deletion and reindex features
-- **Estimation:** 2 hours
+- **Estimation:** 3 hours
 - **Acceptance Criteria:** 
-  - [ ] Delete modal shows "Also delete media files" checkbox
-  - [ ] Reindex button added to channel page
-  - [ ] Display reindex results to user
+
+##### 6a. [x] Create Reindex API Proxy
+- [x] Create `frontend/src/pages/api/v1/channels/[id]/reindex.ts`
+- [x] POST-only proxy to backend `/api/v1/channels/{id}/reindex`
+- [x] Return backend JSON response with statistics (found, missing, added)
+- [x] Handle error responses appropriately
+
+##### 6b. [x] Update Delete API Proxy  
+- [x] Modify `frontend/src/pages/api/v1/channels/[id].ts`
+- [x] Accept `delete_media` boolean from query parameter
+- [x] Forward parameter to backend: `${backendUrl}/api/v1/channels/${id}?delete_media=${deleteMedia}`
+- [x] Pass through backend's complete JSON response (preserve message and files_deleted)
+
+##### 6c. [x] Add Delete Confirmation Modal
+- [x] Replace immediate delete in `ChannelsList.tsx` with confirmation modal
+- [x] Add state for modal visibility and delete options
+- [x] Include checkbox: "Also delete media files" 
+- [x] Show clear warning about permanent deletion
+- [x] Call API with `delete_media` parameter on confirm
+- [x] Display success message with files deleted count if applicable
+- [x] Handle modal cancellation and cleanup
+
+##### 6d. [x] Add Reindex Button and Functionality
+- [x] Add reindex button in `ChannelsList.tsx` channel actions bar
+- [x] Position next to existing refresh metadata button
+- [x] Add state management (loading, error, success)
+- [x] Call POST `/api/v1/channels/${id}/reindex` endpoint
+- [x] Display ephemeral results: "Reindex complete - found X, added Y, missing Z"
+- [x] Auto-clear success message after 5 seconds
+- [x] Show loading spinner during operation
+
+##### 6e. [x] Frontend Tests
+- [x] Extend `frontend/src/__tests__/components/ChannelsList.test.tsx`
+- [x] Test delete modal appears on delete button click
+- [x] Test delete with and without media checkbox states
+- [x] Test reindex button functionality and result display
+- [x] Mock API responses for both delete and reindex flows
+- [x] Verify proper state updates and UI feedback
+- [x] Test error handling for both operations
 
 #### 7. [x] Testing
 - **Description:** Comprehensive tests for new functionality
@@ -175,7 +211,7 @@ Currently, the system uses a global archive.txt file shared by all channels, mak
 - [x] Comprehensive test coverage (>80%)
 - [x] Performance remains acceptable (no significant slowdown)
 - [x] Clear logging for debugging
-- [ ] Frontend UI updated (can be separate story)
+- [x] Frontend UI updated
 
 ### Notes for Future
 - Consider adding dry-run option for deletions to preview what will be removed
@@ -534,3 +570,470 @@ def channel_dir_name(channel: Channel) -> str:
     
     return f"{safe_name} [{channel.channel_id}]"
 ```
+
+---
+
+## Frontend Implementation Reference
+
+### Reindex API Proxy
+```typescript
+// frontend/src/pages/api/v1/channels/[id]/reindex.ts
+import type { NextApiRequest, NextApiResponse } from 'next'
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ detail: 'Method not allowed' })
+  }
+
+  const { id } = req.query
+  const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://backend:8000'
+  
+  try {
+    const response = await fetch(`${backendUrl}/api/v1/channels/${id}/reindex`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+
+    const data = await response.json()
+    
+    if (response.ok) {
+      res.status(200).json(data)
+    } else {
+      res.status(response.status).json(data)
+    }
+  } catch (error) {
+    console.error('Reindex API proxy error:', error)
+    res.status(500).json({ 
+      detail: 'Backend service unavailable',
+      error: 'Failed to connect to backend'
+    })
+  }
+}
+```
+
+### Updated Delete API Proxy
+```typescript
+// frontend/src/pages/api/v1/channels/[id].ts - Updated DELETE handling
+import type { NextApiRequest, NextApiResponse } from 'next'
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  const { id } = req.query
+  const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://backend:8000'
+  
+  try {
+    let url = `${backendUrl}/api/v1/channels/${id}`
+    
+    // For DELETE requests, add delete_media query parameter
+    if (req.method === 'DELETE' && req.query.delete_media !== undefined) {
+      const deleteMedia = req.query.delete_media === 'true'
+      url += `?delete_media=${deleteMedia}`
+    }
+    
+    const response = await fetch(url, {
+      method: req.method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: req.method !== 'GET' && req.method !== 'DELETE' ? JSON.stringify(req.body) : undefined,
+    })
+
+    const data = await response.json()
+    
+    if (response.ok) {
+      // Pass through the complete backend response (includes message, media_deleted, files_deleted)
+      res.status(200).json(data)
+    } else {
+      res.status(response.status).json(data)
+    }
+  } catch (error) {
+    console.error('API proxy error:', error)
+    res.status(500).json({ 
+      detail: 'Backend service unavailable',
+      error: 'Failed to connect to backend'
+    })
+  }
+}
+```
+
+### Delete Confirmation Modal Implementation
+```typescript
+// Addition to ChannelsList.tsx - Delete Modal State and Functions
+
+interface DeleteModalState {
+  show: boolean
+  channelId: number | null
+  channelName: string
+  deleteMedia: boolean
+}
+
+// Add to component state
+const [deleteModal, setDeleteModal] = useState<DeleteModalState>({
+  show: false,
+  channelId: null,
+  channelName: '',
+  deleteMedia: false
+})
+const [isDeleting, setIsDeleting] = useState(false)
+const [deleteSuccess, setDeleteSuccess] = useState('')
+
+// Replace direct onRemoveChannel call with modal trigger
+const showDeleteModal = (channel: Channel, e: React.MouseEvent) => {
+  e.stopPropagation()
+  setDeleteModal({
+    show: true,
+    channelId: channel.id,
+    channelName: channel.name,
+    deleteMedia: false
+  })
+}
+
+// Confirm deletion function
+const confirmDeleteChannel = async () => {
+  if (!deleteModal.channelId) return
+  
+  setIsDeleting(true)
+  
+  try {
+    const response = await fetch(`/api/v1/channels/${deleteModal.channelId}?delete_media=${deleteModal.deleteMedia}`, {
+      method: 'DELETE',
+    })
+
+    if (response.ok) {
+      const result = await response.json()
+      
+      // Update parent component state
+      onRemoveChannel(deleteModal.channelId)
+      
+      // Show success message
+      let successMsg = result.message
+      if (result.media_deleted && result.files_deleted > 0) {
+        successMsg += ` (${result.files_deleted} files deleted)`
+      }
+      setDeleteSuccess(successMsg)
+      
+      // Clear success message after 5 seconds
+      setTimeout(() => setDeleteSuccess(''), 5000)
+      
+    } else {
+      const errorData = await response.json()
+      setUpdateError(errorData.detail || 'Failed to delete channel')
+    }
+  } catch (error) {
+    console.error('Error deleting channel:', error)
+    setUpdateError('Network error: Failed to delete channel')
+  } finally {
+    setIsDeleting(false)
+    setDeleteModal({ show: false, channelId: null, channelName: '', deleteMedia: false })
+  }
+}
+
+// Cancel deletion
+const cancelDeleteModal = () => {
+  setDeleteModal({ show: false, channelId: null, channelName: '', deleteMedia: false })
+}
+
+// Update delete button in channel list
+<button
+  className="text-gray-400 hover:text-red-600 p-1 ml-2"
+  onClick={(e) => showDeleteModal(channel, e)}
+  title="Remove channel"
+>
+  <TrashIcon className="h-4 w-4" />
+</button>
+
+// Delete Modal JSX (add before closing component div)
+{deleteModal.show && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="bg-white rounded-lg p-6 max-w-md mx-4">
+      <h3 className="text-lg font-medium text-gray-900 mb-4">
+        Confirm Channel Deletion
+      </h3>
+      
+      <p className="text-sm text-gray-600 mb-4">
+        Are you sure you want to delete <strong>{deleteModal.channelName}</strong>?
+        This will remove all download history for this channel.
+      </p>
+      
+      <div className="mb-6">
+        <label className="flex items-center">
+          <input
+            type="checkbox"
+            checked={deleteModal.deleteMedia}
+            onChange={(e) => setDeleteModal(prev => ({ ...prev, deleteMedia: e.target.checked }))}
+            className="mr-2"
+            disabled={isDeleting}
+          />
+          <span className="text-sm text-gray-700">
+            Also delete media files (permanent)
+          </span>
+        </label>
+      </div>
+      
+      <div className="flex space-x-3">
+        <button
+          onClick={confirmDeleteChannel}
+          disabled={isDeleting}
+          className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium disabled:bg-red-400"
+        >
+          {isDeleting ? 'Deleting...' : 'Delete Channel'}
+        </button>
+        
+        <button
+          onClick={cancelDeleteModal}
+          disabled={isDeleting}
+          className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-md text-sm font-medium disabled:bg-gray-200"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+// Delete Success Message (add after other message displays)
+{deleteSuccess && (
+  <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
+    <div className="flex items-center">
+      <CheckCircleIcon className="h-4 w-4 text-green-600 mr-2" />
+      <span className="text-sm text-green-700">{deleteSuccess}</span>
+      <button
+        onClick={() => setDeleteSuccess('')}
+        className="ml-auto text-green-600 hover:text-green-700"
+      >
+        <XIcon className="h-4 w-4" />
+      </button>
+    </div>
+  </div>
+)}
+```
+
+### Reindex Button Implementation
+```typescript
+// Addition to ChannelsList.tsx - Reindex Functionality
+
+// Add to existing state
+const [reindexingChannelId, setReindexingChannelId] = useState<number | null>(null)
+const [reindexError, setReindexError] = useState<string>('')
+const [reindexSuccess, setReindexSuccess] = useState<string>('')
+
+// Reindex function
+const reindexChannel = async (channelId: number, e: React.MouseEvent) => {
+  e.stopPropagation()
+  
+  setReindexingChannelId(channelId)
+  setReindexError('')
+  setReindexSuccess('')
+  
+  try {
+    const response = await fetch(`/api/v1/channels/${channelId}/reindex`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+
+    if (response.ok) {
+      const result = await response.json()
+      
+      // Display success message with statistics
+      const { found, missing, added } = result
+      setReindexSuccess(`Reindex complete - found ${found}, added ${added}, missing ${missing}`)
+      
+      // Auto-clear success message after 5 seconds
+      setTimeout(() => setReindexSuccess(''), 5000)
+      
+    } else {
+      const errorData = await response.json()
+      setReindexError(errorData.detail || 'Failed to reindex channel')
+    }
+  } catch (error) {
+    console.error('Error reindexing channel:', error)
+    setReindexError('Network error: Failed to reindex channel')
+  } finally {
+    setReindexingChannelId(null)
+  }
+}
+
+// Add reindex button next to refresh metadata button
+<button
+  onClick={(e) => reindexChannel(channel.id, e)}
+  disabled={reindexingChannelId === channel.id}
+  className="text-gray-400 hover:text-yellow-600 p-1 disabled:text-gray-300"
+  title="Reindex media (sync DB with disk)"
+>
+  <RefreshCwIcon className={`h-3 w-3 ${reindexingChannelId === channel.id ? 'animate-spin' : ''}`} />
+</button>
+
+// Reindex Success Message (add after download messages)
+{reindexSuccess && (
+  <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+    <div className="flex items-center">
+      <CheckCircleIcon className="h-4 w-4 text-blue-600 mr-2" />
+      <span className="text-sm text-blue-700">{reindexSuccess}</span>
+      <button
+        onClick={() => setReindexSuccess('')}
+        className="ml-auto text-blue-600 hover:text-blue-700"
+      >
+        <XIcon className="h-4 w-4" />
+      </button>
+    </div>
+  </div>
+)}
+
+// Reindex Error Message (add after download error)
+{reindexError && (
+  <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+    <div className="flex items-center">
+      <AlertCircleIcon className="h-4 w-4 text-red-600 mr-2" />
+      <span className="text-sm text-red-700">{reindexError}</span>
+      <button
+        onClick={() => setReindexError('')}
+        className="ml-auto text-red-600 hover:text-red-700"
+      >
+        <XIcon className="h-4 w-4" />
+      </button>
+    </div>
+  </div>
+)}
+```
+
+### Frontend Test Examples
+```typescript
+// Addition to frontend/src/__tests__/components/ChannelsList.test.tsx
+
+describe('Delete Modal Functionality', () => {
+  test('shows delete modal when delete button clicked', async () => {
+    render(
+      <ChannelsList
+        channels={mockChannels}
+        selectedChannelId={null}
+        onSelectChannel={jest.fn()}
+        onRemoveChannel={mockOnRemoveChannel}
+      />
+    )
+
+    const deleteButton = screen.getByTitle('Remove channel')
+    fireEvent.click(deleteButton)
+
+    expect(screen.getByText('Confirm Channel Deletion')).toBeInTheDocument()
+    expect(screen.getByText('Also delete media files (permanent)')).toBeInTheDocument()
+  })
+
+  test('calls API with delete_media=false when modal confirmed without checkbox', async () => {
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ message: 'Channel deleted successfully' }),
+    })
+
+    render(
+      <ChannelsList
+        channels={mockChannels}
+        selectedChannelId={null}
+        onSelectChannel={jest.fn()}
+        onRemoveChannel={mockOnRemoveChannel}
+      />
+    )
+
+    fireEvent.click(screen.getByTitle('Remove channel'))
+    fireEvent.click(screen.getByText('Delete Channel'))
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/v1/channels/1?delete_media=false',
+        expect.objectContaining({ method: 'DELETE' })
+      )
+    })
+  })
+
+  test('calls API with delete_media=true when checkbox checked', async () => {
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ 
+        message: 'Channel deleted successfully', 
+        media_deleted: true, 
+        files_deleted: 5 
+      }),
+    })
+
+    render(
+      <ChannelsList
+        channels={mockChannels}
+        selectedChannelId={null}
+        onSelectChannel={jest.fn()}
+        onRemoveChannel={mockOnRemoveChannel}
+      />
+    )
+
+    fireEvent.click(screen.getByTitle('Remove channel'))
+    fireEvent.click(screen.getByLabelText('Also delete media files (permanent)'))
+    fireEvent.click(screen.getByText('Delete Channel'))
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/v1/channels/1?delete_media=true',
+        expect.objectContaining({ method: 'DELETE' })
+      )
+    })
+  })
+})
+
+describe('Reindex Functionality', () => {
+  test('calls reindex API when reindex button clicked', async () => {
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ found: 2, missing: 1, added: 0 }),
+    })
+
+    render(
+      <ChannelsList
+        channels={mockChannels}
+        selectedChannelId={null}
+        onSelectChannel={jest.fn()}
+        onRemoveChannel={mockOnRemoveChannel}
+      />
+    )
+
+    const reindexButton = screen.getByTitle('Reindex media (sync DB with disk)')
+    fireEvent.click(reindexButton)
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/v1/channels/1/reindex',
+        expect.objectContaining({ 
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        })
+      )
+    })
+  })
+
+  test('displays reindex results after successful operation', async () => {
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ found: 2, missing: 1, added: 3 }),
+    })
+
+    render(
+      <ChannelsList
+        channels={mockChannels}
+        selectedChannelId={null}
+        onSelectChannel={jest.fn()}
+        onRemoveChannel={mockOnRemoveChannel}
+      />
+    )
+
+    fireEvent.click(screen.getByTitle('Reindex media (sync DB with disk)'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Reindex complete - found 2, added 3, missing 1')).toBeInTheDocument()
+    })
+  })
+})
