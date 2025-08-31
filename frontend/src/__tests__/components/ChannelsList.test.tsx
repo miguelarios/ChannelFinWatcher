@@ -59,9 +59,15 @@ describe('ChannelsList Component', () => {
   })
 
   afterEach(() => {
-    // Clean up any pending timers
-    jest.runOnlyPendingTimers()
-    jest.useRealTimers()
+    // Clean up any pending timers only if fake timers are active
+    try {
+      if (jest.isMockFunction(setTimeout)) {
+        jest.runOnlyPendingTimers()
+        jest.useRealTimers()
+      }
+    } catch (e) {
+      // Ignore errors if timers aren't active
+    }
   })
 
   describe('Basic Rendering', () => {
@@ -104,16 +110,11 @@ describe('ChannelsList Component', () => {
         />
       )
 
-      // Find the channel containers
-      const channelContainers = screen.getAllByRole('button').filter(btn => 
-        btn.textContent?.includes('Mrs. Rachel') || btn.textContent?.includes('Test Channel')
-      )
+      // Find the channel container divs (they don't have role="button" anymore)
+      const channelContainers = screen.getByText('Mrs. Rachel - Toddler Learning Videos').closest('div')
       
       // Selected channel should have red border styling
-      const selectedContainer = channelContainers.find(container => 
-        container.textContent?.includes('Mrs. Rachel')
-      )
-      expect(selectedContainer).toHaveClass('border-red-500', 'bg-red-50')
+      expect(channelContainers).toHaveClass('border-red-500', 'bg-red-50')
     })
   })
 
