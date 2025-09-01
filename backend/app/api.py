@@ -165,6 +165,7 @@ async def get_channel(channel_id: int, db: Session = Depends(get_db)):
     """Get a specific channel by ID."""
     channel = db.query(Channel).filter(Channel.id == channel_id).first()
     if not channel:
+        logger.info(f"Delete requested for channel_id={channel_id}, but channel was not found")
         raise HTTPException(status_code=404, detail="Channel not found")
     return channel
 
@@ -312,8 +313,27 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Channel not found")
     
     settings = get_settings()
-    channel_dir = channel_dir_name(channel)  # Safe path construction
-    media_path = os.path.join(settings.media_dir, channel_dir)
+    
+    # Find channel media directory - first try stored path, then directory search
+    media_path = None
+    
+    # Method 1: Try database-stored directory path
+    if channel.directory_path and os.path.exists(channel.directory_path):
+        media_path = channel.directory_path
+        logger.info(f"Using stored directory path for reindex: {media_path}")
+    else:
+        # Method 2: Fallback directory search
+        import glob
+        all_dirs = glob.glob(os.path.join(settings.media_dir, '*/')) 
+        for directory in all_dirs:
+            if channel.channel_id in os.path.basename(directory.rstrip('/')):
+                media_path = directory.rstrip('/')
+                # Update the database with the found path for next time
+                channel.directory_path = media_path
+                db.add(channel)
+                db.commit()
+                logger.info(f"Found and saved media directory for reindex: {media_path}")
+                break
     
     stats = {
         "channel": channel.name,
@@ -326,7 +346,7 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
     try:
         # Find all video files on disk
         video_ids_on_disk = set()
-        if os.path.exists(media_path):
+        if media_path and os.path.exists(media_path):
             for root, dirs, files in os.walk(media_path):
                 for file in files:
                     # Skip partial downloads
@@ -419,15 +439,33 @@ async def delete_channel(
     
     # Store info for response before deletion
     settings = get_settings()
+    channel_id = channel.id  # Store ID before deletion
     channel_name = channel.name
-    channel_dir = channel_dir_name(channel)  # Safe path construction helper
-    media_path = os.path.join(settings.media_dir, channel_dir)
     channel_url = channel.url
+    
+    # Find channel media directory - first try stored path, then directory search
+    media_path = None
+    
+    # Method 1: Try database-stored directory path
+    if channel.directory_path and os.path.exists(channel.directory_path):
+        media_path = channel.directory_path
+        logger.info(f"Using stored directory path: {media_path}")
+    else:
+        # Method 2: Fallback directory search
+        import glob
+        all_dirs = glob.glob(os.path.join(settings.media_dir, '*/')) 
+        for directory in all_dirs:
+            if channel.channel_id in os.path.basename(directory.rstrip('/')):
+                media_path = directory.rstrip('/')
+                # Update the database with the found path for next time
+                channel.directory_path = media_path
+                logger.info(f"Found and saved media directory: {media_path}")
+                break
     
     # Optionally delete media files BEFORE database (for better consistency)
     media_deleted = False
     files_deleted = 0
-    if delete_media and os.path.exists(media_path):
+    if delete_media and media_path and os.path.exists(media_path):
         try:
             # Safety check - ensure we're only deleting within media directory
             media_path = os.path.abspath(media_path)
@@ -456,6 +494,8 @@ async def delete_channel(
     
     return {
         "message": f"Channel '{channel_name}' deleted successfully",
+        "channel_id": channel_id,
+        "channel_name": channel_name,
         "media_deleted": media_deleted,
         "files_deleted": files_deleted if media_deleted else 0
     }

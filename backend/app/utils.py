@@ -16,25 +16,29 @@ yaml_lock = threading.Lock()
 
 def channel_dir_name(channel) -> str:
     """
-    Generate safe directory name for channel.
-    Sanitizes channel name to prevent path traversal.
+    Generate directory name for channel using original name.
+    Only removes filesystem-unsafe characters, preserves emojis and special chars.
     
     Args:
         channel: Channel database model
     
     Returns:
-        Safe directory name in format "ChannelName [channel_id]"
+        Directory name in format "OriginalChannelName [channel_id]"
         
     Raises:
         ValueError: If channel has no channel_id
     """
-    # Remove unsafe characters from channel name
-    safe_name = re.sub(r'[^\w\s-]', '', channel.name)
-    safe_name = re.sub(r'[-\s]+', ' ', safe_name).strip()
-    
     # Ensure channel_id is present and valid
     if not channel.channel_id:
         raise ValueError(f"Channel {channel.id} has no channel_id")
+    
+    # Only remove characters that are truly unsafe for filesystems
+    # Keep emojis, accented characters, hyphens, etc.
+    safe_name = channel.name
+    # Only remove: < > : " / \ | ? *
+    safe_name = re.sub(r'[<>:"/\\|?*]', '', safe_name)
+    safe_name = re.sub(r'\.+$', '', safe_name)  # Remove trailing dots
+    safe_name = safe_name.strip()
     
     return f"{safe_name} [{channel.channel_id}]"
 

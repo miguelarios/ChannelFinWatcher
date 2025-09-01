@@ -1,5 +1,6 @@
 """Metadata management service with comprehensive error handling and recovery."""
 import os
+import re
 import logging
 import shutil
 from datetime import datetime
@@ -206,8 +207,11 @@ class MetadataService:
             channel_name = channel_info['name']
             channel_id = channel_info['channel_id']
             
-            # Generate filesystem-safe directory name
-            safe_name = youtube_service._make_filesystem_safe(channel_name)
+            # Generate directory name preserving original characters
+            # Only remove characters that are truly unsafe for filesystems
+            safe_name = re.sub(r'[<>:"/\\|?*]', '', channel_name)
+            safe_name = re.sub(r'\.+$', '', safe_name)  # Remove trailing dots
+            safe_name = safe_name.strip()
             directory_name = f"{safe_name} [{channel_id}]"
             directory_path = os.path.join(self.media_root, directory_name)
             

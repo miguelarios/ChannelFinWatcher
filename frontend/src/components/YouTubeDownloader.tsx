@@ -217,25 +217,13 @@ export function YouTubeDownloader() {
     setSelectedChannelId(channelId)
   }
 
-  const handleRemoveChannel = async (channelId: number) => {
-    try {
-      const response = await fetch(`/api/v1/channels/${channelId}`, {
-        method: 'DELETE',
-      })
-
-      if (response.ok) {
-        setChannels(prevChannels => 
-          prevChannels.filter(channel => channel.id !== channelId)
-        )
-        if (selectedChannelId === channelId) {
-          setSelectedChannelId(null)
-        }
-      } else {
-        setError('Failed to remove channel')
-      }
-    } catch (error) {
-      console.error('Error removing channel:', error)
-      setError('Network error: Failed to remove channel')
+  const handleRemoveChannel = (channelId: number) => {
+    // Only update local state - actual deletion is handled by ChannelsList component
+    setChannels(prevChannels => 
+      prevChannels.filter(channel => channel.id !== channelId)
+    )
+    if (selectedChannelId === channelId) {
+      setSelectedChannelId(null)
     }
   }
 
