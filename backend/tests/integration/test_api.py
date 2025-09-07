@@ -213,7 +213,12 @@ class TestChannelsAPI:
         response = test_client.delete(f"/api/v1/channels/{channel_id}")
         
         assert response.status_code == 200
-        assert response.json()["message"] == "Channel deleted successfully"
+        data = response.json()
+        # Structured assertions for stability
+        assert data["channel_id"] == channel_id
+        assert data["channel_name"] == sample_channel_data["name"]
+        assert data["media_deleted"] is False
+        assert "deleted successfully" in data["message"]
         
         # Verify channel is deleted
         deleted_channel = db_session.query(Channel).filter(Channel.id == channel_id).first()

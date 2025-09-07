@@ -15,7 +15,7 @@ Currently, the system uses a global archive.txt file shared by all channels, mak
 
 ### Functional Requirements
 
-#### [ ] Scenario: Delete channel without deleting media files
+#### [x] Scenario: Delete channel without deleting media files
 - **Given** a channel exists with downloaded videos
   - And the channel has 10 videos downloaded
   - And the videos exist in /media/ChannelName [channel_id]/ folder
@@ -26,7 +26,7 @@ Currently, the system uses a global archive.txt file shared by all channels, mak
   - And the media files remain on disk
   - And if the channel is re-added, it can detect existing files and avoid re-downloading
 
-#### [ ] Scenario: Delete channel with media deletion
+#### [x] Scenario: Delete channel with media deletion
 - **Given** a channel exists with downloaded videos
   - And the channel has videos in /media/ChannelName [channel_id]/
 - **When** user deletes the channel and chooses to delete media
@@ -36,7 +36,7 @@ Currently, the system uses a global archive.txt file shared by all channels, mak
   - And the entire /media/ChannelName [channel_id]/ folder is deleted
   - And if the channel is re-added, all videos will be downloaded fresh
 
-#### [ ] Scenario: Download deduplication without archive.txt
+#### [x] Scenario: Download deduplication without archive.txt
 - **Given** archive.txt has been eliminated from the system
   - And a channel is being processed for downloads
 - **When** the system checks if a video should be downloaded
@@ -46,7 +46,7 @@ Currently, the system uses a global archive.txt file shared by all channels, mak
   - And if not in database, it checks disk for [video_id] in filename
   - And if found on disk, creates a Download record and skips download
 
-#### [ ] Scenario: Reindex channel after manual file changes
+#### [x] Scenario: Reindex channel after manual file changes
 - **Given** a user has manually deleted or renamed video files
   - And the database is out of sync with actual disk state
 - **When** user triggers a reindex for the channel
@@ -56,7 +56,7 @@ Currently, the system uses a global archive.txt file shared by all channels, mak
   - And creates records for orphaned files found on disk
   - And returns a summary of changes
 
-#### [ ] Scenario: Handle missing media folder during deletion
+#### [x] Scenario: Handle missing media folder during deletion
 - **Given** a channel's media folder has been manually deleted
 - **When** user deletes the channel with media deletion option
 - **Then** the database deletion proceeds normally
@@ -74,12 +74,12 @@ Currently, the system uses a global archive.txt file shared by all channels, mak
 - **Blocks:** Future stories that depend on improved download tracking
 
 ### Engineering TODOs
-- [ ] Add file_exists column to Download model with proper indexes
-- [ ] Remove all archive.txt references from codebase
-- [ ] Implement database-based deduplication logic with batch disk scanning
-- [ ] Add media deletion option to channel delete endpoint with path safety
-- [ ] Create reindex endpoint for channel media reconciliation with batch operations
-- [ ] Handle edge cases (missing folders, .part files, concurrent downloads)
+- [x] Add file_exists column to Download model with proper indexes
+- [x] Remove all archive.txt references from codebase
+- [x] Implement database-based deduplication logic with batch disk scanning
+- [x] Add media deletion option to channel delete endpoint with path safety
+- [x] Create reindex endpoint for channel media reconciliation with batch operations
+- [x] Handle edge cases (missing folders, .part files, concurrent downloads)
 
 ---
 
