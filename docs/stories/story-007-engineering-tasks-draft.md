@@ -44,17 +44,20 @@
 - **Dependencies:** Task 1 (DB-001)
 - **Reference:** Lines 1463-1634 in Reference Materials
 - **Acceptance Criteria:**
-  - [ ] SchedulerService class created in `backend/app/scheduler_service.py`
-  - [ ] SQLAlchemyJobStore configured with `sqlite:///data/scheduler_jobs.db`
-  - [ ] AsyncIOScheduler configured with UTC timezone
-  - [ ] Job defaults set: `coalesce=True`, `max_instances=1`, `misfire_grace_time=300`
-  - [ ] `start()` method loads cron schedule from ApplicationSettings on startup
-  - [ ] `shutdown()` method gracefully stops scheduler with `wait=True`
-  - [ ] `update_download_schedule(cron_expression)` method adds/updates main download job
-  - [ ] `get_schedule_status()` method returns current scheduler state and job info
-  - [ ] Event listeners log job execution success/failure events
-  - [ ] Scheduler recovers persisted jobs after Docker container restart
-  - [ ] Unit tests verify scheduler initialization and job management
+  - [x] SchedulerService class created in `backend/app/scheduler_service.py`
+  - [x] SQLAlchemyJobStore configured with `sqlite:///data/scheduler_jobs.db`
+  - [x] AsyncIOScheduler configured with UTC timezone
+  - [x] Job defaults set: `coalesce=True`, `max_instances=1`, `misfire_grace_time=300`
+  - [x] `start()` method loads cron schedule from ApplicationSettings on startup
+  - [x] `shutdown()` method gracefully stops scheduler with `wait=True`
+  - [x] `update_download_schedule(cron_expression)` method adds/updates main download job
+  - [x] `get_schedule_status()` method returns current scheduler state and job info
+  - [x] Event listeners log job execution success/failure events
+  - [x] Scheduler recovers persisted jobs after Docker container restart (3 POC jobs recovered)
+  - [x] Stale lock recovery integrated in start() method via clear_stale_locks()
+  - [x] Manual tests verify scheduler initialization, job recovery, and graceful shutdown
+  - [ ] Unit tests (formal test suite) - deferred to TEST-001
+  - [ ] FastAPI lifespan integration - deferred to BE-006
 
 #### 3. ✅ [BE-002] Implement Cron Expression Validation Utilities
 - **Description:** Create `cron_validation.py` with production-ready cron validation using APScheduler's native CronTrigger. Includes input sanitization, next run calculation, and human-readable formatting. No external dependencies needed - APScheduler handles everything.
