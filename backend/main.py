@@ -1,12 +1,14 @@
 """Main FastAPI application."""
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.database import get_db, create_tables
+from app.database import get_db, create_tables, SessionLocal
 from app.utils import ensure_directories, get_directory_info, initialize_default_settings, sync_all_settings_to_yaml
 from app.api import router as api_router
+from app.scheduler_service import scheduler_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -15,34 +17,93 @@ logger = logging.getLogger(__name__)
 # Get settings
 settings = get_settings()
 
-# Create FastAPI app with comprehensive OpenAPI documentation
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    FastAPI lifespan context manager for application startup and shutdown.
+
+    This handles:
+    - Application initialization (directories, database, settings)
+    - Scheduler startup and job recovery
+    - Graceful shutdown of scheduler
+
+    The lifespan context manager is the modern FastAPI pattern for managing
+    startup and shutdown events, replacing the deprecated @app.on_event decorators.
+    """
+    # Startup
+    logger.info(f"Starting {settings.app_name} v{settings.app_version}")
+
+    try:
+        # Ensure directories exist
+        ensure_directories()
+        logger.info("Directory structure verified")
+
+        # Create database tables
+        create_tables()
+        logger.info("Database tables initialized")
+
+        # Initialize default application settings
+        db = SessionLocal()
+        try:
+            initialize_default_settings(db)
+            logger.info("Default application settings initialized")
+
+            # Sync all settings from database to YAML configuration
+            sync_all_settings_to_yaml(db)
+            logger.info("Application settings synced to YAML configuration")
+        finally:
+            db.close()
+
+        # Start scheduler service (Story 007)
+        await scheduler_service.start()
+        logger.info("Scheduler service started successfully")
+
+    except Exception as e:
+        logger.error(f"Startup failed: {e}")
+        raise
+
+    # Application is ready, yield control
+    yield
+
+    # Shutdown
+    logger.info("Shutting down application")
+    try:
+        await scheduler_service.shutdown()
+        logger.info("Scheduler service stopped successfully")
+    except Exception as e:
+        logger.error(f"Error during scheduler shutdown: {e}")
+
+
+# Create FastAPI app with lifespan management and comprehensive OpenAPI documentation
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description="""
-    **ChannelFinWatcher** is a YouTube channel monitoring system that automatically downloads 
+    **ChannelFinWatcher** is a YouTube channel monitoring system that automatically downloads
     the latest videos from configured channels for offline viewing.
-    
+
     ## Features
-    
+
     * **Channel Management**: Add, configure, and monitor YouTube channels
     * **Automated Downloads**: Scheduled downloads with configurable limits
     * **Real-time Status**: Monitor download progress and system health
     * **File Organization**: Jellyfin-compatible media organization
-    
+
     ## API Documentation
-    
+
     This API provides endpoints for:
     - Channel CRUD operations
     - Download status and history
     - System configuration and health monitoring
-    
+
     ## Getting Started
-    
+
     1. Use the `/health` endpoint to verify system status
     2. Add channels via the channels API
     3. Monitor downloads through the status endpoints
     """,
+    lifespan=lifespan,  # Register lifespan context manager
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/api/v1/openapi.json",
@@ -58,39 +119,6 @@ app = FastAPI(
 
 # Include API routes
 app.include_router(api_router, prefix="/api/v1", tags=["channels", "settings"])
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize application on startup."""
-    logger.info(f"Starting {settings.app_name} v{settings.app_version}")
-    
-    try:
-        # Ensure directories exist
-        ensure_directories()
-        logger.info("Directory structure verified")
-        
-        # Create database tables
-        create_tables()
-        logger.info("Database tables initialized")
-        
-        # Initialize default application settings (User Story 3)
-        # This ensures default video limit and other settings are available
-        from app.database import SessionLocal
-        db = SessionLocal()
-        try:
-            initialize_default_settings(db)
-            logger.info("Default application settings initialized")
-            
-            # Sync all settings from database to YAML configuration
-            sync_all_settings_to_yaml(db)
-            logger.info("Application settings synced to YAML configuration")
-        finally:
-            db.close()
-        
-    except Exception as e:
-        logger.error(f"Startup failed: {e}")
-        raise
 
 
 @app.get("/", tags=["System"])

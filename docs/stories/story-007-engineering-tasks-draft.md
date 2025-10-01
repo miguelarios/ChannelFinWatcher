@@ -165,17 +165,19 @@
 - **Dependencies:** Task 2 (BE-001)
 - **Reference:** Lines 1884-1931 in Reference Materials
 - **Acceptance Criteria:**
-  - [ ] Import `scheduler_service` from `app.scheduler_service`
-  - [ ] Modify existing `lifespan(app)` context manager or create if missing
-  - [ ] Call `await scheduler_service.start()` in startup section
-  - [ ] Log successful scheduler start with recovered job count
-  - [ ] Call `await scheduler_service.shutdown()` in finally/shutdown section
-  - [ ] Log scheduler shutdown completion
-  - [ ] Handle exceptions during scheduler start/stop with clear error messages
-  - [ ] Scheduler start failure prevents application from starting (raises exception)
-  - [ ] Scheduler shutdown errors logged but don't prevent app shutdown
-  - [ ] Integration tests verify scheduler starts when Docker container starts
-  - [ ] Integration tests verify scheduler persists jobs after container restart
+  - [x] Import `scheduler_service` from `app.scheduler_service`
+  - [x] Convert deprecated `@app.on_event("startup")` to modern `lifespan()` context manager
+  - [x] Call `await scheduler_service.start()` in startup section
+  - [x] Log successful scheduler start with recovered job count
+  - [x] Call `await scheduler_service.shutdown()` in shutdown section
+  - [x] Log scheduler shutdown completion
+  - [x] Handle exceptions during scheduler start/stop with clear error messages
+  - [x] Scheduler start failure prevents application from starting (raises exception)
+  - [x] Scheduler shutdown errors logged but don't prevent app shutdown
+  - [x] Docker restart test: Scheduler starts automatically with application
+  - [x] Logs confirm: "Scheduler started - recovered 4 jobs" including main_download_job
+  - [x] Next run time: 2025-10-02T00:00:00+00:00 (default daily at midnight)
+  - [ ] Integration tests with container restart - deferred to TEST-003
 
 #### 8. ✅ [BE-007] Coordinate Manual Trigger with Scheduler Lock
 - **Description:** Modify existing manual trigger endpoint (`POST /channels/{id}/download`) to coordinate with scheduler lock mechanism. Ensures manual triggers respect `scheduler_running` flag and queue requests when scheduled job is active. This implements Story 007 scenario "Manual trigger during scheduled run" (lines 76-81).
