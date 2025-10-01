@@ -1,6 +1,7 @@
 """API endpoints for the application."""
 import os
 import logging
+from datetime import datetime
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -23,6 +24,11 @@ from app.schemas import (
     DownloadList,
     DownloadHistory as DownloadHistorySchema,
     DownloadTriggerResponse,
+    SchedulerStatusResponse,
+    UpdateScheduleRequest,
+    UpdateScheduleResponse,
+    SchedulerEnableRequest,
+    ValidateCronResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -839,5 +845,208 @@ async def get_channel_download_history(
     history = db.query(DownloadHistory).filter(
         DownloadHistory.channel_id == channel_id
     ).order_by(DownloadHistory.run_date.desc()).limit(limit).all()
-    
+
     return history
+
+
+# Scheduler Management Endpoints (Story 007)
+
+@router.get("/scheduler/status", response_model=SchedulerStatusResponse, tags=["Scheduler"])
+async def get_scheduler_status(db: Session = Depends(get_db)):
+    """
+    Get current scheduler status and configuration.
+
+    Returns comprehensive information about the scheduler state including:
+    - Whether scheduler is running and enabled
+    - Current cron schedule
+    - Next and last run times
+    - Active jobs count
+
+    Returns:
+        SchedulerStatusResponse: Current scheduler status
+
+    Example:
+        GET /api/v1/scheduler/status
+    """
+    from app.scheduler_service import scheduler_service
+
+    # Get scheduler status from service
+    scheduler_status = scheduler_service.get_schedule_status()
+
+    # Get database settings
+    cron_setting = db.query(ApplicationSettings).filter(
+        ApplicationSettings.key == "cron_schedule"
+    ).first()
+
+    enabled_setting = db.query(ApplicationSettings).filter(
+        ApplicationSettings.key == "scheduler_enabled"
+    ).first()
+
+    last_run_setting = db.query(ApplicationSettings).filter(
+        ApplicationSettings.key == "scheduler_last_run"
+    ).first()
+
+    return {
+        "scheduler_running": scheduler_status.get("scheduler_running", False),
+        "scheduler_enabled": enabled_setting.value == "true" if enabled_setting else False,
+        "cron_schedule": cron_setting.value if cron_setting else None,
+        "next_run": scheduler_status.get("next_run_time"),
+        "last_run": last_run_setting.value if last_run_setting else None,
+        "download_job_active": scheduler_status.get("download_job_active", False),
+        "total_jobs": scheduler_status.get("total_jobs", 0)
+    }
+
+
+@router.post("/scheduler/schedule", response_model=UpdateScheduleResponse, tags=["Scheduler"])
+async def update_scheduler_schedule(
+    request: UpdateScheduleRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Update the cron schedule for automatic downloads.
+
+    Validates the cron expression and updates the scheduler if valid.
+    Returns the next 5 scheduled run times for verification.
+
+    Args:
+        request: UpdateScheduleRequest with cron_expression
+        db: Database session dependency
+
+    Returns:
+        UpdateScheduleResponse: Updated schedule details with next runs
+
+    Raises:
+        HTTPException 400: If cron expression is invalid
+
+    Example:
+        POST /api/v1/scheduler/schedule
+        {"cron_expression": "0 */6 * * *"}
+    """
+    from app.cron_validation import validate_cron_expression, get_cron_schedule_info
+    from app.scheduler_service import scheduler_service
+
+    cron_expr = request.cron_expression
+
+    # Validate cron expression
+    is_valid, error_msg, trigger = validate_cron_expression(cron_expr)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
+
+    # Update database setting
+    cron_setting = db.query(ApplicationSettings).filter(
+        ApplicationSettings.key == "cron_schedule"
+    ).first()
+
+    if cron_setting:
+        cron_setting.value = cron_expr
+        cron_setting.updated_at = datetime.utcnow()
+    else:
+        cron_setting = ApplicationSettings(
+            key="cron_schedule",
+            value=cron_expr,
+            description="Cron expression for automatic downloads",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+        db.add(cron_setting)
+
+    db.commit()
+
+    # Update scheduler job
+    try:
+        scheduler_service.update_download_schedule(cron_expr)
+    except Exception as e:
+        logger.error(f"Failed to update scheduler: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update scheduler: {str(e)}")
+
+    # Get schedule info for response
+    schedule_info = get_cron_schedule_info(cron_expr)
+
+    return {
+        "success": True,
+        "schedule": cron_expr,
+        "next_run": schedule_info.get("next_run"),
+        "next_5_runs": schedule_info.get("next_5_runs", []),
+        "human_readable": schedule_info.get("human_readable", "")
+    }
+
+
+@router.put("/scheduler/enable", tags=["Scheduler"])
+async def toggle_scheduler(
+    request: SchedulerEnableRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Enable or disable the scheduler.
+
+    When disabled, scheduled downloads will not run, but the schedule
+    configuration is preserved.
+
+    Args:
+        request: SchedulerEnableRequest with enabled boolean
+        db: Database session dependency
+
+    Returns:
+        dict: Success status and new enabled state
+
+    Example:
+        PUT /api/v1/scheduler/enable
+        {"enabled": false}
+    """
+    enabled_setting = db.query(ApplicationSettings).filter(
+        ApplicationSettings.key == "scheduler_enabled"
+    ).first()
+
+    new_value = "true" if request.enabled else "false"
+
+    if enabled_setting:
+        enabled_setting.value = new_value
+        enabled_setting.updated_at = datetime.utcnow()
+    else:
+        enabled_setting = ApplicationSettings(
+            key="scheduler_enabled",
+            value=new_value,
+            description="Enable/disable automatic scheduled downloads",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+        db.add(enabled_setting)
+
+    db.commit()
+
+    return {
+        "success": True,
+        "enabled": request.enabled,
+        "message": f"Scheduler {'enabled' if request.enabled else 'disabled'} successfully"
+    }
+
+
+@router.get("/scheduler/validate", response_model=ValidateCronResponse, tags=["Scheduler"])
+async def validate_cron_expression(expression: str):
+    """
+    Validate a cron expression without saving it.
+
+    Useful for real-time validation in the UI before the user saves.
+    Returns validation status and next run times if valid.
+
+    Args:
+        expression: Cron expression to validate (query parameter)
+
+    Returns:
+        ValidateCronResponse: Validation result with next runs
+
+    Example:
+        GET /api/v1/scheduler/validate?expression=0%20*%2F6%20*%20*%20*
+    """
+    from app.cron_validation import get_cron_schedule_info
+
+    schedule_info = get_cron_schedule_info(expression)
+
+    return {
+        "valid": schedule_info.get("valid", False),
+        "error": schedule_info.get("error"),
+        "next_run": schedule_info.get("next_run"),
+        "next_5_runs": schedule_info.get("next_5_runs", []),
+        "time_until_next": schedule_info.get("time_until_next"),
+        "human_readable": schedule_info.get("human_readable", "")
+    }

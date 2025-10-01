@@ -246,3 +246,50 @@ class ErrorResponse(BaseModel):
     error: str
     details: Optional[List[ErrorDetail]] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+# Scheduler schemas (Story 007)
+class SchedulerStatusResponse(BaseModel):
+    """Scheduler status response schema."""
+    scheduler_running: bool = Field(..., description="Whether scheduler is currently active")
+    scheduler_enabled: bool = Field(..., description="Whether scheduled downloads are enabled")
+    cron_schedule: Optional[str] = Field(None, description="Current cron expression")
+    next_run: Optional[str] = Field(None, description="ISO timestamp of next scheduled run")
+    last_run: Optional[str] = Field(None, description="ISO timestamp of last run")
+    download_job_active: bool = Field(..., description="Whether main download job is scheduled")
+    total_jobs: int = Field(..., description="Total number of scheduled jobs")
+
+
+class UpdateScheduleRequest(BaseModel):
+    """Request to update cron schedule."""
+    cron_expression: str = Field(
+        ...,
+        description="5-field cron expression (minute hour day month dow)",
+        min_length=9,
+        max_length=100,
+        examples=["0 */6 * * *", "0 0 * * *", "30 2 * * 1-5"]
+    )
+
+
+class UpdateScheduleResponse(BaseModel):
+    """Response after updating schedule."""
+    success: bool = Field(..., description="Whether update was successful")
+    schedule: str = Field(..., description="New cron expression")
+    next_run: Optional[str] = Field(None, description="ISO timestamp of next run")
+    next_5_runs: List[str] = Field(default_factory=list, description="Next 5 scheduled runs")
+    human_readable: str = Field(..., description="Human-readable schedule description")
+
+
+class SchedulerEnableRequest(BaseModel):
+    """Request to enable/disable scheduler."""
+    enabled: bool = Field(..., description="Whether to enable or disable scheduler")
+
+
+class ValidateCronResponse(BaseModel):
+    """Response for cron expression validation."""
+    valid: bool = Field(..., description="Whether expression is valid")
+    error: Optional[str] = Field(None, description="Error message if invalid")
+    next_run: Optional[str] = Field(None, description="ISO timestamp of next run")
+    next_5_runs: List[str] = Field(default_factory=list, description="Next 5 scheduled runs")
+    time_until_next: Optional[str] = Field(None, description="Human-readable time until next run")
+    human_readable: str = Field(..., description="Human-readable schedule description")
