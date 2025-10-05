@@ -124,6 +124,25 @@ async def scheduled_download_job():
                 f"{downloaded_summary['total_videos']} total videos downloaded"
             )
 
+            # === BE-007: PROCESS MANUAL TRIGGER QUEUE ===
+            # Process any queued manual download requests after scheduled channels
+            logger.info("Checking for queued manual download requests")
+            try:
+                from app.manual_trigger_queue import process_queue
+
+                queue_successful, queue_failed = await process_queue(db)
+                if queue_successful > 0 or queue_failed > 0:
+                    logger.info(
+                        f"Processed manual trigger queue: {queue_successful} successful, {queue_failed} failed"
+                    )
+                    # Update summary to include queued requests
+                    downloaded_summary["manual_queue_successful"] = queue_successful
+                    downloaded_summary["manual_queue_failed"] = queue_failed
+
+            except Exception as e:
+                logger.error(f"Error processing manual trigger queue: {e}")
+                # Don't fail the entire job if queue processing fails
+
             # Update global job statistics
             _update_job_statistics(downloaded_summary, db)
 

@@ -156,11 +156,24 @@ class DownloadList(BaseModel):
 
 
 class DownloadTriggerResponse(BaseModel):
-    """Schema for download trigger responses."""
-    success: bool = Field(..., description="Whether download was successful")
-    videos_downloaded: int = Field(..., description="Number of videos downloaded")
+    """
+    Schema for download trigger responses.
+
+    Supports two response modes:
+    - 200 OK: Download completed immediately (success=True/False, videos_downloaded set)
+    - 202 Accepted: Download queued due to scheduler running (status='queued', position set)
+
+    BE-007: Coordinate Manual Trigger with Scheduler Lock
+    """
+    success: Optional[bool] = Field(None, description="Whether download was successful (None if queued)")
+    videos_downloaded: Optional[int] = Field(None, description="Number of videos downloaded (None if queued)")
     error_message: Optional[str] = Field(None, description="Error message if failed")
     download_history_id: Optional[int] = Field(None, description="ID of the download history record")
+
+    # Queue-related fields (BE-007)
+    status: Optional[str] = Field(None, description="Status: 'completed' or 'queued'")
+    message: Optional[str] = Field(None, description="Human-readable status message")
+    position: Optional[int] = Field(None, description="Queue position (1-based, for queued requests)")
 
 
 # Health check and system schemas

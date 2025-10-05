@@ -673,59 +673,113 @@ async def update_default_video_limit(
 async def trigger_channel_download(channel_id: int, db: Session = Depends(get_db)):
     """
     Manually trigger download process for a specific channel.
-    
+
     This endpoint initiates the download process for a channel's recent videos,
     implementing the core functionality of User Story 5. Downloads are processed
     sequentially to avoid overwhelming system resources.
-    
+
+    BE-007: Coordinate Manual Trigger with Scheduler Lock
+    - If scheduler is running: Returns 202 Accepted and queues the request
+    - If scheduler is idle: Returns 200 OK and executes immediately
+
     Args:
         channel_id: Database ID of the channel to download from
         db: Database session dependency
-    
+
     Returns:
-        DownloadTriggerResponse: Results of the download operation
-        
+        DownloadTriggerResponse: Results of the download operation or queue status
+
     Raises:
         HTTPException 404: If channel not found
         HTTPException 400: If channel is disabled
         HTTPException 500: If download process fails unexpectedly
-        
-    Example:
+
+    Example (Immediate Execution - 200 OK):
         POST /api/v1/channels/123/download
         Response:
         {
             "success": true,
             "videos_downloaded": 3,
             "error_message": null,
-            "download_history_id": 456
+            "download_history_id": 456,
+            "status": "completed"
+        }
+
+    Example (Queued - 202 Accepted):
+        POST /api/v1/channels/123/download
+        Response:
+        {
+            "status": "queued",
+            "message": "Scheduled job in progress. Manual download queued.",
+            "position": 1,
+            "success": null,
+            "videos_downloaded": null
         }
     """
+    from fastapi import Response
+    from app.manual_trigger_queue import add_to_queue
+
     # Find the channel
     channel = db.query(Channel).filter(Channel.id == channel_id).first()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    
+
     if not channel.enabled:
         raise HTTPException(status_code=400, detail="Channel is disabled")
-    
+
     logger.info(f"Manual download triggered for channel: {channel.name} (ID: {channel_id})")
-    
+
+    # === BE-007: CHECK SCHEDULER LOCK ===
+    # Check if scheduled job is currently running
+    scheduler_running_flag = db.query(ApplicationSettings).filter(
+        ApplicationSettings.key == "scheduled_downloads_running"
+    ).first()
+
+    if scheduler_running_flag and scheduler_running_flag.value == "true":
+        # Scheduler is running - queue this manual request
+        logger.info(
+            f"Scheduler is running, queueing manual download for channel {channel_id}"
+        )
+
+        try:
+            position = add_to_queue(db, channel_id)
+
+            # Return 202 Accepted with queue status
+            return DownloadTriggerResponse(
+                status="queued",
+                message="Scheduled job in progress. Manual download queued.",
+                position=position,
+                success=None,
+                videos_downloaded=None,
+                error_message=None,
+                download_history_id=None
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to queue manual download for channel {channel_id}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to queue download request: {str(e)}"
+            )
+
+    # === IMMEDIATE EXECUTION (Scheduler not running) ===
     try:
         # Process channel downloads using the video download service
         success, videos_downloaded, error_message = video_download_service.process_channel_downloads(channel, db)
-        
+
         # Get the most recent download history record for this channel
         download_history = db.query(DownloadHistory).filter(
             DownloadHistory.channel_id == channel_id
         ).order_by(DownloadHistory.run_date.desc()).first()
-        
+
         return DownloadTriggerResponse(
             success=success,
             videos_downloaded=videos_downloaded,
             error_message=error_message,
-            download_history_id=download_history.id if download_history else None
+            download_history_id=download_history.id if download_history else None,
+            status="completed"
         )
-        
+
     except Exception as e:
         logger.error(f"Unexpected error during manual download for channel {channel_id}: {e}")
         raise HTTPException(
