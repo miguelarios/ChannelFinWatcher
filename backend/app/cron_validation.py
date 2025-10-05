@@ -20,6 +20,11 @@ from datetime import datetime, timedelta
 from typing import List, Tuple, Optional, Dict
 import pytz
 import re
+from app.config import get_settings
+
+# Get configured timezone (defaults to UTC, respects TZ environment variable)
+settings = get_settings()
+SCHEDULER_TIMEZONE = pytz.timezone(settings.scheduler_timezone)
 
 
 def validate_cron_expression(cron_expr: str) -> Tuple[bool, Optional[str], Optional[CronTrigger]]:
@@ -60,7 +65,7 @@ def validate_cron_expression(cron_expr: str) -> Tuple[bool, Optional[str], Optio
 
         # APScheduler CronTrigger provides native validation
         # This handles all edge cases: leap years, DST, month boundaries, invalid dates
-        trigger = CronTrigger.from_crontab(sanitized, timezone=pytz.UTC)
+        trigger = CronTrigger.from_crontab(sanitized, timezone=SCHEDULER_TIMEZONE)
 
         # Security: prevent excessive frequency for system stability
         # Block expressions that run every minute
@@ -107,7 +112,7 @@ def calculate_next_runs(cron_expr: str, count: int = 5) -> List[datetime]:
         return []
 
     next_runs = []
-    current_time = datetime.now(pytz.UTC)
+    current_time = datetime.now(SCHEDULER_TIMEZONE)
 
     for _ in range(count):
         next_run = trigger.get_next_fire_time(None, current_time)
@@ -164,7 +169,7 @@ def get_cron_schedule_info(cron_expr: str) -> Dict:
 
     next_runs = calculate_next_runs(cron_expr, 5)
     next_run = next_runs[0] if next_runs else None
-    now = datetime.now(pytz.UTC)
+    now = datetime.now(SCHEDULER_TIMEZONE)
 
     return {
         "valid": True,
@@ -172,7 +177,7 @@ def get_cron_schedule_info(cron_expr: str) -> Dict:
         "next_run": next_run.isoformat() if next_run else None,
         "next_5_runs": [run.isoformat() for run in next_runs],
         "time_until_next": str(next_run - now) if next_run else None,
-        "timezone": "UTC",
+        "timezone": settings.scheduler_timezone,
         "human_readable": _describe_cron_schedule(cron_expr)
     }
 

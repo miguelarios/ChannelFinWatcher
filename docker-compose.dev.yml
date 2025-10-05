@@ -18,6 +18,7 @@ services:
       - MEDIA_DIR=/app/media
       - TEMP_DIR=/app/temp
       - CONFIG_FILE=/app/config/config.yaml
+      - TZ=America/Chicago  # CDT/CST timezone for scheduler
     depends_on:
       - db-init
     networks:

@@ -41,8 +41,10 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models import ApplicationSettings
 from app.overlap_prevention import clear_stale_locks
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 class SchedulerService:
@@ -90,12 +92,12 @@ class SchedulerService:
             'replace_existing': True   # Update existing jobs on restart
         }
 
-        # Create scheduler with UTC timezone for consistency
+        # Create scheduler with configured timezone (defaults to UTC, respects TZ env var)
         self.scheduler = AsyncIOScheduler(
             jobstores=jobstores,
             executors=executors,
             job_defaults=job_defaults,
-            timezone='UTC'
+            timezone=settings.scheduler_timezone
         )
 
         # Add event listeners for monitoring
@@ -209,8 +211,8 @@ class SchedulerService:
             # Import here to avoid circular dependency
             from app.scheduled_download_job import scheduled_download_job
 
-            # Parse cron expression into trigger
-            trigger = CronTrigger.from_crontab(cron_expression, timezone='UTC')
+            # Parse cron expression into trigger with configured timezone
+            trigger = CronTrigger.from_crontab(cron_expression, timezone=settings.scheduler_timezone)
 
             # Add/update the download job
             self.scheduler.add_job(

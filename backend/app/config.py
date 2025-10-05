@@ -26,10 +26,20 @@ class Settings(BaseSettings):
     # Application Metadata
     app_name: str = "ChannelFinWatcher"
     app_version: str = "0.1.0"
-    
+
+    # Scheduler Configuration (Story 007)
+    scheduler_timezone: str = "UTC"  # Override with TZ environment variable
+
     class Config:
         env_file = ".env"
         case_sensitive = False
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Use system TZ environment variable if available
+        import os
+        if 'TZ' in os.environ:
+            self.scheduler_timezone = os.environ['TZ']
 
 
 @lru_cache()
