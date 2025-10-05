@@ -20,7 +20,7 @@ export function App() {
       />
       <main className="container mx-auto px-4 py-8">
         {currentView === 'dashboard' ? (
-          <YouTubeDownloader />
+          <YouTubeDownloader onNavigateToSettings={() => handleViewChange('settings')} />
         ) : (
           <Settings />
         )}

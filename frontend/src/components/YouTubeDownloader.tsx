@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { DownloadResults } from './DownloadResults'
 import { ChannelsList } from './ChannelsList'
+import { SchedulerStatusWidget } from './SchedulerStatusWidget'
 
 /**
  * Channel interface representing a YouTube channel configuration
@@ -20,22 +21,34 @@ interface Channel {
 }
 
 /**
+ * Props for YouTubeDownloader component
+ */
+interface YouTubeDownloaderProps {
+  onNavigateToSettings?: () => void
+}
+
+/**
  * Main component for adding and managing YouTube channels for monitoring.
- * 
+ *
  * This component implements Story 1: Add Channel via Web UI
  * - Provides form for entering YouTube channel URLs
  * - Validates input and calls backend API for channel creation
  * - Displays existing channels in card format
  * - Handles duplicate channel detection and error messaging
- * 
+ *
+ * Also includes Story 007 - FE-002:
+ * - Displays scheduler status widget for at-a-glance monitoring
+ * - Provides quick access to scheduler configuration
+ *
  * Key Features:
  * - Multiple YouTube URL format support (/@handle, /channel/UC..., etc.)
  * - Real-time form validation
  * - Loading states during API calls
  * - Channel list management (add/remove)
  * - Error handling with user-friendly messages
+ * - Scheduler status monitoring with auto-refresh
  */
-export function YouTubeDownloader() {
+export function YouTubeDownloader({ onNavigateToSettings }: YouTubeDownloaderProps) {
   const [channelUrl, setChannelUrl] = useState('')
   const [videoCount, setVideoCount] = useState(10)
   const [defaultVideoLimit, setDefaultVideoLimit] = useState(10)
@@ -238,10 +251,15 @@ export function YouTubeDownloader() {
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6 max-w-3xl mx-auto">
-      <h2 className="text-xl font-semibold mb-6">
-        Add YouTube Channels for Monitoring
-      </h2>
+    <div className="space-y-6 max-w-3xl mx-auto">
+      {/* Scheduler Status Widget (Story 007 - FE-002) */}
+      <SchedulerStatusWidget onNavigateToSettings={onNavigateToSettings} />
+
+      {/* Main Channel Management Card */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h2 className="text-xl font-semibold mb-6">
+          Add YouTube Channels for Monitoring
+        </h2>
       
       <form onSubmit={handleSubmit} className="space-y-4 mb-8">
         <h3 className="text-lg font-medium mb-4">Add New Channel</h3>
@@ -384,12 +402,13 @@ export function YouTubeDownloader() {
         </div>
       )}
 
-      {/* Note: For Story 1, we only show channel addition success, not actual video downloads */}
-      {isLoading && (
-        <div className="mt-8">
-          <DownloadResults isLoading={true} videos={[]} />
-        </div>
-      )}
+        {/* Note: For Story 1, we only show channel addition success, not actual video downloads */}
+        {isLoading && (
+          <div className="mt-8">
+            <DownloadResults isLoading={true} videos={[]} />
+          </div>
+        )}
+      </div>
     </div>
   )
 }
