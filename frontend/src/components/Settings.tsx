@@ -374,6 +374,27 @@ export function Settings() {
       setSchedulerError('')
       setSchedulerSuccess('')
 
+      // When enabling the scheduler, first apply the cron schedule to APScheduler
+      if (enabled && cronExpression) {
+        // Save the schedule to register it with APScheduler
+        const scheduleResponse = await fetch('/api/v1/scheduler/schedule', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ cron_expression: cronExpression }),
+        })
+
+        if (!scheduleResponse.ok) {
+          const errorData = await scheduleResponse.json()
+          throw new Error(errorData.detail || 'Failed to apply schedule')
+        }
+
+        // Update original cron expression to match saved value
+        setOriginalCronExpression(cronExpression)
+      }
+
+      // Now toggle the enabled flag
       const response = await fetch('/api/v1/scheduler/enable', {
         method: 'PUT',
         headers: {
@@ -389,7 +410,14 @@ export function Settings() {
 
       const data = await response.json()
       setSchedulerEnabled(enabled)
-      setSchedulerSuccess(data.message)
+      setSchedulerSuccess(
+        enabled
+          ? 'Scheduler enabled and schedule applied successfully'
+          : data.message
+      )
+
+      // Refresh scheduler status to show updated next run time
+      await fetchSchedulerStatus()
 
       // Clear success message after 3 seconds
       setTimeout(() => setSchedulerSuccess(''), 3000)
