@@ -258,7 +258,8 @@ export function Settings() {
       if (response.ok) {
         const data = await response.json()
         // API returns {channels: [], total: number, enabled: number}
-        setHasChannels(data.total > 0)
+        // Scheduler requires at least one ENABLED channel (not just added channels)
+        setHasChannels(data.total > 0 && data.enabled > 0)
       }
     } catch (err) {
       console.error('Error checking channels:', err)
@@ -609,7 +610,7 @@ export function Settings() {
               </label>
               {!hasChannels && (
                 <p className="mt-1 text-sm text-yellow-600">
-                  Add channels before enabling the scheduler
+                  Add and enable at least one channel before enabling the scheduler
                 </p>
               )}
             </div>
