@@ -21,7 +21,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
  *
  * Supports:
  * - POST: Update cron schedule with validation
- * - Request: {cron_expression: "0 */6 * * *"}
+ * - Request: {cron_expression: "0 0 * * *"}
  * - Response: UpdateScheduleResponse with next_5_runs array
  * - Error handling for invalid cron expressions (400 status)
  */
