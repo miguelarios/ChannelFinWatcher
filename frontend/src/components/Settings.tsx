@@ -256,8 +256,9 @@ export function Settings() {
     try {
       const response = await fetch('/api/v1/channels')
       if (response.ok) {
-        const channels = await response.json()
-        setHasChannels(Array.isArray(channels) && channels.length > 0)
+        const data = await response.json()
+        // API returns {channels: [], total: number, enabled: number}
+        setHasChannels(data.total > 0)
       }
     } catch (err) {
       console.error('Error checking channels:', err)
