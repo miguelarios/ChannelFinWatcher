@@ -62,6 +62,7 @@ class VideoDownloadService:
         # yt-dlp configuration for video downloads
         # Based on exact parameters from TDD reference bash script
         # Added anti-bot detection headers
+        # Multi-client fallback strategy to handle YouTube changes
         self.download_opts = {
             'paths': {
                 'temp': self.temp_path,
@@ -87,6 +88,9 @@ class VideoDownloadService:
             'concurrent_fragments': 4,
             'ignoreerrors': True,  # Continue on individual video errors
             'no_warnings': False,  # Show warnings for troubleshooting
+            # NOTE: Removed extractor_args player_client override
+            # yt-dlp 2025.09.26+ has smart automatic client selection that works better
+            # than manual overrides. Let yt-dlp choose the optimal client for each video.
             # Anti-bot detection headers
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -112,6 +116,8 @@ class VideoDownloadService:
             'no_warnings': True,
             'extract_flat': True,   # Flat playlist - only get IDs and titles (like --flat-playlist)
             'ignoreerrors': True,
+            # NOTE: Removed extractor_args player_client override
+            # yt-dlp 2025.09.26+ automatically selects optimal client
             # Minimal headers to avoid bot detection during light queries
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -211,15 +217,74 @@ class VideoDownloadService:
         return True, None  # Need to download
     
     def check_video_on_disk(self, video_id: str, media_path: str) -> bool:
-        """Check if video file exists on disk by looking for [video_id] in filename."""
+        """
+        Check if video file exists on disk by looking for [video_id] in filename.
+
+        Only matches actual video files, not metadata (.info.json), thumbnails, or subtitles.
+        Uses the same video extension list as _find_video_file_path for consistency.
+        """
         if not os.path.exists(media_path):
             return False
-        
+
+        # Video file extensions - must match _find_video_file_path
+        video_extensions = ('.mkv', '.mp4', '.webm', '.avi', '.mov', '.flv', '.m4v', '.3gp')
+
         for root, dirs, files in os.walk(media_path):
             for file in files:
-                if f"[{video_id}]" in file and not file.endswith('.part'):
+                # Must contain video ID AND be an actual video file AND not be a partial download
+                if (f"[{video_id}]" in file and
+                    file.lower().endswith(video_extensions) and
+                    not file.endswith('.part')):
                     return True
         return False
+
+    def _find_video_file_path(self, video_id: str, channel_dir_path: str) -> Optional[str]:
+        """
+        Find the actual video file path by searching for video_id in filename.
+
+        This method performs filesystem verification after yt-dlp download to confirm
+        the video file actually exists. With ignoreerrors=True, yt-dlp may "succeed"
+        without creating a file, so this verification is critical.
+
+        Args:
+            video_id: YouTube video ID (11 characters)
+            channel_dir_path: Full path to channel directory to search
+
+        Returns:
+            Full path to video file if found, None otherwise
+
+        The search:
+        - Walks the entire channel directory tree
+        - Looks for files containing [video_id] in filename
+        - Excludes partial downloads (.part files)
+        - Only matches actual video files (mkv, mp4, webm, etc.)
+        - Ignores metadata files (.info.json, thumbnails, etc.)
+        """
+        if not os.path.exists(channel_dir_path):
+            logger.warning(f"Channel directory not found: {channel_dir_path}")
+            return None
+
+        # Video file extensions we recognize (lowercase for case-insensitive matching)
+        video_extensions = ('.mkv', '.mp4', '.webm', '.avi', '.mov', '.flv', '.m4v', '.3gp')
+
+        # Walk directory tree looking for video file
+        for root, dirs, files in os.walk(channel_dir_path):
+            for filename in files:
+                # Check if filename contains the video ID in [brackets]
+                if f"[{video_id}]" in filename:
+                    # Exclude partial downloads
+                    if filename.endswith('.part'):
+                        logger.debug(f"Found partial download (skipping): {filename}")
+                        continue
+
+                    # Check if it's a video file (not .info.json, .jpg, etc.)
+                    if filename.lower().endswith(video_extensions):
+                        full_path = os.path.join(root, filename)
+                        logger.debug(f"Found video file for {video_id}: {full_path}")
+                        return full_path
+
+        logger.warning(f"No video file found for video_id={video_id} in {channel_dir_path}")
+        return None
     
     def get_recent_videos(self, channel_url: str, limit: int = 10, channel_id: str = None) -> Tuple[bool, List[Dict], Optional[str]]:
         """
@@ -438,36 +503,42 @@ class VideoDownloadService:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 # Download the video
                 ydl.download([video_url])
-                
-                # If we get here, download was successful
-                download.status = 'completed'
-                download.completed_at = datetime.utcnow()
-                
-                # Try to determine file path (simplified approach)
-                # The actual file path would be determined by the output template
-                channel_name = channel.name
-                upload_date = video_info.get('upload_date', '')
-                if upload_date and len(upload_date) >= 4:
-                    year = upload_date[:4]
-                    safe_channel = self._make_filesystem_safe(channel_name)
-                    safe_title = self._make_filesystem_safe(video_title)
-                    
-                    expected_dir = os.path.join(
-                        self.media_path,
-                        f"{safe_channel} [{channel.channel_id}]",
-                        year,
-                        f"{safe_channel} - {upload_date} - {safe_title} [{video_id}]"
-                    )
-                    expected_file = f"{safe_channel} - {upload_date} - {safe_title} [{video_id}].mkv"
-                    full_path = os.path.join(expected_dir, expected_file)
-                    
-                    if os.path.exists(full_path):
-                        download.file_path = full_path
-                        download.file_size = os.path.getsize(full_path)
-                
-                db.commit()
-                logger.info(f"Successfully downloaded: {video_title}")
-                return True, None
+
+                # CRITICAL: With ignoreerrors=True, yt-dlp doesn't throw exceptions on failure
+                # We MUST verify the file actually exists on disk before marking as successful
+
+                # Build channel directory path for verification
+                channel_dir = channel_dir_name(channel)
+                channel_dir_path = os.path.join(self.media_path, channel_dir)
+
+                # Brief delay to ensure filesystem has flushed
+                time.sleep(0.5)
+
+                # Verify download by finding the actual video file on disk
+                video_file_path = self._find_video_file_path(video_id, channel_dir_path)
+
+                if video_file_path and os.path.exists(video_file_path):
+                    # SUCCESS: Video file exists on disk
+                    download.status = 'completed'
+                    download.file_exists = True
+                    download.file_path = video_file_path
+                    download.file_size = os.path.getsize(video_file_path)
+                    download.completed_at = datetime.utcnow()
+                    db.commit()
+
+                    logger.info(f"Successfully downloaded: {video_title} → {video_file_path}")
+                    return True, None
+                else:
+                    # FAILURE: yt-dlp completed but no video file found
+                    # This happens when yt-dlp encounters errors but doesn't throw (ignoreerrors=True)
+                    error_msg = "yt-dlp completed but video file not found on disk (check logs for yt-dlp errors)"
+                    download.status = 'failed'
+                    download.file_exists = False
+                    download.error_message = error_msg[:500]
+                    db.commit()
+
+                    logger.error(f"Download failed for {video_title} ({video_id}): {error_msg}")
+                    return False, error_msg
                 
         except yt_dlp.DownloadError as e:
             error_msg = str(e)

@@ -50,8 +50,8 @@ def upgrade() -> None:
         },
         {
             'key': 'default_schedule',
-            'value': '0 */6 * * *',
-            'description': 'Default cron schedule for channel monitoring (every 6 hours).'
+            'value': '0 0 * * *',
+            'description': 'Default cron schedule for channel monitoring (daily at midnight UTC).'
         }
     ]
     

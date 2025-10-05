@@ -110,7 +110,7 @@ def load_yaml_config() -> Dict[str, Any]:
             "settings": {
                 "default_video_limit": 10,
                 "default_quality_preset": "best",
-                "default_schedule": "0 */6 * * *"  # Every 6 hours
+                "default_schedule": "0 0 * * *"  # Daily at midnight UTC
             }
         }
         save_yaml_config(default_config)
@@ -126,8 +126,8 @@ def load_yaml_config() -> Dict[str, Any]:
         if 'settings' not in config:
             config['settings'] = {
                 "default_video_limit": 10,
-                "default_quality_preset": "best",  
-                "default_schedule": "0 */6 * * *"
+                "default_quality_preset": "best",
+                "default_schedule": "0 0 * * *"
             }
         else:
             # Ensure all required settings exist with fallbacks
@@ -136,7 +136,7 @@ def load_yaml_config() -> Dict[str, Any]:
             if 'default_quality_preset' not in config['settings']:
                 config['settings']['default_quality_preset'] = "best"
             if 'default_schedule' not in config['settings']:
-                config['settings']['default_schedule'] = "0 */6 * * *"
+                config['settings']['default_schedule'] = "0 0 * * *"
             
         return config
         
@@ -430,8 +430,8 @@ def initialize_default_settings(db_session) -> bool:
             },
             {
                 'key': 'default_schedule',
-                'value': '0 */6 * * *',
-                'description': 'Default cron schedule for channel monitoring (every 6 hours).'
+                'value': '0 0 * * *',
+                'description': 'Default cron schedule for channel monitoring (daily at midnight UTC).'
             }
         ]
         

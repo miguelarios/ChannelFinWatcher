@@ -235,7 +235,7 @@ class SchedulerService:
 
         Returns:
             Dictionary containing:
-            - scheduler_running: bool - Is scheduler active
+            - scheduler_running: bool - Is a job currently executing (not just if APScheduler is active)
             - total_jobs: int - Number of scheduled jobs
             - download_job_active: bool - Is main download job scheduled
             - next_run_time: str or None - ISO timestamp of next run
@@ -250,8 +250,19 @@ class SchedulerService:
             jobs = self.scheduler.get_jobs()
             download_job = self.scheduler.get_job('main_download_job')
 
+            # Check if a job is ACTUALLY running by looking at the database flag
+            # (not just whether APScheduler service is started)
+            db = SessionLocal()
+            try:
+                running_flag = db.query(ApplicationSettings).filter(
+                    ApplicationSettings.key == "scheduled_downloads_running"
+                ).first()
+                job_currently_executing = running_flag and running_flag.value == "true"
+            finally:
+                db.close()
+
             return {
-                "scheduler_running": self.scheduler.running,
+                "scheduler_running": job_currently_executing,  # Fixed: Now checks actual job execution state
                 "total_jobs": len(jobs),
                 "download_job_active": download_job is not None,
                 "next_run_time": download_job.next_run_time.isoformat() if download_job and download_job.next_run_time else None,
