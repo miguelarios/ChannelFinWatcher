@@ -43,6 +43,19 @@ async def lifespan(app: FastAPI):
         create_tables()
         logger.info("Database tables initialized")
 
+        # Run pending database migrations automatically
+        # This ensures schema changes from Alembic migrations are applied on startup
+        try:
+            from alembic.config import Config
+            from alembic import command
+            alembic_cfg = Config("alembic.ini")
+            command.upgrade(alembic_cfg, "head")
+            logger.info("Database migrations applied successfully")
+        except Exception as migration_error:
+            logger.error(f"Failed to apply database migrations: {migration_error}")
+            # Allow app to continue - tables exist from create_tables()
+            # Migrations may not be needed if schema is already current
+
         # Initialize default application settings
         db = SessionLocal()
         try:

@@ -257,7 +257,8 @@ class SchedulerService:
                 running_flag = db.query(ApplicationSettings).filter(
                     ApplicationSettings.key == "scheduled_downloads_running"
                 ).first()
-                job_currently_executing = running_flag and running_flag.value == "true"
+                # Ensure boolean conversion: None → False, missing setting → False
+                job_currently_executing = bool(running_flag and running_flag.value == "true")
             finally:
                 db.close()
 

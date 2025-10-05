@@ -941,7 +941,8 @@ async def get_scheduler_status(db: Session = Depends(get_db)):
     ).first()
 
     return {
-        "scheduler_running": scheduler_status.get("scheduler_running", False),
+        # Explicit None check to ensure boolean type (handles None from scheduler_status)
+        "scheduler_running": scheduler_status.get("scheduler_running") or False,
         "scheduler_enabled": enabled_setting.value == "true" if enabled_setting else False,
         "cron_schedule": cron_setting.value if cron_setting else None,
         "next_run": scheduler_status.get("next_run_time"),
