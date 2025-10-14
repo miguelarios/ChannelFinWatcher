@@ -24,12 +24,15 @@ Usage:
 
 import logging
 import asyncio
+import shutil
+import os
 from datetime import datetime
 from typing import Tuple
+from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.models import Channel, ApplicationSettings, DownloadHistory
+from app.models import Channel, ApplicationSettings, DownloadHistory, Download
 from app.video_download_service import video_download_service
 from app.overlap_prevention import scheduler_lock, JobAlreadyRunningError
 
@@ -64,6 +67,7 @@ async def scheduled_download_job():
         "successful_channels": 0,
         "failed_channels": 0,
         "total_videos": 0,
+        "total_videos_deleted": 0,
         "start_time": datetime.utcnow()
     }
 
@@ -96,6 +100,21 @@ async def scheduled_download_job():
                     if success:
                         downloaded_summary["successful_channels"] += 1
                         downloaded_summary["total_videos"] += videos_downloaded
+
+                        # === BE-004B: AUTOMATIC VIDEO CLEANUP ===
+                        # Clean up old videos if channel exceeds configured limit
+                        # This runs after downloads complete to maintain storage limits
+                        try:
+                            deleted_count = await _cleanup_old_videos(channel, db)
+                            downloaded_summary["total_videos_deleted"] += deleted_count
+                            if deleted_count > 0:
+                                logger.info(
+                                    f"Cleaned up {deleted_count} old video(s) for channel '{channel.name}' "
+                                    f"(limit: {channel.limit})"
+                                )
+                        except Exception as e:
+                            # Cleanup errors shouldn't stop the job
+                            logger.error(f"Cleanup failed for channel '{channel.name}': {e}")
 
                         processing_time = (datetime.utcnow() - channel_start_time).total_seconds()
                         logger.info(
@@ -302,7 +321,8 @@ def _update_job_statistics(summary: dict, db: Session):
             ("scheduler_last_successful_run", summary["start_time"].isoformat()),
             ("scheduler_total_channels_last_run", str(summary["total_channels"])),
             ("scheduler_successful_channels_last_run", str(summary["successful_channels"])),
-            ("scheduler_total_videos_last_run", str(summary["total_videos"]))
+            ("scheduler_total_videos_last_run", str(summary["total_videos"])),
+            ("scheduler_total_videos_deleted_last_run", str(summary.get("total_videos_deleted", 0)))
         ]
 
         for key, value in stats_keys:
@@ -327,3 +347,114 @@ def _update_job_statistics(summary: dict, db: Session):
 
     except Exception as e:
         logger.error(f"Failed to update job statistics: {e}")
+
+
+async def _cleanup_old_videos(channel: Channel, db: Session) -> int:
+    """
+    Delete oldest videos when channel exceeds configured limit.
+
+    This function maintains the video count at the channel's configured limit
+    by deleting the oldest videos (by upload_date). It handles both database
+    records and physical files on disk.
+
+    Process:
+    1. Query all completed downloads for the channel
+    2. Sort by upload_date (newest first)
+    3. Calculate how many videos exceed the limit
+    4. Delete oldest videos (both DB records and files)
+    5. Return count of deleted videos
+
+    Args:
+        channel: Channel database model with configured limit
+        db: Database session
+
+    Returns:
+        Number of videos deleted
+
+    Error Handling:
+        - Missing files are logged but don't stop deletion
+        - Individual file deletion errors don't prevent DB cleanup
+        - All errors logged with context for debugging
+
+    Example:
+        Channel has limit=10, currently has 13 videos
+        → Deletes 3 oldest videos
+        → Returns 3
+    """
+    try:
+        # Query all completed downloads with existing files, sorted by upload_date DESC (newest first)
+        downloads = db.query(Download).filter(
+            Download.channel_id == channel.id,
+            Download.status == "completed",
+            Download.file_exists == True
+        ).order_by(Download.upload_date.desc()).all()
+
+        current_count = len(downloads)
+
+        # If we're at or under the limit, no cleanup needed
+        if current_count <= channel.limit:
+            logger.debug(f"Channel '{channel.name}' has {current_count} videos (limit: {channel.limit}), no cleanup needed")
+            return 0
+
+        # Calculate how many videos to delete (oldest ones)
+        excess_count = current_count - channel.limit
+        videos_to_delete = downloads[-excess_count:]  # Get the oldest videos (at the end of DESC sorted list)
+
+        logger.info(
+            f"Channel '{channel.name}' has {current_count} videos (limit: {channel.limit}), "
+            f"deleting {excess_count} oldest video(s)"
+        )
+
+        deleted_count = 0
+
+        for download in videos_to_delete:
+            try:
+                # Delete physical file/directory if it exists
+                if download.file_path:
+                    file_path = Path(download.file_path)
+
+                    # Try to delete the parent directory (contains video + metadata + thumbnails)
+                    video_dir = file_path.parent
+
+                    if video_dir.exists():
+                        shutil.rmtree(video_dir)
+                        logger.debug(f"Deleted video directory: {video_dir}")
+                    else:
+                        logger.warning(f"Video directory not found (already deleted?): {video_dir}")
+
+                # Delete database record
+                db.delete(download)
+                deleted_count += 1
+
+                logger.debug(
+                    f"Deleted video '{download.title}' (ID: {download.video_id}, "
+                    f"uploaded: {download.upload_date})"
+                )
+
+            except Exception as e:
+                # Log error but continue with other deletions
+                logger.error(
+                    f"Failed to delete video '{download.title}' (ID: {download.video_id}): {e}"
+                )
+                # Still try to delete the DB record
+                try:
+                    db.delete(download)
+                    deleted_count += 1
+                except Exception as db_error:
+                    logger.error(f"Failed to delete database record for video {download.video_id}: {db_error}")
+
+        # Commit all deletions
+        db.commit()
+
+        logger.info(
+            f"Cleanup completed for channel '{channel.name}': "
+            f"deleted {deleted_count}/{excess_count} video(s), "
+            f"now has {current_count - deleted_count} videos (limit: {channel.limit})"
+        )
+
+        return deleted_count
+
+    except Exception as e:
+        logger.error(f"Error during cleanup for channel '{channel.name}': {e}")
+        db.rollback()
+        return 0

@@ -15,9 +15,10 @@ from app.scheduled_download_job import (
     _process_channel_with_recovery,
     _is_retryable_error,
     _create_failed_history_record,
-    _update_job_statistics
+    _update_job_statistics,
+    _cleanup_old_videos
 )
-from app.models import Channel, DownloadHistory, ApplicationSettings
+from app.models import Channel, DownloadHistory, ApplicationSettings, Download
 from app.overlap_prevention import JobAlreadyRunningError
 
 
@@ -445,3 +446,373 @@ class TestJobStatisticsSummary:
         assert summary["failed_channels"] == 1
         assert summary["total_videos"] == 5
         assert "start_time" in summary
+
+
+class TestCleanupOldVideos:
+    """Test suite for _cleanup_old_videos function (BE-004B)."""
+
+    @pytest.mark.asyncio
+    async def test_no_cleanup_when_at_limit(self, db_session):
+        """Test that no videos are deleted when channel is at limit."""
+        # Create channel with limit=10
+        channel = Channel(
+            id=1,
+            name="Test Channel",
+            url="https://youtube.com/test",
+            channel_id="UC123",
+            limit=10
+        )
+        db_session.add(channel)
+        db_session.commit()
+
+        # Create exactly 10 completed downloads
+        for i in range(10):
+            download = Download(
+                channel_id=channel.id,
+                video_id=f"video_{i}",
+                title=f"Video {i}",
+                upload_date=f"202501{i:02d}",
+                status="completed",
+                file_exists=True,
+                file_path=f"/media/channel/video_{i}.mp4"
+            )
+            db_session.add(download)
+        db_session.commit()
+
+        # Run cleanup
+        deleted_count = await _cleanup_old_videos(channel, db_session)
+
+        # Verify no deletions
+        assert deleted_count == 0
+        remaining_count = db_session.query(Download).filter(
+            Download.channel_id == channel.id
+        ).count()
+        assert remaining_count == 10
+
+    @pytest.mark.asyncio
+    async def test_no_cleanup_when_under_limit(self, db_session):
+        """Test that no videos are deleted when channel is under limit."""
+        channel = Channel(
+            id=1,
+            name="Test Channel",
+            url="https://youtube.com/test",
+            channel_id="UC123",
+            limit=10
+        )
+        db_session.add(channel)
+        db_session.commit()
+
+        # Create only 5 downloads (under limit of 10)
+        for i in range(5):
+            download = Download(
+                channel_id=channel.id,
+                video_id=f"video_{i}",
+                title=f"Video {i}",
+                upload_date=f"202501{i:02d}",
+                status="completed",
+                file_exists=True,
+                file_path=f"/media/channel/video_{i}.mp4"
+            )
+            db_session.add(download)
+        db_session.commit()
+
+        # Run cleanup
+        deleted_count = await _cleanup_old_videos(channel, db_session)
+
+        # Verify no deletions
+        assert deleted_count == 0
+        remaining_count = db_session.query(Download).filter(
+            Download.channel_id == channel.id
+        ).count()
+        assert remaining_count == 5
+
+    @pytest.mark.asyncio
+    @patch('app.scheduled_download_job.shutil.rmtree')
+    @patch('app.scheduled_download_job.Path')
+    async def test_deletes_oldest_videos_when_over_limit(self, mock_path, mock_rmtree, db_session):
+        """Test that oldest videos are deleted when channel exceeds limit."""
+        channel = Channel(
+            id=1,
+            name="Test Channel",
+            url="https://youtube.com/test",
+            channel_id="UC123",
+            limit=10
+        )
+        db_session.add(channel)
+        db_session.commit()
+
+        # Create 13 downloads (3 over limit)
+        # upload_date format: YYYYMMDD (strings sort correctly)
+        for i in range(13):
+            download = Download(
+                channel_id=channel.id,
+                video_id=f"video_{i}",
+                title=f"Video {i}",
+                upload_date=f"202501{i:02d}",  # 20250100, 20250101, ..., 20250112
+                status="completed",
+                file_exists=True,
+                file_path=f"/media/channel/video_{i}/video.mp4"
+            )
+            db_session.add(download)
+        db_session.commit()
+
+        # Mock file system operations
+        mock_path_instance = MagicMock()
+        mock_path_instance.parent.exists.return_value = True
+        mock_path.return_value = mock_path_instance
+
+        # Run cleanup
+        deleted_count = await _cleanup_old_videos(channel, db_session)
+
+        # Verify 3 oldest videos were deleted
+        assert deleted_count == 3
+
+        # Verify correct number of videos remain
+        remaining_count = db_session.query(Download).filter(
+            Download.channel_id == channel.id
+        ).count()
+        assert remaining_count == 10
+
+        # Verify oldest videos were deleted (video_0, video_1, video_2)
+        oldest_videos = db_session.query(Download).filter(
+            Download.channel_id == channel.id,
+            Download.video_id.in_(["video_0", "video_1", "video_2"])
+        ).all()
+        assert len(oldest_videos) == 0
+
+        # Verify newest videos were kept (video_10, video_11, video_12)
+        newest_videos = db_session.query(Download).filter(
+            Download.channel_id == channel.id,
+            Download.video_id.in_(["video_10", "video_11", "video_12"])
+        ).all()
+        assert len(newest_videos) == 3
+
+    @pytest.mark.asyncio
+    async def test_handles_empty_channel(self, db_session):
+        """Test graceful handling of channel with no videos."""
+        channel = Channel(
+            id=1,
+            name="Empty Channel",
+            url="https://youtube.com/empty",
+            channel_id="UC999",
+            limit=10
+        )
+        db_session.add(channel)
+        db_session.commit()
+
+        # Run cleanup on empty channel
+        deleted_count = await _cleanup_old_videos(channel, db_session)
+
+        # Should handle gracefully with no errors
+        assert deleted_count == 0
+
+    @pytest.mark.asyncio
+    @patch('app.scheduled_download_job.shutil.rmtree')
+    @patch('app.scheduled_download_job.Path')
+    async def test_handles_missing_files(self, mock_path, mock_rmtree, db_session):
+        """Test graceful handling when video files don't exist on disk."""
+        channel = Channel(
+            id=1,
+            name="Test Channel",
+            url="https://youtube.com/test",
+            channel_id="UC123",
+            limit=5
+        )
+        db_session.add(channel)
+        db_session.commit()
+
+        # Create 8 downloads (3 over limit)
+        for i in range(8):
+            download = Download(
+                channel_id=channel.id,
+                video_id=f"video_{i}",
+                title=f"Video {i}",
+                upload_date=f"202501{i:02d}",
+                status="completed",
+                file_exists=True,
+                file_path=f"/media/channel/video_{i}/video.mp4"
+            )
+            db_session.add(download)
+        db_session.commit()
+
+        # Mock file system - directory doesn't exist
+        mock_path_instance = MagicMock()
+        mock_path_instance.parent.exists.return_value = False
+        mock_path.return_value = mock_path_instance
+
+        # Run cleanup - should handle missing files gracefully
+        deleted_count = await _cleanup_old_videos(channel, db_session)
+
+        # Database records should still be deleted
+        assert deleted_count == 3
+
+        # Verify correct count remains
+        remaining_count = db_session.query(Download).filter(
+            Download.channel_id == channel.id
+        ).count()
+        assert remaining_count == 5
+
+    @pytest.mark.asyncio
+    @patch('app.scheduled_download_job.shutil.rmtree')
+    @patch('app.scheduled_download_job.Path')
+    async def test_continues_on_individual_file_deletion_error(self, mock_path, mock_rmtree, db_session):
+        """Test that cleanup continues if individual file deletion fails."""
+        channel = Channel(
+            id=1,
+            name="Test Channel",
+            url="https://youtube.com/test",
+            channel_id="UC123",
+            limit=5
+        )
+        db_session.add(channel)
+        db_session.commit()
+
+        # Create 8 downloads (3 over limit)
+        for i in range(8):
+            download = Download(
+                channel_id=channel.id,
+                video_id=f"video_{i}",
+                title=f"Video {i}",
+                upload_date=f"202501{i:02d}",
+                status="completed",
+                file_exists=True,
+                file_path=f"/media/channel/video_{i}/video.mp4"
+            )
+            db_session.add(download)
+        db_session.commit()
+
+        # Mock file system operations
+        mock_path_instance = MagicMock()
+        mock_path_instance.parent.exists.return_value = True
+        mock_path.return_value = mock_path_instance
+
+        # Make rmtree fail for first deletion, succeed for others
+        mock_rmtree.side_effect = [
+            Exception("Permission denied"),  # First deletion fails
+            None,  # Second succeeds
+            None   # Third succeeds
+        ]
+
+        # Run cleanup - should continue despite error
+        deleted_count = await _cleanup_old_videos(channel, db_session)
+
+        # All database records should be deleted (even if file deletion failed)
+        assert deleted_count == 3
+
+        remaining_count = db_session.query(Download).filter(
+            Download.channel_id == channel.id
+        ).count()
+        assert remaining_count == 5
+
+    @pytest.mark.asyncio
+    async def test_only_deletes_completed_videos(self, db_session):
+        """Test that only completed videos are considered for cleanup."""
+        channel = Channel(
+            id=1,
+            name="Test Channel",
+            url="https://youtube.com/test",
+            channel_id="UC123",
+            limit=5
+        )
+        db_session.add(channel)
+        db_session.commit()
+
+        # Create 5 completed videos (at limit)
+        for i in range(5):
+            download = Download(
+                channel_id=channel.id,
+                video_id=f"completed_{i}",
+                title=f"Completed {i}",
+                upload_date=f"202501{i:02d}",
+                status="completed",
+                file_exists=True,
+                file_path=f"/media/channel/completed_{i}.mp4"
+            )
+            db_session.add(download)
+
+        # Create 3 pending/failed videos (should not be counted)
+        for i in range(3):
+            download = Download(
+                channel_id=channel.id,
+                video_id=f"pending_{i}",
+                title=f"Pending {i}",
+                upload_date=f"202502{i:02d}",
+                status="pending",
+                file_exists=False
+            )
+            db_session.add(download)
+
+        db_session.commit()
+
+        # Run cleanup
+        deleted_count = await _cleanup_old_videos(channel, db_session)
+
+        # No deletions (only 5 completed videos, which is at limit)
+        assert deleted_count == 0
+
+        # Verify all videos still exist
+        total_count = db_session.query(Download).filter(
+            Download.channel_id == channel.id
+        ).count()
+        assert total_count == 8  # 5 completed + 3 pending
+
+    @pytest.mark.asyncio
+    @patch('app.scheduled_download_job.shutil.rmtree')
+    @patch('app.scheduled_download_job.Path')
+    async def test_cleanup_tracks_deleted_count_in_summary(self, mock_path, mock_rmtree, db_session):
+        """Test that deleted video count is tracked for statistics."""
+        channel = Channel(
+            id=1,
+            name="Test Channel",
+            url="https://youtube.com/test",
+            channel_id="UC123",
+            limit=10
+        )
+        db_session.add(channel)
+        db_session.commit()
+
+        # Create 15 downloads (5 over limit)
+        for i in range(15):
+            download = Download(
+                channel_id=channel.id,
+                video_id=f"video_{i}",
+                title=f"Video {i}",
+                upload_date=f"202501{i:02d}",
+                status="completed",
+                file_exists=True,
+                file_path=f"/media/channel/video_{i}/video.mp4"
+            )
+            db_session.add(download)
+        db_session.commit()
+
+        # Mock file system operations
+        mock_path_instance = MagicMock()
+        mock_path_instance.parent.exists.return_value = True
+        mock_path.return_value = mock_path_instance
+
+        # Run cleanup
+        deleted_count = await _cleanup_old_videos(channel, db_session)
+
+        # Verify correct count returned
+        assert deleted_count == 5
+
+    @pytest.mark.asyncio
+    async def test_database_rollback_on_error(self, db_session):
+        """Test that database is rolled back on cleanup error."""
+        channel = Channel(
+            id=1,
+            name="Test Channel",
+            url="https://youtube.com/test",
+            channel_id="UC123",
+            limit=5
+        )
+        db_session.add(channel)
+        db_session.commit()
+
+        # Force a database error by making query fail
+        with patch.object(db_session, 'query', side_effect=Exception("DB connection lost")):
+            # Run cleanup - should handle error gracefully
+            deleted_count = await _cleanup_old_videos(channel, db_session)
+
+            # Should return 0 and not crash
+            assert deleted_count == 0

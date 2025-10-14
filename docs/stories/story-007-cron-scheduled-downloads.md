@@ -88,12 +88,27 @@ Currently, downloads must be triggered manually through the web interface or API
   - And next scheduled run time
   - And any recent failures or warnings
 
+#### [ ] Scenario: Automatic video cleanup after downloads
+- **Given** a channel has a video limit of 10
+  - And the channel currently has 10 videos stored
+  - And the scheduler finds 2 new videos
+- **When** the scheduler downloads the 2 new videos
+  - And the cleanup logic runs after downloads complete
+- **Then** the system should have 12 total videos temporarily
+  - And the system should query all videos for this channel
+  - And sort them by upload_date (newest to oldest)
+  - And delete the 2 oldest videos
+  - And the channel should end with exactly 10 videos
+  - And both database records and physical files should be deleted
+  - And the cleanup should be logged with count
+
 ### Non-functional Requirements
 - **Performance:** Complete all channel checks within 2 hours for up to 50 channels, with degraded performance warnings beyond 100 channels. Sequential processing prevents system overload.
 - **Security:** Validate cron expressions against malicious patterns (no excessive frequency like */1 * * * *), sanitize input to prevent code injection
 - **Reliability:** Continue processing remaining channels if individual channels fail, prevent concurrent execution through file locking or database flags, auto-resume after system restart
 - **Usability:** Standard 5-field cron format with helper text and examples, real-time validation feedback, clear display of next run times and schedule status
 - **Observability:** Dashboard showing last run status, next scheduled run, current job progress, and failure notifications via logs and optional email alerts
+- **Storage Management:** Automatic cleanup ensures disk usage stays within configured limits, with cleanup running after each channel's downloads complete. Deleted videos include all associated files (video, metadata, thumbnails, subtitles). Cleanup uses upload_date field (YYYYMMDD string format) for sorting, keeping most recent videos and removing oldest when limit exceeded.
 
 ### Dependencies
 - **Blocked by:** Existing download service implementation, ApplicationSettings model for storing global schedule
