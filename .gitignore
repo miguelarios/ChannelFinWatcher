@@ -60,6 +60,7 @@ Thumbs.db
 /media/
 /temp/
 /config/config.yaml
+backend/cookies.txt
 
 # Docker
 .dockerignore
