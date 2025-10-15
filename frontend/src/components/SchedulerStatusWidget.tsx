@@ -60,6 +60,7 @@ export function SchedulerStatusWidget({ onNavigateToSettings }: SchedulerStatusW
   const [timeUntilNext, setTimeUntilNext] = useState<string>('')
   const [lastRunRelative, setLastRunRelative] = useState<string>('')
   const [isExpanded, setIsExpanded] = useState<boolean>(true)
+  const [hasChannels, setHasChannels] = useState<boolean>(true)
 
   /**
    * Fetch scheduler status from API.
@@ -81,6 +82,24 @@ export function SchedulerStatusWidget({ onNavigateToSettings }: SchedulerStatusW
       setError(err instanceof Error ? err.message : 'Failed to load scheduler status')
     } finally {
       setLoading(false)
+    }
+  }
+
+  /**
+   * Check if channels exist to determine if scheduler is truly active.
+   */
+  const checkChannelsExist = async () => {
+    try {
+      const response = await fetch('/api/v1/channels')
+      if (response.ok) {
+        const data = await response.json()
+        // Scheduler requires at least one ENABLED channel
+        setHasChannels(data.total > 0 && data.enabled > 0)
+      }
+    } catch (err) {
+      console.error('Error checking channels:', err)
+      // Assume channels exist if check fails to avoid blocking UI
+      setHasChannels(true)
     }
   }
 
@@ -132,6 +151,16 @@ export function SchedulerStatusWidget({ onNavigateToSettings }: SchedulerStatusW
    */
   const getStatusBadge = () => {
     if (!status) return null
+
+    // If no channels exist, scheduler is functionally inactive
+    if (!hasChannels) {
+      return (
+        <div className="flex items-center text-gray-500">
+          <XCircle className="h-4 w-4 mr-1" />
+          <span className="text-sm font-medium">Inactive</span>
+        </div>
+      )
+    }
 
     if (!status.scheduler_enabled) {
       return (
@@ -190,12 +219,16 @@ export function SchedulerStatusWidget({ onNavigateToSettings }: SchedulerStatusW
   }, [status])
 
   /**
-   * Auto-refresh status every 30 seconds.
+   * Auto-refresh status and channel count every 30 seconds.
    */
   useEffect(() => {
-    fetchStatus()
+    const fetchAll = async () => {
+      await Promise.all([fetchStatus(), checkChannelsExist()])
+    }
 
-    const interval = setInterval(fetchStatus, 30000)
+    fetchAll()
+
+    const interval = setInterval(fetchAll, 30000)
     return () => clearInterval(interval)
   }, [])
 
@@ -295,8 +328,21 @@ export function SchedulerStatusWidget({ onNavigateToSettings }: SchedulerStatusW
           </div>
         )}
 
+        {/* No Channels Warning */}
+        {!hasChannels && (
+          <div className="bg-gray-50 border border-gray-200 rounded-md p-3">
+            <div className="flex items-start">
+              <XCircle className="h-5 w-5 text-gray-500 mr-2 mt-0.5 flex-shrink-0" />
+              <div className="text-sm text-gray-700">
+                <p className="font-medium">No enabled channels</p>
+                <p className="mt-1">Add and enable at least one channel to activate the scheduler.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* No Schedule Warning */}
-        {!status.cron_schedule && (
+        {hasChannels && !status.cron_schedule && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
             <div className="flex items-start">
               <AlertCircle className="h-5 w-5 text-yellow-600 mr-2 mt-0.5 flex-shrink-0" />
@@ -309,7 +355,7 @@ export function SchedulerStatusWidget({ onNavigateToSettings }: SchedulerStatusW
         )}
 
         {/* Paused Warning */}
-        {!status.scheduler_enabled && status.cron_schedule && (
+        {hasChannels && !status.scheduler_enabled && status.cron_schedule && (
           <div className="bg-gray-50 border border-gray-200 rounded-md p-3">
             <div className="flex items-start">
               <Pause className="h-5 w-5 text-gray-500 mr-2 mt-0.5 flex-shrink-0" />

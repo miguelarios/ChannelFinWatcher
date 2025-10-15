@@ -627,7 +627,7 @@ export function Settings() {
               <label className="flex items-center space-x-3">
                 <input
                   type="checkbox"
-                  checked={schedulerEnabled}
+                  checked={hasChannels ? schedulerEnabled : false}
                   onChange={(e) => toggleScheduler(e.target.checked)}
                   disabled={!hasChannels}
                   className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:opacity-50"
@@ -759,7 +759,9 @@ export function Settings() {
               <div className="space-y-1 text-sm text-gray-700">
                 <div className="flex items-center">
                   <span className="font-medium mr-2">Scheduler:</span>
-                  {schedulerStatus.scheduler_enabled ? (
+                  {!hasChannels ? (
+                    <span className="text-gray-500">Inactive (No Channels)</span>
+                  ) : schedulerStatus.scheduler_enabled ? (
                     <span className="text-green-600 font-medium">Enabled</span>
                   ) : (
                     <span className="text-gray-500">Disabled</span>
