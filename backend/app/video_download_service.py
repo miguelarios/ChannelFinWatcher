@@ -116,6 +116,7 @@ class VideoDownloadService:
             'no_warnings': True,
             'extract_flat': True,   # Flat playlist - only get IDs and titles (like --flat-playlist)
             'ignoreerrors': True,
+            'match_filter': self._filter_shorts,  # Filter out YouTube Shorts at extraction time
             # NOTE: Removed extractor_args player_client override
             # yt-dlp 2025.09.26+ automatically selects optimal client
             # Minimal headers to avoid bot detection during light queries
@@ -130,7 +131,38 @@ class VideoDownloadService:
         # Add cookie file to query_opts for auth/region context
         if os.path.exists(self.cookie_file):
             self.query_opts['cookiefile'] = self.cookie_file
-    
+
+    def _filter_shorts(self, info, *, incomplete):
+        """
+        Filter to exclude YouTube Shorts during yt-dlp extraction.
+
+        This function is called by yt-dlp for each video during extraction.
+        It allows us to skip shorts at the source, so yt-dlp automatically
+        fetches additional videos to meet the requested limit.
+
+        Checks in order:
+        1. URL pattern (/shorts/) - most definitive indicator
+        2. Duration (≤60 seconds) - fallback for edge cases
+
+        Args:
+            info: Video information dict from yt-dlp
+            incomplete: Whether extraction is incomplete (required by yt-dlp)
+
+        Returns:
+            None to accept video, string reason to reject it
+        """
+        # Check URL first (most reliable indicator)
+        url = info.get('url', '') or info.get('webpage_url', '')
+        if '/shorts/' in url:
+            return 'YouTube Short (URL pattern)'
+
+        # Fallback to duration check (catches shorts in playlists)
+        duration = info.get('duration')
+        if duration and duration <= 60:
+            return 'YouTube Short (≤60s duration)'
+
+        return None  # Accept the video
+
     def _extract_video_id(self, entry: Dict) -> Optional[str]:
         """
         Extract video ID from various entry formats.
