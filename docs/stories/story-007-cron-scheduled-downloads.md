@@ -15,7 +15,7 @@ Currently, downloads must be triggered manually through the web interface or API
 
 ### Functional Requirements
 
-#### [ ] Scenario: Default
+#### [x] Scenario: Default
 - **Given** the user has not setup the cron scheduler
   - And some channels are already being monitored
 - **When** 
@@ -24,7 +24,7 @@ Currently, downloads must be triggered manually through the web interface or API
   - And the default value is once a day at midnight (e.g. 0 0 * * *)
   - And the field is editable
 
-#### [ ] Scenario: No channel being monitored
+#### [x] Scenario: No channel being monitored
 - **Given** the user has not setup the cron scheduler
   - And there are no channels being monitored
 - **When** 
@@ -32,7 +32,7 @@ Currently, downloads must be triggered manually through the web interface or API
 - **Then** the user sees below the default video limit the cron scheduler
   - And the cron scheduler is uneditable indicating the cron scheduler is not actively working
 
-#### [ ] Scenario: Global cron schedule triggers downloads
+#### [x] Scenario: Global cron schedule triggers downloads
 - **Given** a global cron schedule is configured (e.g., "0 */6 * * *" for every 6 hours)
   - And multiple channels are enabled with various video limits
   - And some channels have new videos available
@@ -42,7 +42,7 @@ Currently, downloads must be triggered manually through the web interface or API
   - And new videos should be downloaded respecting each channel's limit
   - But already downloaded videos should be skipped
 
-#### [ ] Scenario: Individual video download with queue management
+#### [x] Scenario: Individual video download with queue management
 - **Given** a channel has 3 new videos to download
 - **When** the scheduler processes this channel
 - **Then** videos should be downloaded one at a time sequentially
