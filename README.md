@@ -90,29 +90,32 @@ docker compose -f docker-compose.dev.yml down
 
 ## Production Deployment
 
-For production deployment, use host mount points:
+Deploy using pre-built Docker image from GitHub Container Registry:
 
 ```bash
-# Copy and modify production compose file
-cp docker-compose.prod.yml docker-compose.yml
+# Create project directory
+mkdir -p channelfinwatcher/{data,media,temp}
+cd channelfinwatcher
 
-# Edit docker-compose.yml to set your host paths:
-# - /your/server/data:/app/data
-# - /your/server/config:/app/config  
-# - /your/server/media:/app/media
-# - /your/server/temp:/app/temp
+# Download production compose file
+curl -O https://raw.githubusercontent.com/miguelarios/ChannelFinWatcher/main/docker-compose.prod.yml
 
-# Deploy
-docker compose up -d
+# Optional: Edit timezone
+nano docker-compose.prod.yml
+
+# Start the application
+docker compose -f docker-compose.prod.yml up -d
+
+# Access web UI at http://localhost:3000
 ```
 
-### Required Host Directories
+### Directory Structure
 
-Create these directories on your server:
-- **data/**: SQLite database and application state
-- **config/**: YAML configuration files  
+- **data/**: SQLite databases, config.yaml, and cookies.txt
 - **media/**: Downloaded videos (organized for Jellyfin)
-- **temp/**: Temporary files during downloads
+- **temp/**: Temporary download staging (use fast SSD for performance)
+
+**📘 Full deployment guide**: See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 
 ## Architecture
 

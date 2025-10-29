@@ -1,0 +1,25 @@
+channels:
+- url: https://www.youtube.com/@tboypod
+  name: The Best One Yet
+  limit: 2
+  enabled: true
+  quality_preset: best
+settings:
+  default_video_limit: 10
+  default_quality_preset: best
+  default_schedule: 0 0 * * *
+  poc_scheduler_running: 'false'
+  poc_scheduler_last_run: '2025-10-05T04:28:41.772148'
+  cron_schedule: 0 0 * * *
+  scheduler_enabled: 'true'
+  scheduler_running: 'false'
+  scheduler_last_run: '2025-10-01T18:49:09.885639'
+  scheduler_next_run: null
+  test_job_running: 'false'
+  test_job_last_run: '2025-10-01T21:48:56.073916'
+  test_overlap_running: 'false'
+  test_overlap_last_run: '2025-10-01T21:48:56.105695'
+  test_exception_running: 'false'
+  test_exception_last_run: '2025-10-01T21:48:56.133231'
+  scheduled_downloads_running: 'false'
+  scheduled_downloads_last_run: '2025-10-02T06:04:05.205132'

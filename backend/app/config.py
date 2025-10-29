@@ -13,15 +13,15 @@ class Settings(BaseSettings):
     # Application Paths
     media_dir: str = "/app/media"
     temp_dir: str = "/app/temp"
-    config_file: str = "/app/config/config.yaml"
-    
+    config_file: str = "/app/data/config.yaml"  # Consolidated into data directory
+
     # FastAPI Configuration
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     debug: bool = True
-    
-    # Optional Cookie File
-    cookies_file: str = "/app/cookies.txt"
+
+    # Optional Cookie File (for age-restricted content)
+    cookies_file: str = "/app/data/cookies.txt"  # Consolidated into data directory
     
     # Application Metadata
     app_name: str = "ChannelFinWatcher"

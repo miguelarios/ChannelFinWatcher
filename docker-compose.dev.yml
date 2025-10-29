@@ -9,7 +9,6 @@ services:
       - ./backend:/app
       # Local directory mounts for development
       - ./data:/app/data
-      - ./config:/app/config
       - ./media:/app/media
       - ./temp:/app/temp
     environment:
@@ -17,7 +16,8 @@ services:
       - DATABASE_URL=sqlite:///data/app.db
       - MEDIA_DIR=/app/media
       - TEMP_DIR=/app/temp
-      - CONFIG_FILE=/app/config/config.yaml
+      - CONFIG_FILE=/app/data/config.yaml
+      - COOKIES_FILE=/app/data/cookies.txt
       - TZ=America/Chicago  # CDT/CST timezone for scheduler
     depends_on:
       - db-init
@@ -44,15 +44,14 @@ services:
     image: alpine:latest
     volumes:
       - ./data:/data
-      - ./config:/config
       - ./media:/media
       - ./temp:/temp
     command: >
       sh -c "
-        mkdir -p /data /config /media /temp &&
-        chmod 755 /data /config /media /temp &&
+        mkdir -p /data /media /temp &&
+        chmod 755 /data /media /temp &&
         echo 'Local directories initialized for development' &&
-        echo 'You can now watch files in ./data ./config ./media ./temp'
+        echo 'You can now watch files in ./data ./media ./temp'
       "
 
 volumes:

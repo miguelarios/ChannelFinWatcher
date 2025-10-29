@@ -1,57 +1,41 @@
-# Production Docker Compose with host mount points
-# Copy this file and modify the host paths for your server setup
+version: '3.8'
 
 services:
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+  channelfinwatcher:
+    image: ghcr.io/miguelarios/channelfinwatcher:latest
+    container_name: channelfinwatcher
+    restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "3000:3000"  # Frontend (Web UI)
+      - "8000:8000"  # Backend API (optional, for direct API access)
     volumes:
-      # HOST MOUNT POINTS - Update these paths for your server
-      - /path/to/your/server/data:/app/data                    # Database and application data
-      - /path/to/your/server/config:/app/config                # YAML configuration files
-      - /path/to/your/server/media:/app/media                  # Downloaded video files (for Jellyfin)
-      - /path/to/your/server/temp:/app/temp                    # Temporary download files
-      # Optional: Cookie file for age-restricted content
-      # - /path/to/your/server/cookies.txt:/app/cookies.txt
-    environment:
-      - PYTHONPATH=/app
-      - DATABASE_URL=sqlite:///data/app.db
-      - MEDIA_DIR=/app/media
-      - TEMP_DIR=/app/temp
-      - CONFIG_FILE=/app/config/config.yaml
-      - DEBUG=false
-    restart: unless-stopped
-    networks:
-      - app-network
+      # Data directory: databases, config, cookies
+      - ./data:/app/data
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "3000:3000"
+      # Media directory: downloaded videos
+      - ./media:/app/media
+
+      # Temp directory: download staging (can use fast cache drive)
+      - ./temp:/app/temp
     environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8000
-      - NODE_ENV=production
-    depends_on:
-      - backend
-    restart: unless-stopped
+      # Timezone for scheduler (set to your local timezone)
+      - TZ=America/Chicago
+
+      # Optional: Customize paths (defaults shown)
+      # - DATABASE_URL=sqlite:///data/app.db
+      # - MEDIA_DIR=/app/media
+      # - TEMP_DIR=/app/temp
+      # - CONFIG_FILE=/app/data/config.yaml
+      # - COOKIES_FILE=/app/data/cookies.txt
     networks:
-      - app-network
+      - channelfinwatcher-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000", "&&", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
 networks:
-  app-network:
+  channelfinwatcher-net:
     driver: bridge
-
-# Example host directory structure on your server:
-# /path/to/your/server/
-# ├── data/              # SQLite database, application state
-# ├── config/            # config.yaml file
-# ├── media/             # Downloaded videos organized for Jellyfin
-# │   └── ChannelName [channel_id]/
-# │       └── YYYY/
-# │           └── ChannelName - upload_date - title [video_id]/
-# └── temp/              # Temporary files during download
