@@ -11,7 +11,7 @@ WORKDIR /app/frontend
 
 # Install frontend dependencies
 COPY frontend/package*.json ./
-RUN npm ci --only=production
+RUN npm ci
 
 # Copy frontend source and build
 COPY frontend/ ./
@@ -65,9 +65,10 @@ ENV PATH=/home/appuser/.local/bin:$PATH
 COPY --chown=appuser:appuser backend/ ./backend/
 
 # Copy frontend build from builder stage
-COPY --from=frontend-builder --chown=appuser:appuser /app/frontend/public ./frontend/public
-COPY --from=frontend-builder --chown=appuser:appuser /app/frontend/.next/standalone ./frontend/
-COPY --from=frontend-builder --chown=appuser:appuser /app/frontend/.next/static ./frontend/.next/static
+COPY --from=frontend-builder --chown=appuser:appuser /app/frontend/.next ./frontend/.next
+COPY --from=frontend-builder --chown=appuser:appuser /app/frontend/node_modules ./frontend/node_modules
+COPY --from=frontend-builder --chown=appuser:appuser /app/frontend/package*.json ./frontend/
+COPY --from=frontend-builder --chown=appuser:appuser /app/frontend/next.config.js ./frontend/
 
 # Create data directories with proper permissions
 RUN mkdir -p /app/data /app/media /app/temp && \
