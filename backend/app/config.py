@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     
     # Database Configuration
-    database_url: str = "sqlite:///data/app.db"
+    database_url: str = "sqlite:////app/data/app.db"
     
     # Application Paths
     media_dir: str = "/app/media"

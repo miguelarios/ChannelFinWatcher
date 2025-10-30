@@ -91,7 +91,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 
 # Set default environment variables
 ENV PYTHONPATH=/app/backend \
-    DATABASE_URL=sqlite:///data/app.db \
+    DATABASE_URL=sqlite:////app/data/app.db \
     MEDIA_DIR=/app/media \
     TEMP_DIR=/app/temp \
     CONFIG_FILE=/app/data/config.yaml \
