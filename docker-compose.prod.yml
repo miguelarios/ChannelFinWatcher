@@ -26,6 +26,9 @@ services:
       - PUID=1000  # Default: 1000 (change to match your user)
       - PGID=1000  # Default: 1000 (change to match your group)
 
+      # yt-dlp cache directory (prevents permission warnings)
+      - XDG_CACHE_HOME=/app/data/.cache
+
       # Optional: Customize paths (defaults shown)
       # - DATABASE_URL=sqlite:///data/app.db
       # - MEDIA_DIR=/app/media
