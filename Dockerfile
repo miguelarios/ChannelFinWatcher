@@ -30,9 +30,10 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Install Python dependencies globally (not --user)
+# This way they work regardless of UID changes
 COPY backend/requirements.txt ./
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # =============================================================================
 # Stage 3: Final Production Image
@@ -57,9 +58,9 @@ RUN useradd -m -u 1000 appuser
 # Set working directory
 WORKDIR /app
 
-# Copy Python dependencies from builder
-COPY --from=backend-builder /root/.local /home/appuser/.local
-ENV PATH=/home/appuser/.local/bin:$PATH
+# Copy Python dependencies from builder (installed globally)
+COPY --from=backend-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=backend-builder /usr/local/bin /usr/local/bin
 
 # Copy backend application
 COPY --chown=appuser:appuser backend/ ./backend/

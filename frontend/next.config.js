@@ -7,9 +7,8 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  // Enable standalone output for Docker production builds
-  // This creates a minimal server.js with only necessary dependencies
-  output: 'standalone',
+  // Note: Not using 'standalone' output mode
+  // Using standard Next.js production build with 'npm start'
 }
 
 module.exports = nextConfig
