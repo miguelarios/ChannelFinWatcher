@@ -48,32 +48,44 @@ async def lifespan(app: FastAPI):
         try:
             from alembic.config import Config
             from alembic import command
+            import traceback
             alembic_cfg = Config("alembic.ini")
             command.upgrade(alembic_cfg, "head")
             logger.info("Database migrations applied successfully")
         except Exception as migration_error:
             logger.error(f"Failed to apply database migrations: {migration_error}")
+            logger.error(f"Migration traceback: {traceback.format_exc()}")
             # Allow app to continue - tables exist from create_tables()
             # Migrations may not be needed if schema is already current
 
         # Initialize default application settings
         db = SessionLocal()
         try:
+            logger.info("Initializing default settings...")
             initialize_default_settings(db)
             logger.info("Default application settings initialized")
 
             # Sync all settings from database to YAML configuration
+            logger.info("Syncing settings to YAML...")
             sync_all_settings_to_yaml(db)
             logger.info("Application settings synced to YAML configuration")
+        except Exception as settings_error:
+            logger.error(f"Settings initialization failed: {settings_error}")
+            import traceback
+            logger.error(f"Settings traceback: {traceback.format_exc()}")
+            raise
         finally:
             db.close()
 
         # Start scheduler service (Story 007)
+        logger.info("Starting scheduler service...")
         await scheduler_service.start()
         logger.info("Scheduler service started successfully")
 
     except Exception as e:
         logger.error(f"Startup failed: {e}")
+        import traceback
+        logger.error(f"Startup traceback: {traceback.format_exc()}")
         raise
 
     # Application is ready, yield control
