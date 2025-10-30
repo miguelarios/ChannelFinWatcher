@@ -19,28 +19,51 @@ depends_on = None
 def upgrade():
     """Add metadata management fields to channels table."""
     # Add new columns for metadata management
-    op.add_column('channels', sa.Column('metadata_path', sa.String(), nullable=True))
-    op.add_column('channels', sa.Column('directory_path', sa.String(), nullable=True))
-    op.add_column('channels', sa.Column('last_metadata_update', sa.DateTime(), nullable=True))
-    op.add_column('channels', sa.Column('metadata_status', sa.String(), nullable=True))
-    op.add_column('channels', sa.Column('cover_image_path', sa.String(), nullable=True))
-    op.add_column('channels', sa.Column('backdrop_image_path', sa.String(), nullable=True))
-    
-    # Set default values for existing records
-    op.execute("UPDATE channels SET metadata_status = 'pending' WHERE metadata_status IS NULL")
-    
-    # Make metadata_status non-nullable with default
-    op.alter_column('channels', 'metadata_status', nullable=False, server_default='pending')
-    
+    op.add_column(
+        'channels',
+        sa.Column('metadata_path', sa.String(), nullable=True)
+    )
+    op.add_column(
+        'channels',
+        sa.Column('directory_path', sa.String(), nullable=True)
+    )
+    op.add_column(
+        'channels',
+        sa.Column('last_metadata_update', sa.DateTime(), nullable=True)
+    )
+    # Add metadata_status as non-nullable with default from the start
+    # SQLite doesn't support ALTER COLUMN, create it correctly initially
+    op.add_column(
+        'channels',
+        sa.Column(
+            'metadata_status',
+            sa.String(),
+            nullable=False,
+            server_default='pending'
+        )
+    )
+    op.add_column(
+        'channels',
+        sa.Column('cover_image_path', sa.String(), nullable=True)
+    )
+    op.add_column(
+        'channels',
+        sa.Column('backdrop_image_path', sa.String(), nullable=True)
+    )
+
     # Add indexes for efficient metadata status queries
-    op.create_index('idx_channel_metadata_status', 'channels', ['metadata_status'])
+    op.create_index(
+        'idx_channel_metadata_status',
+        'channels',
+        ['metadata_status']
+    )
 
 
 def downgrade():
     """Remove metadata management fields from channels table."""
     # Drop indexes
     op.drop_index('idx_channel_metadata_status', table_name='channels')
-    
+
     # Drop columns
     op.drop_column('channels', 'backdrop_image_path')
     op.drop_column('channels', 'cover_image_path')
