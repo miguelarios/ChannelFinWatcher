@@ -133,6 +133,47 @@ cat /etc/timezone
 # - Asia/Tokyo
 ```
 
+### User/Group ID Configuration (File Permissions)
+
+**Why it matters**: Files created by the container need to be accessible on your host system.
+
+**The problem**: By default, the container runs as UID/GID 1000. If your user has a different ID, you'll get permission errors when accessing downloaded files.
+
+**Find your UID/GID:**
+```bash
+# Linux/Mac
+id
+
+# Example output:
+# uid=1001(yourname) gid=1001(yourname) groups=1001(yourname),...
+#     ^^^^               ^^^^
+#     This is your PUID  This is your PGID
+```
+
+**Set in docker-compose.prod.yml:**
+```yaml
+environment:
+  - TZ=America/Chicago
+  - PUID=1001  # Replace with your UID
+  - PGID=1001  # Replace with your GID
+```
+
+**Common scenarios:**
+
+| System | Typical UID/GID | Action |
+|--------|----------------|--------|
+| Ubuntu/Debian | 1000 | No change needed (default) |
+| Multi-user Linux | 1001+ | Set to your UID/GID from `id` command |
+| macOS | 501 | Set PUID=501, PGID=20 |
+| Unraid/TrueNAS | Varies | Check with `id` command |
+
+**What happens:**
+1. Container starts with default UID 1000
+2. Entrypoint script checks PUID/PGID environment variables
+3. If different, updates the internal `appuser` to match
+4. All files created will have your UID/GID
+5. You can access/modify files without permission issues
+
 ### Port Configuration
 
 Default ports:

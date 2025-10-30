@@ -21,6 +21,11 @@ services:
       # Timezone for scheduler (set to your local timezone)
       - TZ=America/Chicago
 
+      # User/Group ID for file permissions (match your host user)
+      # Find your UID/GID: run 'id' command on Linux/Mac
+      - PUID=1000  # Default: 1000 (change to match your user)
+      - PGID=1000  # Default: 1000 (change to match your group)
+
       # Optional: Customize paths (defaults shown)
       # - DATABASE_URL=sqlite:///data/app.db
       # - MEDIA_DIR=/app/media
