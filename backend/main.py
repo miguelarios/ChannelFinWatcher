@@ -5,8 +5,13 @@ from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.database import get_db, create_tables, SessionLocal
-from app.utils import ensure_directories, get_directory_info, initialize_default_settings, sync_all_settings_to_yaml
+from app.database import get_db, SessionLocal
+from app.utils import (
+    ensure_directories,
+    get_directory_info,
+    initialize_default_settings,
+    sync_all_settings_to_yaml
+)
 from app.api import router as api_router
 from app.scheduler_service import scheduler_service
 
@@ -39,24 +44,25 @@ async def lifespan(app: FastAPI):
         ensure_directories()
         logger.info("Directory structure verified")
 
-        # Create database tables
-        create_tables()
-        logger.info("Database tables initialized")
-
         # Run pending database migrations automatically
-        # This ensures schema changes from Alembic migrations are applied on startup
+        # This ensures schema changes from Alembic migrations are applied
+        # NOTE: We do NOT call create_tables() - migrations handle schema
+        from alembic.config import Config
+        from alembic import command
+        import traceback
+
         try:
-            from alembic.config import Config
-            from alembic import command
-            import traceback
             alembic_cfg = Config("alembic.ini")
+            logger.info("Running database migrations...")
             command.upgrade(alembic_cfg, "head")
             logger.info("Database migrations applied successfully")
         except Exception as migration_error:
-            logger.error(f"Failed to apply database migrations: {migration_error}")
+            logger.error(
+                f"Failed to apply database migrations: {migration_error}"
+            )
             logger.error(f"Migration traceback: {traceback.format_exc()}")
-            # Allow app to continue - tables exist from create_tables()
-            # Migrations may not be needed if schema is already current
+            # Re-raise - migrations are critical for proper database schema
+            raise
 
         # Initialize default application settings
         db = SessionLocal()
