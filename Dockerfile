@@ -97,7 +97,7 @@ ENV PYTHONPATH=/app/backend \
     CONFIG_FILE=/app/data/config.yaml \
     COOKIES_FILE=/app/data/cookies.txt \
     NODE_ENV=production \
-    NEXT_PUBLIC_API_URL=http://localhost:8000
+    NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
 
 # Use entrypoint script for initialization
 ENTRYPOINT ["/app/entrypoint.sh"]
