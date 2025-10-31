@@ -611,24 +611,36 @@ class VideoDownloadService:
     def process_channel_downloads(self, channel: Channel, db: Session) -> Tuple[bool, int, Optional[str]]:
         """
         Process downloads for a channel sequentially.
-        
+
         This is the main orchestration method that:
         1. Queries the channel for recent videos
         2. Downloads new videos sequentially
         3. Updates channel and download history
         4. Handles errors gracefully
-        
+
         Args:
             channel: Channel database model
             db: Database session
-            
+
         Returns:
             Tuple of (success, videos_downloaded, error_message)
         """
+        logger.info(f"")
+        logger.info(f"{'='*80}")
+        logger.info(f"🎬 PROCESS_CHANNEL_DOWNLOADS() CALLED")
+        logger.info(f"📺 Channel: {channel.name}")
+        logger.info(f"🔗 URL: {channel.url}")
+        logger.info(f"🆔 Channel ID: {channel.channel_id}")
+        logger.info(f"📊 Limit: {channel.limit}")
+        logger.info(f"✅ Enabled: {channel.enabled}")
+        logger.info(f"{'='*80}")
+        logger.info(f"")
+
         if not channel.enabled:
+            logger.warning(f"⚠️  Channel is disabled, returning early")
             return False, 0, "Channel is disabled"
-        
-        logger.info(f"Starting download process for channel: {channel.name}")
+
+        logger.info(f"🚀 Starting download process for channel: {channel.name}")
         
         # Create download history record
         history = DownloadHistory(

@@ -136,16 +136,21 @@ async def create_channel(channel: ChannelCreate, db: Session = Depends(get_db)):
     else:
         # === VIDEO DOWNLOADS (Story 005) ===
         # After successful metadata extraction, automatically start downloading recent videos
-        logger.info(f"Triggering initial video downloads for new channel: {db_channel.name}")
+        logger.info(f"🚀 API: Triggering initial video downloads for new channel: {db_channel.name}")
+        logger.info(f"📝 API: Channel details - ID: {db_channel.id}, URL: {db_channel.url}, channel_id: {db_channel.channel_id}, limit: {db_channel.limit}")
         try:
+            logger.info(f"🔄 API: Calling video_download_service.process_channel_downloads()...")
             download_success, videos_downloaded, download_error = video_download_service.process_channel_downloads(db_channel, db)
+            logger.info(f"✅ API: process_channel_downloads() returned - success: {download_success}, count: {videos_downloaded}, error: {download_error}")
             if download_success:
-                logger.info(f"Initial download completed for {db_channel.name}: {videos_downloaded} videos downloaded")
+                logger.info(f"✅ API: Initial download completed for {db_channel.name}: {videos_downloaded} videos downloaded")
             else:
-                logger.warning(f"Initial download failed for {db_channel.name}: {download_error}")
+                logger.warning(f"⚠️  API: Initial download failed for {db_channel.name}: {download_error}")
                 # Don't fail channel creation if initial downloads fail
         except Exception as e:
-            logger.error(f"Unexpected error during initial downloads for {db_channel.name}: {e}")
+            logger.error(f"❌ API: Unexpected error during initial downloads for {db_channel.name}: {e}")
+            import traceback
+            logger.error(f"Stack trace: {traceback.format_exc()}")
             # Don't fail channel creation if downloads encounter errors
     
     # Sync to YAML configuration
