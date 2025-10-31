@@ -16,7 +16,9 @@ from app.api import router as api_router
 from app.scheduler_service import scheduler_service
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+# force=True is required because uvicorn configures logging before this module loads
+# Without force=True, basicConfig silently does nothing and logs are suppressed
+logging.basicConfig(level=logging.INFO, force=True)
 logger = logging.getLogger(__name__)
 
 # Get settings
