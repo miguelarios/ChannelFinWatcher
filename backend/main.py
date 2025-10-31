@@ -52,10 +52,19 @@ async def lifespan(app: FastAPI):
         import traceback
 
         try:
+            logger.info("Creating Alembic config...")
             alembic_cfg = Config("alembic.ini")
             logger.info("Running database migrations...")
             command.upgrade(alembic_cfg, "head")
+            logger.info("Alembic upgrade command completed")
             logger.info("Database migrations applied successfully")
+        except SystemExit as sys_exit:
+            logger.error(f"Alembic called sys.exit({sys_exit.code})")
+            logger.error(
+                f"Migration SystemExit: {traceback.format_exc()}"
+            )
+            # Re-raise - migrations are critical
+            raise
         except Exception as migration_error:
             logger.error(
                 f"Failed to apply database migrations: {migration_error}"
