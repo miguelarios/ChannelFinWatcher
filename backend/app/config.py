@@ -29,6 +29,7 @@ class Settings(BaseSettings):
 
     # Scheduler Configuration (Story 007)
     scheduler_timezone: str = "UTC"  # Override with TZ environment variable
+    scheduler_database_url: str = "sqlite:////app/data/scheduler_jobs.db"
 
     class Config:
         env_file = ".env"

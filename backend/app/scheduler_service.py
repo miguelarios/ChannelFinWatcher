@@ -72,10 +72,10 @@ class SchedulerService:
         """
 
         # SQLite job store configuration for Docker persistence
-        # Use absolute path with 4 slashes to match volume mount at /app/data
+        # Use scheduler_database_url from settings for consistency
         jobstores = {
             'default': SQLAlchemyJobStore(
-                url='sqlite:////app/data/scheduler_jobs.db',
+                url=settings.scheduler_database_url,
                 tablename='apscheduler_jobs'
             )
         }

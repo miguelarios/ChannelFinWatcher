@@ -13,7 +13,7 @@ services:
       - ./temp:/app/temp
     environment:
       - PYTHONPATH=/app
-      - DATABASE_URL=sqlite:///data/app.db
+      - DATABASE_URL=sqlite:////app/data/app.db
       - MEDIA_DIR=/app/media
       - TEMP_DIR=/app/temp
       - CONFIG_FILE=/app/data/config.yaml

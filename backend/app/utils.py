@@ -47,11 +47,15 @@ def ensure_directories():
     """Ensure all required directories exist and are writable."""
     settings = get_settings()
     
+    # Extract database path handling both sqlite:/// and sqlite:////
+    # Remove sqlite:// prefix and any leading slashes to get clean path
+    db_path = settings.database_url.replace("sqlite:///", "/")
+
     directories = [
         Path(settings.media_dir),
         Path(settings.temp_dir),
         Path(settings.config_file).parent,
-        Path(settings.database_url.replace("sqlite:///", "")).parent,
+        Path(db_path).parent,
     ]
     
     for directory in directories:
@@ -72,12 +76,15 @@ def ensure_directories():
 def get_directory_info():
     """Get information about configured directories."""
     settings = get_settings()
-    
+
+    # Extract database path handling both sqlite:/// and sqlite:////
+    db_path = settings.database_url.replace("sqlite:///", "/")
+
     directories = {
         "media": settings.media_dir,
         "temp": settings.temp_dir,
         "config": str(Path(settings.config_file).parent),
-        "data": str(Path(settings.database_url.replace("sqlite:///", "")).parent),
+        "data": str(Path(db_path).parent),
     }
     
     info = {}
