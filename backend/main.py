@@ -19,6 +19,11 @@ from app.scheduler_service import scheduler_service
 # force=True is required because uvicorn configures logging before this module loads
 # Without force=True, basicConfig silently does nothing and logs are suppressed
 logging.basicConfig(level=logging.INFO, force=True)
+
+# Explicitly set INFO level for all app loggers to ensure they're not filtered
+# This is necessary because some loggers may inherit WARNING level from other configurations
+logging.getLogger('app').setLevel(logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 # Get settings
