@@ -321,21 +321,21 @@ class VideoDownloadService:
     def get_recent_videos(self, channel_url: str, limit: int = 10, channel_id: str = None) -> Tuple[bool, List[Dict], Optional[str]]:
         """
         Query channel for recent videos using robust fallback approach.
-        
+
         This method tries multiple extraction strategies in order:
         1. Uploads playlist (UC -> UU conversion) - most reliable
         2. Channel /videos tab with extractor args
         3. Original channel URL
         4. Non-flat extraction as last resort
-        
+
         Args:
             channel_url: YouTube channel URL (fallback if channel_id not provided)
             limit: Maximum number of recent videos to return
             channel_id: YouTube channel ID (UC...) - preferred for direct access
-            
+
         Returns:
             Tuple of (success, list_of_video_dicts, error_message)
-            
+
         Example:
             success, videos, error = service.get_recent_videos("https://youtube.com/@MrsRachel", 10, "UCfInIsouvaKEtbtGHeTy1oA")
             if success:
@@ -343,7 +343,10 @@ class VideoDownloadService:
                     print(f"Video: {video['title']} ({video['id']})")
         """
         cookies_applied = os.path.exists(self.cookie_file)
-        logger.info(f"Starting video extraction for channel_id={channel_id}, limit={limit}, cookies={cookies_applied}")
+        logger.info(f"🔍 VIDEO DISCOVERY: Starting for channel_id={channel_id}")
+        logger.info(f"📊 LIMIT: Configured to fetch {limit} most recent videos")
+        logger.info(f"🍪 COOKIES: {'Applied' if cookies_applied else 'Not available'}")
+        logger.info(f"🔗 URL: {channel_url}")
         
         # Define fallback URLs to try in order
         fallback_attempts = []
@@ -404,60 +407,69 @@ class VideoDownloadService:
                     # Log extraction details
                     info_type = info.get('_type', 'unknown')
                     entries = info.get('entries', [])
-                    logger.info(f"Attempt {attempt_num}: info_type={info_type}, entries_count={len(entries)}")
-                    
+                    raw_entries_count = len(entries)
+
+                    logger.info(f"✅ EXTRACTION SUCCESS (Attempt {attempt_num}): info_type={info_type}")
+                    logger.info(f"📺 RAW PLAYLIST DATA: Found {raw_entries_count} entries from yt-dlp")
+
                     if entries:
                         # Log first entry keys for debugging
                         first_entry = entries[0] if entries else {}
-                        logger.info(f"Attempt {attempt_num}: First entry keys: {list(first_entry.keys())}")
-                    
+                        logger.info(f"🔑 First entry structure: {list(first_entry.keys())}")
+
                     if not entries:
-                        logger.info(f"Attempt {attempt_num}: No entries found, trying next fallback")
+                        logger.warning(f"⚠️  NO ENTRIES: Attempt {attempt_num} returned 0 entries, trying next fallback")
                         continue
                     
                     # Process entries using flexible ID extraction
+                    logger.info(f"🔄 PROCESSING: Analyzing {min(len(entries), limit)} entries (limit={limit})")
+
                     videos = []
                     skipped_count = 0
-                    
-                    for entry in entries[:limit]:  # Ensure we don't exceed limit
+
+                    for idx, entry in enumerate(entries[:limit], 1):  # Ensure we don't exceed limit
                         if not entry:
                             continue
-                        
+
                         # Use flexible video ID extraction
                         video_id = self._extract_video_id(entry)
                         if not video_id:
                             skipped_count += 1
-                            logger.debug(f"Skipping entry with no valid video ID: {entry.get('title', 'Unknown')}")
+                            logger.debug(f"  ⏭️  Entry {idx}: Skipped (no valid video ID) - {entry.get('title', 'Unknown')}")
                             continue
-                        
+
                         # Build video info with flexible parsing
                         video_info = {
                             'id': video_id,
                             'title': entry.get('title', 'Unknown Title'),
                             'upload_date': entry.get('upload_date'),
                             'duration': entry.get('duration'),
-                            'duration_string': entry.get('duration_string'), 
+                            'duration_string': entry.get('duration_string'),
                             'view_count': entry.get('view_count'),
                             'webpage_url': entry.get('webpage_url') or entry.get('url') or f"https://www.youtube.com/watch?v={video_id}",
                             'channel': entry.get('channel') or entry.get('uploader'),
                             'channel_id': entry.get('channel_id') or channel_id,
                         }
-                        
+
                         # Validate video info
                         if video_info['title'] != 'Unknown Title':
                             videos.append(video_info)
+                            logger.debug(f"  ✅ Entry {idx}: {video_info['title'][:60]} ({video_id})")
                         else:
                             skipped_count += 1
-                    
-                    logger.info(f"Attempt {attempt_num}: Found {len(videos)} valid videos, skipped {skipped_count}")
+                            logger.debug(f"  ⏭️  Entry {idx}: Skipped (no title) - ID: {video_id}")
+
+                    logger.info(f"✅ FILTERING COMPLETE: {len(videos)} valid videos extracted, {skipped_count} skipped")
                     
                     # Success! Return even if videos list is empty (valid channel with no videos)
                     if videos:
                         # Log first few video titles for validation
-                        sample_titles = [v['title'][:50] + '...' if len(v['title']) > 50 else v['title'] 
+                        sample_titles = [v['title'][:50] + '...' if len(v['title']) > 50 else v['title']
                                        for v in videos[:3]]
-                        logger.info(f"Sample video titles: {sample_titles}")
-                    
+                        logger.info(f"📋 SAMPLE TITLES (first {min(3, len(videos))}): {sample_titles}")
+
+                    logger.info(f"🎉 DISCOVERY COMPLETE: Returning {len(videos)} videos for download processing")
+
                     return True, videos, None
                         
             except yt_dlp.DownloadError as e:
@@ -642,49 +654,66 @@ class VideoDownloadService:
             
             history.videos_found = len(videos)
             db.commit()
-            
+
+            logger.info(f"📊 DOWNLOAD PLANNING: Found {len(videos)} videos to evaluate for channel '{channel.name}'")
+
             if not videos:
                 # No videos found, but not an error
                 history.status = 'completed'
                 history.completed_at = datetime.utcnow()
                 channel.last_check = datetime.utcnow()
                 db.commit()
-                logger.info(f"No videos found for channel: {channel.name}")
+                logger.info(f"⚠️  No videos found for channel: {channel.name}")
                 return True, 0, None
-            
+
             # Process each video sequentially
             downloaded_count = 0
             skipped_count = 0
-            
-            for video_info in videos:
+
+            logger.info(f"🔄 DEDUPLICATION CHECK: Evaluating each video against database and filesystem...")
+
+            for idx, video_info in enumerate(videos, 1):
                 # Use new deduplication logic
                 should_download, existing_download = self.should_download_video(video_info['id'], channel, db)
-                
+
+                video_title_short = video_info['title'][:50] + '...' if len(video_info['title']) > 50 else video_info['title']
+
                 if not should_download:
                     skipped_count += 1
-                    logger.info(f"Skipping already available video: {video_info['title']}")
+                    logger.info(f"  ⏭️  Video {idx}/{len(videos)}: SKIPPED (already exists) - {video_title_short}")
                     continue
-                
+
                 # Download the video
+                logger.info(f"  ⬇️  Video {idx}/{len(videos)}: DOWNLOADING - {video_title_short}")
                 download_success, download_error = self.download_video(video_info, channel, db)
-                
+
                 if download_success:
                     downloaded_count += 1
+                    logger.info(f"  ✅ Video {idx}/{len(videos)}: SUCCESS - {video_title_short}")
                 else:
                     # Log error but continue with remaining videos
-                    logger.warning(f"Failed to download video {video_info['title']}: {download_error}")
+                    logger.warning(f"  ❌ Video {idx}/{len(videos)}: FAILED - {video_title_short}: {download_error}")
             
             # Update history and channel
             history.videos_downloaded = downloaded_count
             history.videos_skipped = skipped_count
             history.status = 'completed'
             history.completed_at = datetime.utcnow()
-            
+
             channel.last_check = datetime.utcnow()
-            
+
             db.commit()
-            
-            logger.info(f"Completed download process for {channel.name}: {downloaded_count} downloaded, {skipped_count} skipped")
+
+            logger.info(f"")
+            logger.info(f"{'='*80}")
+            logger.info(f"📊 CHANNEL DOWNLOAD SUMMARY: {channel.name}")
+            logger.info(f"  • Videos discovered: {len(videos)}")
+            logger.info(f"  • Videos downloaded: {downloaded_count}")
+            logger.info(f"  • Videos skipped: {skipped_count}")
+            logger.info(f"  • Status: ✅ COMPLETED")
+            logger.info(f"{'='*80}")
+            logger.info(f"")
+
             return True, downloaded_count, None
             
         except Exception as e:
