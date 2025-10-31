@@ -343,10 +343,7 @@ class VideoDownloadService:
                     print(f"Video: {video['title']} ({video['id']})")
         """
         cookies_applied = os.path.exists(self.cookie_file)
-        logger.info(f"🔍 VIDEO DISCOVERY: Starting for channel_id={channel_id}")
-        logger.info(f"📊 LIMIT: Configured to fetch {limit} most recent videos")
-        logger.info(f"🍪 COOKIES: {'Applied' if cookies_applied else 'Not available'}")
-        logger.info(f"🔗 URL: {channel_url}")
+        logger.info(f"Discovering videos for channel {channel_id or 'from URL'} (limit: {limit})")
         
         # Define fallback URLs to try in order
         fallback_attempts = []
@@ -394,12 +391,12 @@ class VideoDownloadService:
                 opts = self.query_opts.copy()
                 opts['playlistend'] = limit
                 opts.update(attempt['opts_override'])
-                
+
                 logger.info(f"Attempt {attempt_num}/{len(fallback_attempts)}: Trying {attempt['description']} - {attempt['url']}")
-                
+
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(attempt['url'], download=False)
-                    
+
                     if not info:
                         logger.warning(f"Attempt {attempt_num}: No info returned")
                         continue
@@ -409,20 +406,14 @@ class VideoDownloadService:
                     entries = info.get('entries', [])
                     raw_entries_count = len(entries)
 
-                    logger.info(f"✅ EXTRACTION SUCCESS (Attempt {attempt_num}): info_type={info_type}")
-                    logger.info(f"📺 RAW PLAYLIST DATA: Found {raw_entries_count} entries from yt-dlp")
-
-                    if entries:
-                        # Log first entry keys for debugging
-                        first_entry = entries[0] if entries else {}
-                        logger.info(f"🔑 First entry structure: {list(first_entry.keys())}")
+                    logger.info(f"Extraction successful (Attempt {attempt_num}): Found {raw_entries_count} entries")
 
                     if not entries:
-                        logger.warning(f"⚠️  NO ENTRIES: Attempt {attempt_num} returned 0 entries, trying next fallback")
+                        logger.warning(f"No entries returned, trying next fallback")
                         continue
-                    
+
                     # Process entries using flexible ID extraction
-                    logger.info(f"🔄 PROCESSING: Analyzing {min(len(entries), limit)} entries (limit={limit})")
+                    logger.info(f"Processing {min(len(entries), limit)} entries")
 
                     videos = []
                     skipped_count = 0
@@ -459,17 +450,23 @@ class VideoDownloadService:
                             skipped_count += 1
                             logger.debug(f"  ⏭️  Entry {idx}: Skipped (no title) - ID: {video_id}")
 
-                    logger.info(f"✅ FILTERING COMPLETE: {len(videos)} valid videos extracted, {skipped_count} skipped")
-                    
+                    logger.info(f"Extracted {len(videos)} valid videos ({skipped_count} skipped)")
+
+                    # Check if we got suspiciously few videos compared to what we requested
+                    # If we asked for 10 videos but only got 1-2, try the next fallback method
+                    # This handles cases where the uploads playlist (UC→UU) is broken/incomplete
+                    if len(videos) > 0 and len(videos) < max(3, limit // 3):
+                        logger.warning(f"Got only {len(videos)}/{limit} videos, trying next fallback method")
+                        continue  # Try next fallback method
+
                     # Success! Return even if videos list is empty (valid channel with no videos)
                     if videos:
                         # Log first few video titles for validation
                         sample_titles = [v['title'][:50] + '...' if len(v['title']) > 50 else v['title']
                                        for v in videos[:3]]
-                        logger.info(f"📋 SAMPLE TITLES (first {min(3, len(videos))}): {sample_titles}")
+                        logger.info(f"Sample videos (first {min(3, len(videos))}): {sample_titles}")
 
-                    logger.info(f"🎉 DISCOVERY COMPLETE: Returning {len(videos)} videos for download processing")
-
+                    logger.info(f"Discovery complete: Found {len(videos)} videos")
                     return True, videos, None
                         
             except yt_dlp.DownloadError as e:
@@ -625,22 +622,11 @@ class VideoDownloadService:
         Returns:
             Tuple of (success, videos_downloaded, error_message)
         """
-        logger.info(f"")
-        logger.info(f"{'='*80}")
-        logger.info(f"🎬 PROCESS_CHANNEL_DOWNLOADS() CALLED")
-        logger.info(f"📺 Channel: {channel.name}")
-        logger.info(f"🔗 URL: {channel.url}")
-        logger.info(f"🆔 Channel ID: {channel.channel_id}")
-        logger.info(f"📊 Limit: {channel.limit}")
-        logger.info(f"✅ Enabled: {channel.enabled}")
-        logger.info(f"{'='*80}")
-        logger.info(f"")
+        logger.info(f"Starting download process for '{channel.name}' (limit: {channel.limit})")
 
         if not channel.enabled:
-            logger.warning(f"⚠️  Channel is disabled, returning early")
+            logger.warning(f"Channel '{channel.name}' is disabled, skipping")
             return False, 0, "Channel is disabled"
-
-        logger.info(f"🚀 Starting download process for channel: {channel.name}")
         
         # Create download history record
         history = DownloadHistory(
@@ -657,17 +643,18 @@ class VideoDownloadService:
         try:
             # Get recent videos using flat-playlist approach with channel ID
             success, videos, error = self.get_recent_videos(channel.url, channel.limit, channel.channel_id)
+
             if not success:
                 history.status = 'failed'
                 history.error_message = error
                 history.completed_at = datetime.utcnow()
                 db.commit()
                 return False, 0, error
-            
+
             history.videos_found = len(videos)
             db.commit()
 
-            logger.info(f"📊 DOWNLOAD PLANNING: Found {len(videos)} videos to evaluate for channel '{channel.name}'")
+            logger.info(f"Found {len(videos)} videos for channel '{channel.name}'")
 
             if not videos:
                 # No videos found, but not an error
@@ -682,7 +669,7 @@ class VideoDownloadService:
             downloaded_count = 0
             skipped_count = 0
 
-            logger.info(f"🔄 DEDUPLICATION CHECK: Evaluating each video against database and filesystem...")
+            logger.info(f"Processing {len(videos)} videos for download")
 
             for idx, video_info in enumerate(videos, 1):
                 # Use new deduplication logic
@@ -716,15 +703,7 @@ class VideoDownloadService:
 
             db.commit()
 
-            logger.info(f"")
-            logger.info(f"{'='*80}")
-            logger.info(f"📊 CHANNEL DOWNLOAD SUMMARY: {channel.name}")
-            logger.info(f"  • Videos discovered: {len(videos)}")
-            logger.info(f"  • Videos downloaded: {downloaded_count}")
-            logger.info(f"  • Videos skipped: {skipped_count}")
-            logger.info(f"  • Status: ✅ COMPLETED")
-            logger.info(f"{'='*80}")
-            logger.info(f"")
+            logger.info(f"Channel '{channel.name}' complete: {downloaded_count} downloaded, {skipped_count} skipped, {len(videos)} total")
 
             return True, downloaded_count, None
             
