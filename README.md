@@ -11,6 +11,7 @@ ChannelFinWatcher periodically monitors YouTube channels and downloads only the 
 ## Key Features
 
 - **Recent Videos Only**: Downloads last X videos per channel, not entire history
+- **Smart Content Filtering**: Automatically excludes YouTube Shorts and live streams, downloading only regular uploaded videos
 - **Real-time Updates**: Live progress tracking via WebSocket connections
 - **Auto-cleanup**: Removes older videos when limits are exceeded
 - **Dual Configuration**: Manage channels via YAML config or web interface
@@ -97,14 +98,21 @@ Deploy using pre-built Docker image from GitHub Container Registry:
 mkdir -p channelfinwatcher/{data,media,temp}
 cd channelfinwatcher
 
-# Download production compose file
-curl -O https://raw.githubusercontent.com/miguelarios/ChannelFinWatcher/main/docker-compose.prod.yml
+# Download compose file
+curl -O https://raw.githubusercontent.com/miguelarios/ChannelFinWatcher/main/docker-compose.yml
 
-# Optional: Edit timezone
-nano docker-compose.prod.yml
+# Edit for production use (IMPORTANT: change test paths and ports)
+nano docker-compose.yml
+# Change:
+#   - ./test/data -> ./data
+#   - ./test/media -> ./media
+#   - ./test/temp -> ./temp
+#   - ports 3333:3000 -> 3000:3000 (or your preferred port)
+#   - ports 8001:8000 -> 8000:8000 (optional, for API access)
+#   - TZ to your timezone
 
 # Start the application
-docker compose -f docker-compose.prod.yml up -d
+docker compose up -d
 
 # Access web UI at http://localhost:3000
 ```
