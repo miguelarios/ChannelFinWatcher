@@ -11,12 +11,13 @@ class TestHealthEndpoint:
     def test_health_endpoint_success(self, test_client):
         """Test health endpoint returns successful response."""
         response = test_client.get("/health")
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "healthy"
-        assert "database_status" in data
-        assert "timestamp" in data
+        assert "database" in data
+        assert data["database"] == "connected"
+        assert "directories" in data
 
 
 class TestChannelsAPI:
@@ -48,40 +49,44 @@ class TestChannelsAPI:
         assert data["enabled"] == 1
         assert data["channels"][0]["name"] == sample_channel_data["name"]
 
+    @patch('app.metadata_service.metadata_service.process_channel_metadata')
     @patch('app.youtube_service.youtube_service.normalize_channel_url')
     @patch('app.youtube_service.youtube_service.extract_channel_info')
-    def test_create_channel_success(self, mock_extract, mock_normalize, test_client):
+    def test_create_channel_success(self, mock_extract, mock_normalize, mock_metadata, test_client):
         """Test successful channel creation with mocked YouTube service."""
         # Mock YouTube service responses
         mock_normalize.return_value = "https://www.youtube.com/@TestChannel"
         mock_extract.return_value = (
-            True, 
+            True,
             {
                 "channel_id": "UC12345678901234567890",
                 "name": "Test Channel"
-            }, 
+            },
             None
         )
-        
+        # Mock metadata processing to avoid second extract_channel_info call
+        mock_metadata.return_value = (True, [])
+
         channel_data = {
             "url": "https://www.youtube.com/@TestChannel",
             "limit": 15,
             "enabled": True,
             "quality_preset": "best"
         }
-        
+
         response = test_client.post("/api/v1/channels", json=channel_data)
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == "Test Channel"
         assert data["url"] == "https://www.youtube.com/@TestChannel"
         assert data["limit"] == 15
         assert data["enabled"] is True
-        
+
         # Verify mocks were called correctly
         mock_normalize.assert_called_once()
         mock_extract.assert_called_once()
+        mock_metadata.assert_called_once()
 
     @patch('app.youtube_service.youtube_service.normalize_channel_url')
     @patch('app.youtube_service.youtube_service.extract_channel_info')  

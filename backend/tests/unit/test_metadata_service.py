@@ -16,7 +16,7 @@ from app.config import Settings
 def mock_settings():
     """Mock settings with temporary media directory."""
     with tempfile.TemporaryDirectory() as temp_dir:
-        settings = Settings(media_directory=temp_dir)
+        settings = Settings(media_dir=temp_dir)
         with patch('app.metadata_service.get_settings', return_value=settings):
             yield settings
 
@@ -65,7 +65,7 @@ class TestMetadataService:
     def test_initialization(self, mock_settings):
         """Test MetadataService initialization."""
         service = MetadataService()
-        assert service.media_root == mock_settings.media_directory
+        assert service.media_root == mock_settings.media_dir
     
     @patch('app.metadata_service.youtube_service.extract_channel_info')
     def test_create_channel_directory_success(self, mock_extract, mock_settings):
@@ -115,7 +115,7 @@ class TestMetadataService:
         mock_db.query.return_value.filter.return_value.first.return_value = None  # No duplicates
         
         # Create test directory
-        test_dir = os.path.join(mock_settings.media_directory, "Test Channel [UC123456789]")
+        test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123456789]")
         os.makedirs(test_dir, exist_ok=True)
         
         # Mock YouTube metadata extraction
@@ -150,7 +150,7 @@ class TestMetadataService:
         mock_db.query.return_value.filter.return_value.first.return_value = existing_channel
         
         # Create test directory
-        test_dir = os.path.join(mock_settings.media_directory, "Test Channel [UC123456789]")
+        test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123456789]")
         os.makedirs(test_dir, exist_ok=True)
         
         # Mock YouTube metadata extraction
@@ -174,7 +174,7 @@ class TestMetadataService:
         mock_db = Mock(spec=Session)
         
         # Create test directory
-        test_dir = os.path.join(mock_settings.media_directory, "Test Channel [UC123456789]")
+        test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123456789]")
         os.makedirs(test_dir, exist_ok=True)
         
         # Mock YouTube extraction failure
@@ -202,7 +202,7 @@ class TestMetadataService:
         mock_db.query.return_value.filter.return_value.first.return_value = None
         
         # Create test directory
-        test_dir = os.path.join(mock_settings.media_directory, "Test Channel [UC123456789]")
+        test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123456789]")
         os.makedirs(test_dir, exist_ok=True)
         
         # Mock successful metadata extraction
@@ -229,7 +229,7 @@ class TestMetadataService:
         service = MetadataService()
         
         # Create valid test directory
-        test_dir = os.path.join(mock_settings.media_directory, "test_channel")
+        test_dir = os.path.join(mock_settings.media_dir, "test_channel")
         os.makedirs(test_dir)
         
         valid, errors = service.validate_directory_structure(test_dir)
@@ -241,7 +241,7 @@ class TestMetadataService:
         """Test directory structure validation for missing directory."""
         service = MetadataService()
         
-        missing_dir = os.path.join(mock_settings.media_directory, "missing")
+        missing_dir = os.path.join(mock_settings.media_dir, "missing")
         
         valid, errors = service.validate_directory_structure(missing_dir)
         
@@ -266,7 +266,7 @@ class TestMetadataService:
                                             mock_settings, sample_metadata):
         """Test successful metadata refresh for existing channel."""
         # Create test channel with existing directory
-        test_dir = os.path.join(mock_settings.media_directory, "Test Channel [UC123456789]")
+        test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123456789]")
         os.makedirs(test_dir)
         
         channel = Channel(
@@ -332,7 +332,7 @@ class TestMetadataServiceRollback:
         service = MetadataService()
         
         # Create test directory
-        test_dir = os.path.join(mock_settings.media_directory, "test_rollback")
+        test_dir = os.path.join(mock_settings.media_dir, "test_rollback")
         os.makedirs(test_dir)
         assert os.path.exists(test_dir)
         
@@ -348,7 +348,7 @@ class TestMetadataServiceRollback:
         service = MetadataService()
         
         # Create test file
-        test_file = os.path.join(mock_settings.media_directory, "test.txt")
+        test_file = os.path.join(mock_settings.media_dir, "test.txt")
         with open(test_file, 'w') as f:
             f.write("test")
         assert os.path.exists(test_file)

@@ -101,22 +101,59 @@ class TestVideoDownloadService:
     @patch('app.video_download_service.yt_dlp.YoutubeDL')
     def test_get_recent_videos_success(self, mock_ydl_class, mock_settings, sample_video_info):
         """Test successful retrieval of recent videos from a channel."""
+        # Create 5 videos to satisfy the limit requirement
+        extended_videos = sample_video_info + [
+            {
+                "id": "3rd_Video_ID",
+                "title": "Test Video 3",
+                "upload_date": "20250118",
+                "duration": 180,
+                "duration_string": "3:00",
+                "view_count": 3000,
+                "webpage_url": "https://youtube.com/watch?v=3rd_Video_ID",
+                "channel": "Test Channel",
+                "channel_id": "UC123456789"
+            },
+            {
+                "id": "4th_Video_ID",
+                "title": "Test Video 4",
+                "upload_date": "20250117",
+                "duration": 200,
+                "duration_string": "3:20",
+                "view_count": 4000,
+                "webpage_url": "https://youtube.com/watch?v=4th_Video_ID",
+                "channel": "Test Channel",
+                "channel_id": "UC123456789"
+            },
+            {
+                "id": "5th_Video_ID",
+                "title": "Test Video 5",
+                "upload_date": "20250116",
+                "duration": 150,
+                "duration_string": "2:30",
+                "view_count": 5000,
+                "webpage_url": "https://youtube.com/watch?v=5th_Video_ID",
+                "channel": "Test Channel",
+                "channel_id": "UC123456789"
+            }
+        ]
+
         # Mock yt-dlp behavior
         mock_ydl = Mock()
         mock_ydl_class.return_value.__enter__.return_value = mock_ydl
         mock_ydl.extract_info.return_value = {
-            'entries': sample_video_info
+            'entries': extended_videos
         }
-        
+
         service = VideoDownloadService()
         success, videos, error = service.get_recent_videos("https://youtube.com/@testchannel", limit=5)
-        
+
         assert success is True
         assert error is None
-        assert len(videos) == 2
+        assert len(videos) == 5
         assert videos[0]['id'] == 'dQw4w9WgXcQ'
         assert videos[0]['title'] == 'Test Video 1'
-        
+
         # Verify yt-dlp was called with correct parameters
         mock_ydl.extract_info.assert_called_once_with("https://youtube.com/@testchannel", download=False)
 
@@ -155,26 +192,35 @@ class TestVideoDownloadService:
     @patch('app.video_download_service.yt_dlp.YoutubeDL')
     def test_download_video_success(self, mock_ydl_class, mock_settings, test_channel, mock_db, sample_video_info):
         """Test successful video download with database tracking."""
+        # Create channel directory that the service expects
+        channel_dir = os.path.join(mock_settings.media_dir, f"{test_channel.name} [{test_channel.channel_id}]")
+        os.makedirs(channel_dir, exist_ok=True)
+
+        # Create a dummy video file to simulate successful download
+        video_file = os.path.join(channel_dir, "Test Video 1 [dQw4w9WgXcQ].mkv")
+        with open(video_file, 'w') as f:
+            f.write("dummy video content")
+
         # Mock yt-dlp behavior
         mock_ydl = Mock()
         mock_ydl_class.return_value.__enter__.return_value = mock_ydl
         mock_ydl.download.return_value = None  # Successful download
-        
+
         # Mock database queries
         mock_db.query.return_value.filter.return_value.first.return_value = None  # No existing download
-        
+
         service = VideoDownloadService()
         video_info = sample_video_info[0]
-        
+
         success, error = service.download_video(video_info, test_channel, mock_db)
-        
+
         assert success is True
         assert error is None
-        
+
         # Verify database interaction
         mock_db.add.assert_called()
         mock_db.commit.assert_called()
-        
+
         # Verify yt-dlp was called with video URL
         expected_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         mock_ydl.download.assert_called_once_with([expected_url])
