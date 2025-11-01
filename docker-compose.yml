@@ -1,0 +1,22 @@
+name: ChannelFinWatcher
+
+services:
+  channelfinwatcher:
+    container_name: channelfinwatcher
+    image: ghcr.io/miguelarios/channelfinwatcher:latest
+    restart: always
+    environment:
+      - TZ=America/Chicago
+    volumes:
+      - ./test/data:/app/data
+      - ./test/media:/app/media
+      - ./test/temp:/app/temp
+    ports:
+      - 3333:3000
+      - 8001:8000
+    networks:
+      - channelfinwatcher-net
+
+networks:
+  channelfinwatcher-net:
+    name: channelfinwatcher-net
