@@ -323,8 +323,8 @@ class VideoDownloadService:
         Query channel for recent videos using robust fallback approach.
 
         This method tries multiple extraction strategies in order:
-        1. Uploads playlist (UC -> UU conversion) - most reliable
-        2. Channel /videos tab with extractor args
+        1. Channel /videos tab - excludes shorts and live streams naturally
+        2. Uploads playlist (UC -> UU conversion) - fallback, includes all content
         3. Original channel URL
         4. Non-flat extraction as last resort
 
@@ -347,22 +347,22 @@ class VideoDownloadService:
         
         # Define fallback URLs to try in order
         fallback_attempts = []
-        
-        # 1. Uploads playlist (most reliable)
+
+        # 1. Channel videos tab (excludes shorts and live streams naturally)
+        if channel_id and channel_id.startswith('UC'):
+            fallback_attempts.append({
+                'url': f"https://www.youtube.com/channel/{channel_id}/videos",
+                'description': 'channel videos tab',
+                'opts_override': {'extractor_args': {'youtube': {'tab': ['videos']}}}
+            })
+
+        # 2. Uploads playlist (fallback - includes shorts and lives)
         if channel_id and channel_id.startswith('UC'):
             uploads_id = 'UU' + channel_id[2:]  # Convert UC to UU
             fallback_attempts.append({
                 'url': f"https://www.youtube.com/playlist?list={uploads_id}",
                 'description': 'uploads playlist',
                 'opts_override': {}
-            })
-        
-        # 2. Channel videos tab
-        if channel_id and channel_id.startswith('UC'):
-            fallback_attempts.append({
-                'url': f"https://www.youtube.com/channel/{channel_id}/videos",
-                'description': 'channel videos tab',
-                'opts_override': {'extractor_args': {'youtube': {'tab': ['videos']}}}
             })
         
         # 3. Original channel URL

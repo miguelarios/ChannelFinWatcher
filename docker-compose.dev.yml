@@ -1,16 +1,34 @@
+name: ChannelFinWatcher-Dev
+
 services:
+  db-init:
+    image: alpine:latest
+    volumes:
+      - ./test/data:/data
+      - ./test/media:/media
+      - ./test/temp:/temp
+    command: >
+      sh -c "
+        mkdir -p /data /media /temp &&
+        chmod 755 /data /media /temp &&
+        echo 'Local directories initialized for development'
+      "
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    container_name: channelfinwatcher-backend-dev
+    restart: always
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
+      # Mount local code for live updates
       - ./backend:/app
-      # Local directory mounts for development
-      - ./data:/app/data
-      - ./media:/app/media
-      - ./temp:/app/temp
+      # Keep data/media/temp in local storage (no Nextcloud sync)
+      - ./test/data:/app/data
+      - ./test/media:/app/media
+      - ./test/temp:/app/temp
     environment:
       - PYTHONPATH=/app
       - DATABASE_URL=sqlite:////app/data/app.db
@@ -18,18 +36,20 @@ services:
       - TEMP_DIR=/app/temp
       - CONFIG_FILE=/app/data/config.yaml
       - COOKIES_FILE=/app/data/cookies.txt
-      - TZ=America/Chicago  # CDT/CST timezone for scheduler
+      - TZ=America/Chicago
     depends_on:
       - db-init
     networks:
-      - app-network
+      - channelfinwatcher-net
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    container_name: channelfinwatcher-frontend-dev
+    restart: always
     ports:
-      - "3000:3000"
+      - "3333:3000"
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -38,26 +58,8 @@ services:
     depends_on:
       - backend
     networks:
-      - app-network
-
-  db-init:
-    image: alpine:latest
-    volumes:
-      - ./data:/data
-      - ./media:/media
-      - ./temp:/temp
-    command: >
-      sh -c "
-        mkdir -p /data /media /temp &&
-        chmod 755 /data /media /temp &&
-        echo 'Local directories initialized for development' &&
-        echo 'You can now watch files in ./data ./media ./temp'
-      "
-
-volumes:
-  # Only node_modules needs to be a docker volume for performance
-  node_modules:
+      - channelfinwatcher-net
 
 networks:
-  app-network:
-    driver: bridge
+  channelfinwatcher-net:
+    name: channelfinwatcher-net
