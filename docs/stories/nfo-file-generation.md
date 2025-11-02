@@ -13,14 +13,21 @@ Automatically generate Jellyfin-compatible NFO metadata files (tvshow.nfo, seaso
 ### Context
 ChannelFinWatcher downloads YouTube videos using yt-dlp, which creates `.info.json` files containing comprehensive metadata. However, Jellyfin requires `.nfo` files in specific XML formats to display this metadata properly. Currently, users must manually create these files or rely on Jellyfin's limited ability to parse filenames. This feature will bridge the gap by automatically transforming the JSON metadata into Jellyfin-compatible NFO files for shows, seasons, and episodes.
 
+**NFO Generation Workflow:**
+- **tvshow.nfo**: Generated when channel is first added to monitoring
+- **season.nfo**: Generated automatically when first episode of a year is downloaded (simple, year-based only)
+- **episode.nfo**: Generated immediately after each episode download (metadata is available early in download process)
+- **Manual Regeneration**: Kebab menu on channel dashboard cards provides "Regenerate NFO Files" option to rebuild all NFO files recursively
+
 ### Functional Requirements
 
-#### [ ] Scenario: Generate tvshow.nfo from channel metadata - Happy Path
-- **Given** a YouTube channel has been downloaded with a channel-level info.json file
+#### [ ] Scenario: Generate tvshow.nfo when channel is added to monitoring
+- **Given** a user adds a YouTube channel to be monitored
+  - And the channel metadata is downloaded with a channel-level info.json file
   - And the info.json contains fields: `channel`, `description`, `tags`, and `channel_id`
-  - And the channel directory exists at the show level (e.g., `/Steve the Bartender [UCfEJUzPnT-HdNqOqdX3A0lA]/`)
-- **When** the NFO generation process runs
-- **Then** a `tvshow.nfo` file is created in the channel directory
+  - And the channel directory is created at the show level (e.g., `/Steve the Bartender [UCfEJUzPnT-HdNqOqdX3A0lA]/`)
+- **When** the channel is first added and metadata is retrieved
+- **Then** a `tvshow.nfo` file is automatically created in the channel directory
   - And the NFO contains `<title>` populated from `channel` field
   - And the NFO contains `<originaltitle>` populated from `channel` field
   - And the NFO contains `<showtitle>` populated from `channel` field
@@ -29,22 +36,23 @@ ChannelFinWatcher downloads YouTube videos using yt-dlp, which creates `.info.js
   - And the NFO contains `<genre>` tags for each item in the `tags` array
   - And the NFO contains matching `<tag>` elements for each genre
 
-#### [ ] Scenario: Generate season.nfo from playlist/year folder
-- **Given** a season directory exists (e.g., playlist folder or year folder like `/2021/`)
-  - And the directory name represents either a playlist name or a year in YYYY format
-- **When** the NFO generation process runs
-- **Then** a `season.nfo` file is created in the season directory
-  - And the NFO contains `<title>` with the directory name (playlist name or year)
+#### [ ] Scenario: Generate season.nfo when first episode of year is downloaded
+- **Given** a video is being downloaded from a monitored channel
+  - And the video's upload year creates a new year folder (e.g., `/2021/`)
+  - And no season.nfo exists yet in that year folder
+- **When** the first episode download begins and the year folder is created
+- **Then** a `season.nfo` file is automatically created in the year directory
+  - And the NFO contains `<title>` with the year (e.g., "2021")
   - And the NFO contains `<dateadded>` with the current timestamp in format `YYYY-MM-DD HH:MM:SS`
-  - And the NFO contains empty `<plot>` and `<outline>` tags
-  - And the NFO contains empty `<art>` tag
+  - And the NFO contains empty `<plot />` and `<outline />` tags
+  - And the NFO contains empty `<art />` tag
 
-#### [ ] Scenario: Generate episode.nfo from video metadata - Happy Path
-- **Given** a video file exists with a corresponding `.info.json` file
+#### [ ] Scenario: Generate episode.nfo immediately after episode metadata is downloaded
+- **Given** a video is being downloaded from a monitored channel
+  - And yt-dlp creates the `.info.json` file with episode metadata
   - And the info.json contains fields: `title`, `description`, `upload_date`, `uploader`, `duration`, `tags`, `id`, `channel`, `channel_id`
-  - And the video filename follows the pattern `<basename>.<ext>`
-- **When** the NFO generation process runs
-- **Then** an NFO file named `<basename>.nfo` is created
+- **When** the episode info.json file is written to disk (early in download process)
+- **Then** an NFO file named `<basename>.nfo` is immediately created
   - And the NFO contains `<title>` from the `title` field
   - And the NFO contains `<showtitle>` from the `channel` field
   - And the NFO contains `<plot>` from the `description` field
@@ -56,6 +64,7 @@ ChannelFinWatcher downloads YouTube videos using yt-dlp, which creates `.info.js
   - And the NFO contains `<genre>` tags for each item in the `tags` array
   - And the NFO contains `<uniqueid type="youtube">` with the video `id`
   - And the NFO contains `<studio>YouTube</studio>`
+  - But the video file download may still be in progress
 
 #### [ ] Scenario: Handle missing optional metadata fields
 - **Given** a video info.json file with missing optional fields (e.g., no tags, no description)
@@ -77,6 +86,22 @@ ChannelFinWatcher downloads YouTube videos using yt-dlp, which creates `.info.js
 - **When** the NFO generation process runs
 - **Then** the existing NFO file is not modified
   - And a log entry indicates the file was skipped
+
+#### [ ] Scenario: Manual regeneration via kebab menu on channel card
+- **Given** a channel card is displayed on the dashboard
+  - And the channel has existing episodes with or without NFO files
+- **When** the user clicks the kebab (⋮) menu icon on the channel card
+  - And selects "Regenerate NFO Files" from the menu
+- **Then** a confirmation dialog appears asking to confirm the regeneration
+- **When** the user confirms the action
+- **Then** the system recursively processes the entire channel directory
+  - And generates/regenerates tvshow.nfo in the channel root directory
+  - And generates/regenerates season.nfo in each year/season subdirectory
+  - And generates/regenerates episode.nfo for each video with an info.json file
+  - And displays a progress indicator during the process
+  - And shows a summary notification with counts of files created/updated/failed
+  - And respects the overwrite configuration setting
+  - And logs all operations performed
 
 ### Non-functional Requirements
 - **Performance:** NFO generation should complete for 1000 episodes within 10 seconds
@@ -162,12 +187,14 @@ ChannelFinWatcher downloads YouTube videos using yt-dlp, which creates `.info.js
   - [ ] Test batch generation endpoint
 
 #### 7. [ ] Frontend - Add NFO Management UI
-- **Description:** Add UI controls for NFO generation settings and manual triggers
+- **Description:** Add UI controls for NFO generation settings and manual triggers, including kebab menu option on channel cards
 - **Estimation:** 6 hours
 - **Acceptance Criteria:** 
   - [ ] Settings page has NFO generation configuration options
-  - [ ] Channel/show detail page has "Regenerate NFO Files" button
-  - [ ] Batch operation shows progress and results
+  - [ ] Channel card on dashboard has kebab menu (⋮) with "Regenerate NFO Files" option
+  - [ ] Clicking "Regenerate NFO Files" shows confirmation dialog
+  - [ ] Batch operation shows progress indicator with percentage/counts
+  - [ ] Summary notification displays results (created/updated/failed counts)
   - [ ] UI displays NFO generation status in download history
   - [ ] UI shows validation errors for failed NFO generation
 
