@@ -21,14 +21,37 @@ For those who want to get started immediately:
 mkdir -p channelfinwatcher/{data,media,temp}
 cd channelfinwatcher
 
-# Download docker-compose.prod.yml
-curl -O https://raw.githubusercontent.com/miguelarios/ChannelFinWatcher/main/docker-compose.prod.yml
+# Create production docker-compose.yml
+cat > docker-compose.yml << 'EOF'
+name: ChannelFinWatcher
 
-# Edit timezone if needed (optional)
-nano docker-compose.prod.yml
+services:
+  channelfinwatcher:
+    container_name: channelfinwatcher
+    image: ghcr.io/miguelarios/channelfinwatcher:latest
+    restart: always
+    environment:
+      - TZ=America/Chicago  # Change to your timezone
+    volumes:
+      - ./data:/app/data
+      - ./media:/app/media
+      - ./temp:/app/temp
+    ports:
+      - 3000:3000
+      - 8000:8000
+    networks:
+      - channelfinwatcher-net
+
+networks:
+  channelfinwatcher-net:
+    name: channelfinwatcher-net
+EOF
+
+# Optional: Edit timezone (TZ=America/Chicago -> your timezone)
+nano docker-compose.yml
 
 # Start the application
-docker compose -f docker-compose.prod.yml up -d
+docker compose up -d
 
 # Access the web UI
 # Open http://localhost:3000 in your browser
@@ -94,16 +117,18 @@ channelfinwatcher/
 
 ## Configuration
 
-### Basic Configuration (docker-compose.prod.yml)
+### Basic Configuration (docker-compose.yml)
 
 The minimum required configuration:
 
 ```yaml
+name: ChannelFinWatcher
+
 services:
   channelfinwatcher:
     image: ghcr.io/miguelarios/channelfinwatcher:latest
     container_name: channelfinwatcher
-    restart: unless-stopped
+    restart: always
     ports:
       - "3000:3000"
     volumes:
@@ -112,6 +137,12 @@ services:
       - ./temp:/app/temp
     environment:
       - TZ=America/Chicago  # Set your timezone
+    networks:
+      - channelfinwatcher-net
+
+networks:
+  channelfinwatcher-net:
+    name: channelfinwatcher-net
 ```
 
 ### Timezone Configuration
@@ -150,7 +181,7 @@ id
 #     This is your PUID  This is your PGID
 ```
 
-**Set in docker-compose.prod.yml:**
+**Set in docker-compose.yml:**
 ```yaml
 environment:
   - TZ=America/Chicago
@@ -200,43 +231,63 @@ cd channelfinwatcher
 mkdir -p data media temp
 ```
 
-### Step 2: Create docker-compose.prod.yml
+### Step 2: Create docker-compose.yml
 
-Option A: Download from repository
+Create a production-ready docker-compose.yml file:
+
 ```bash
-curl -O https://raw.githubusercontent.com/miguelarios/ChannelFinWatcher/main/docker-compose.prod.yml
+cat > docker-compose.yml << 'EOF'
+name: ChannelFinWatcher
+
+services:
+  channelfinwatcher:
+    container_name: channelfinwatcher
+    image: ghcr.io/miguelarios/channelfinwatcher:latest
+    restart: always
+    environment:
+      - TZ=America/New_York  # Change to your timezone
+    volumes:
+      - ./data:/app/data
+      - ./media:/app/media
+      - ./temp:/app/temp
+    ports:
+      - 3000:3000
+      - 8000:8000
+    networks:
+      - channelfinwatcher-net
+
+networks:
+  channelfinwatcher-net:
+    name: channelfinwatcher-net
+EOF
 ```
 
-Option B: Create manually
+### Step 3: Customize Configuration (Optional)
+
+You can edit the docker-compose.yml file to customize:
+
 ```bash
-nano docker-compose.prod.yml
-# Copy contents from the repository
+nano docker-compose.yml
 ```
 
-### Step 3: Customize Configuration
+**Common customizations:**
 
-Edit the docker-compose file:
-```bash
-nano docker-compose.prod.yml
-```
-
-**At minimum, set your timezone:**
-```yaml
-environment:
-  - TZ=America/New_York  # Change to your timezone
-```
+- **Timezone**: Change `TZ=America/New_York` to your timezone
+- **Ports**: Change `3000:3000` to a different port if 3000 is already in use
+- **UID/GID**: Add `PUID` and `PGID` environment variables for file permissions (see Advanced Configuration)
+- **Resource limits**: Add resource limits to prevent high resource usage (see Advanced Configuration)
 
 ### Step 4: Start the Application
 
 ```bash
 # Start in background
-docker compose -f docker-compose.prod.yml up -d
+docker compose up -d
 
 # View logs
-docker compose -f docker-compose.prod.yml logs -f
+docker compose logs -f
 
 # Check status
-docker compose -f docker-compose.prod.yml ps
+docker compose ps
 ```
 
 ### Step 5: Access the Web UI
@@ -267,13 +318,13 @@ http://your-server-ip:3000
 cd channelfinwatcher
 
 # Pull latest image
-docker compose -f docker-compose.prod.yml pull
+docker compose pull
 
 # Recreate container with new image
-docker compose -f docker-compose.prod.yml up -d
+docker compose up -d
 
 # Verify update
-docker compose -f docker-compose.prod.yml logs
+docker compose logs
 ```
 
 ### Check for Updates
@@ -290,14 +341,14 @@ docker inspect channelfinwatcher | grep Created
 
 ```bash
 # Stop current version
-docker compose -f docker-compose.prod.yml down
+docker compose down
 
-# Edit docker-compose.prod.yml to specify version tag
+# Edit docker-compose.yml to specify version tag
 # Change: image: ghcr.io/miguelarios/channelfinwatcher:latest
 # To:     image: ghcr.io/miguelarios/channelfinwatcher:v1.0.0
 
 # Start with specific version
-docker compose -f docker-compose.prod.yml up -d
+docker compose up -d
 ```
 
 ## Troubleshooting
@@ -306,11 +357,11 @@ docker compose -f docker-compose.prod.yml up -d
 
 **Check logs:**
 ```bash
-docker compose -f docker-compose.prod.yml logs
+docker compose logs
 ```
 
 **Common issues:**
-- Port already in use: Change ports in docker-compose.prod.yml
+- Port already in use: Change ports in docker-compose.yml
 - Permission denied: Check directory permissions
   ```bash
   sudo chown -R 1000:1000 data media temp
@@ -320,7 +371,7 @@ docker compose -f docker-compose.prod.yml logs
 
 **Check if container is running:**
 ```bash
-docker compose -f docker-compose.prod.yml ps
+docker compose ps
 ```
 
 **Check if ports are accessible:**
@@ -341,7 +392,7 @@ sudo ufw allow 3000
 
 **Check backend logs:**
 ```bash
-docker compose -f docker-compose.prod.yml logs channelfinwatcher | grep backend
+docker compose logs channelfinwatcher | grep backend
 ```
 
 **Verify yt-dlp is working:**
@@ -376,13 +427,13 @@ cp data/scheduler_jobs.db data/scheduler_jobs.db.backup
 **Reset database (last resort):**
 ```bash
 # Stop container
-docker compose -f docker-compose.prod.yml down
+docker compose down
 
 # Move old database
 mv data/app.db data/app.db.old
 
 # Start container (will create new database)
-docker compose -f docker-compose.prod.yml up -d
+docker compose up -d
 ```
 
 ## Advanced Configuration
@@ -439,7 +490,7 @@ Some videos require authentication. To handle these:
 
 3. Restart container:
    ```bash
-   docker compose -f docker-compose.prod.yml restart
+   docker compose restart
    ```
 
 ### Resource Limits
@@ -495,7 +546,7 @@ BACKUP_DIR="/path/to/backups"
 DATE=$(date +%Y%m%d_%H%M%S)
 
 # Stop container for consistent backup
-docker compose -f docker-compose.prod.yml stop
+docker compose stop
 
 # Backup databases
 tar -czf "$BACKUP_DIR/channelfinwatcher_data_$DATE.tar.gz" data/
@@ -504,7 +555,7 @@ tar -czf "$BACKUP_DIR/channelfinwatcher_data_$DATE.tar.gz" data/
 # tar -czf "$BACKUP_DIR/channelfinwatcher_media_$DATE.tar.gz" media/
 
 # Restart container
-docker compose -f docker-compose.prod.yml start
+docker compose start
 
 # Keep only last 7 days of backups
 find "$BACKUP_DIR" -name "channelfinwatcher_data_*.tar.gz" -mtime +7 -delete
@@ -542,13 +593,13 @@ docker stats channelfinwatcher
 
 ```bash
 # View recent logs
-docker compose -f docker-compose.prod.yml logs --tail=100
+docker compose logs --tail=100
 
 # Follow logs in real-time
-docker compose -f docker-compose.prod.yml logs -f
+docker compose logs -f
 
 # Filter logs for errors
-docker compose -f docker-compose.prod.yml logs | grep ERROR
+docker compose logs | grep ERROR
 ```
 
 ## Getting Help
@@ -559,5 +610,5 @@ docker compose -f docker-compose.prod.yml logs | grep ERROR
 
 When reporting issues, include:
 1. Docker version: `docker --version`
-2. Container logs: `docker compose -f docker-compose.prod.yml logs`
+2. Container logs: `docker compose logs`
 3. System info: OS, available storage, etc.
