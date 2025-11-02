@@ -3,11 +3,12 @@ import os
 import json
 import tempfile
 import pytest
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.main import app
+from main import app
 from app.database import Base, get_db
 from app.models import Channel
 from app.config import get_settings, Settings
@@ -82,8 +83,8 @@ class TestMetadataWorkflowIntegration:
     def test_create_channel_triggers_metadata_processing(self, test_client, test_db_session, 
                                                         sample_channel_data):
         """Test that creating a channel triggers metadata processing."""
-        with pytest.patch('app.youtube_service.youtube_service.extract_channel_info') as mock_extract:
-            with pytest.patch('app.metadata_service.metadata_service.process_channel_metadata') as mock_process:
+        with patch('app.youtube_service.youtube_service.extract_channel_info') as mock_extract:
+            with patch('app.metadata_service.metadata_service.process_channel_metadata') as mock_process:
                 
                 # Mock YouTube service response
                 mock_extract.return_value = (True, {
@@ -125,7 +126,7 @@ class TestMetadataWorkflowIntegration:
         test_db_session.commit()
         test_db_session.refresh(channel)
         
-        with pytest.patch('app.metadata_service.metadata_service.refresh_channel_metadata') as mock_refresh:
+        with patch('app.metadata_service.metadata_service.refresh_channel_metadata') as mock_refresh:
             # Mock successful refresh
             mock_refresh.return_value = (True, [])
             
@@ -154,7 +155,7 @@ class TestMetadataWorkflowIntegration:
         test_db_session.commit()
         test_db_session.refresh(channel)
         
-        with pytest.patch('app.metadata_service.metadata_service.refresh_channel_metadata') as mock_refresh:
+        with patch('app.metadata_service.metadata_service.refresh_channel_metadata') as mock_refresh:
             # Mock refresh failure
             mock_refresh.return_value = (False, ["Network error", "Invalid channel"])
             
@@ -220,7 +221,7 @@ class TestMetadataWorkflowIntegration:
         test_db_session.add(existing_channel)
         test_db_session.commit()
         
-        with pytest.patch('app.youtube_service.youtube_service.extract_channel_info') as mock_extract:
+        with patch('app.youtube_service.youtube_service.extract_channel_info') as mock_extract:
             # Mock YouTube service to return same channel_id
             mock_extract.return_value = (True, {
                 'channel_id': 'UC123456789',  # Duplicate channel_id
@@ -246,8 +247,8 @@ class TestMetadataWorkflowErrorScenarios:
     def test_channel_creation_with_metadata_failure(self, test_client, test_db_session, 
                                                    sample_channel_data):
         """Test channel creation when metadata processing fails."""
-        with pytest.patch('app.youtube_service.youtube_service.extract_channel_info') as mock_extract:
-            with pytest.patch('app.metadata_service.metadata_service.process_channel_metadata') as mock_process:
+        with patch('app.youtube_service.youtube_service.extract_channel_info') as mock_extract:
+            with patch('app.metadata_service.metadata_service.process_channel_metadata') as mock_process:
                 
                 # Mock successful channel extraction
                 mock_extract.return_value = (True, {
@@ -286,7 +287,7 @@ class TestMetadataWorkflowErrorScenarios:
         test_db_session.commit()
         test_db_session.refresh(channel)
         
-        with pytest.patch('app.metadata_service.metadata_service.refresh_channel_metadata') as mock_refresh:
+        with patch('app.metadata_service.metadata_service.refresh_channel_metadata') as mock_refresh:
             # Mock partial success with warnings
             mock_refresh.return_value = (True, ["Image download: Network error downloading backdrop"])
             
@@ -302,8 +303,8 @@ class TestMetadataWorkflowErrorScenarios:
     
     def test_metadata_workflow_database_rollback(self, test_client, test_db_session, sample_channel_data):
         """Test that database operations are properly rolled back on failure."""
-        with pytest.patch('app.youtube_service.youtube_service.extract_channel_info') as mock_extract:
-            with pytest.patch('app.metadata_service.metadata_service.process_channel_metadata') as mock_process:
+        with patch('app.youtube_service.youtube_service.extract_channel_info') as mock_extract:
+            with patch('app.metadata_service.metadata_service.process_channel_metadata') as mock_process:
                 
                 # Mock successful channel extraction
                 mock_extract.return_value = (True, {
@@ -345,7 +346,7 @@ class TestMetadataWorkflowPerformance:
         test_db_session.commit()
         test_db_session.refresh(channel)
         
-        with pytest.patch('app.metadata_service.metadata_service.refresh_channel_metadata') as mock_refresh:
+        with patch('app.metadata_service.metadata_service.refresh_channel_metadata') as mock_refresh:
             # Mock timeout scenario
             mock_refresh.return_value = (False, ["Network timeout during metadata extraction"])
             
@@ -375,7 +376,7 @@ class TestMetadataWorkflowPerformance:
         # In a real scenario, this would test that one operation waits for another
         # or that proper locking mechanisms are in place
         
-        with pytest.patch('app.metadata_service.metadata_service.refresh_channel_metadata') as mock_refresh:
+        with patch('app.metadata_service.metadata_service.refresh_channel_metadata') as mock_refresh:
             mock_refresh.return_value = (True, [])
             
             # Multiple simultaneous requests (in practice would use threading/async)
@@ -408,7 +409,7 @@ class TestMetadataWorkflowSecurity:
         test_db_session.commit()
         test_db_session.refresh(channel)
         
-        with pytest.patch('app.metadata_service.metadata_service.refresh_channel_metadata') as mock_refresh:
+        with patch('app.metadata_service.metadata_service.refresh_channel_metadata') as mock_refresh:
             # Mock should sanitize the path and reject dangerous names
             mock_refresh.return_value = (False, ["Invalid channel name for filesystem"])
             
@@ -431,7 +432,7 @@ class TestMetadataWorkflowSecurity:
         test_db_session.commit()
         test_db_session.refresh(channel)
         
-        with pytest.patch('app.metadata_service.metadata_service.refresh_channel_metadata') as mock_refresh:
+        with patch('app.metadata_service.metadata_service.refresh_channel_metadata') as mock_refresh:
             # Mock should reject malicious image URLs
             mock_refresh.return_value = (False, ["Image download: Invalid or unsafe image URL"])
             

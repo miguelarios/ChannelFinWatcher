@@ -194,9 +194,17 @@ class TestUpdateDownloadSchedule:
 class TestGetScheduleStatus:
     """Test suite for get_schedule_status method."""
 
+    @patch('app.scheduler_service.SessionLocal')
     @patch('app.scheduler_service.AsyncIOScheduler')
-    def test_get_status_with_jobs(self, mock_scheduler_class):
+    def test_get_status_with_jobs(self, mock_scheduler_class, mock_session_local):
         """Test getting schedule status with active jobs."""
+        # Mock database session
+        mock_db = Mock()
+        mock_running_flag = Mock()
+        mock_running_flag.value = "true"
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_running_flag
+        mock_session_local.return_value = mock_db
+
         mock_job = Mock(
             id='main_download_job',
             name='Scheduled Downloads',
@@ -217,9 +225,15 @@ class TestGetScheduleStatus:
         assert status['download_job_active'] is True
         assert status['next_run_time'] == '2025-10-05T12:00:00+00:00'
 
+    @patch('app.scheduler_service.SessionLocal')
     @patch('app.scheduler_service.AsyncIOScheduler')
-    def test_get_status_no_download_job(self, mock_scheduler_class):
+    def test_get_status_no_download_job(self, mock_scheduler_class, mock_session_local):
         """Test getting status when download job is not scheduled."""
+        # Mock database session with no running flag
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+        mock_session_local.return_value = mock_db
+
         mock_scheduler = Mock()
         mock_scheduler.running = True
         mock_scheduler.get_jobs.return_value = []

@@ -16,7 +16,7 @@ from app.config import Settings
 def mock_settings():
     """Mock settings with temporary media directory."""
     with tempfile.TemporaryDirectory() as temp_dir:
-        settings = Settings(media_directory=temp_dir)
+        settings = Settings(media_dir=temp_dir)
         with patch('app.metadata_service.get_settings', return_value=settings):
             yield settings
 
@@ -65,7 +65,7 @@ class TestMetadataService:
     def test_initialization(self, mock_settings):
         """Test MetadataService initialization."""
         service = MetadataService()
-        assert service.media_root == mock_settings.media_directory
+        assert service.media_root == mock_settings.media_dir
     
     @patch('app.metadata_service.youtube_service.extract_channel_info')
     def test_create_channel_directory_success(self, mock_extract, mock_settings):
@@ -105,42 +105,50 @@ class TestMetadataService:
         assert directory_path is None
         assert "Could not extract channel info" in error
     
+    @patch('app.youtube_service.youtube_service.extract_channel_info')
     @patch('app.metadata_service.youtube_service.extract_channel_metadata_full')
     @patch('app.metadata_service.image_service.download_channel_images')
-    def test_process_channel_metadata_success(self, mock_image_download, mock_metadata_extract, 
-                                            mock_settings, test_channel, sample_metadata):
+    def test_process_channel_metadata_success(self, mock_image_download, mock_metadata_extract,
+                                            mock_extract_info, mock_settings, test_channel, sample_metadata):
         """Test successful metadata processing workflow."""
         # Mock database session
         mock_db = Mock(spec=Session)
         mock_db.query.return_value.filter.return_value.first.return_value = None  # No duplicates
-        
+
         # Create test directory
-        test_dir = os.path.join(mock_settings.media_directory, "Test Channel [UC123456789]")
+        test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123456789]")
         os.makedirs(test_dir, exist_ok=True)
-        
+
+        # Mock channel info extraction (for directory creation)
+        mock_extract_info.return_value = (True, {
+            'name': 'Test Channel',
+            'channel_id': 'UC123456789'
+        }, None)
+
         # Mock YouTube metadata extraction
         mock_metadata_extract.return_value = (True, sample_metadata, None)
-        
+
         # Mock image downloads
         mock_image_download.return_value = (True, {
             'cover': f"{test_dir}/cover.jpg",
             'backdrop': f"{test_dir}/backdrop.jpg"
         }, [])
-        
+
         service = MetadataService()
-        
+
         success, errors = service.process_channel_metadata(
             mock_db, test_channel, "https://youtube.com/@testchannel"
         )
-        
+
         assert success is True
         assert len(errors) == 0
         assert test_channel.metadata_status == "completed"
         assert test_channel.channel_id == "UC123456789"
         mock_db.commit.assert_called()
     
-    @patch('app.metadata_service.youtube_service.extract_channel_metadata_full')  
-    def test_process_channel_metadata_duplicate_channel(self, mock_metadata_extract,
+    @patch('app.youtube_service.youtube_service.extract_channel_info')
+    @patch('app.metadata_service.youtube_service.extract_channel_metadata_full')
+    def test_process_channel_metadata_duplicate_channel(self, mock_metadata_extract, mock_extract_info,
                                                       mock_settings, test_channel, sample_metadata):
         """Test metadata processing with duplicate channel ID."""
         # Mock database session with existing channel
@@ -148,76 +156,97 @@ class TestMetadataService:
         existing_channel.name = "Existing Channel"
         mock_db = Mock(spec=Session)
         mock_db.query.return_value.filter.return_value.first.return_value = existing_channel
-        
+
         # Create test directory
-        test_dir = os.path.join(mock_settings.media_directory, "Test Channel [UC123456789]")
+        test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123456789]")
         os.makedirs(test_dir, exist_ok=True)
-        
+
+        # Mock channel info extraction (for directory creation)
+        mock_extract_info.return_value = (True, {
+            'name': 'Test Channel',
+            'channel_id': 'UC123456789'
+        }, None)
+
         # Mock YouTube metadata extraction
         mock_metadata_extract.return_value = (True, sample_metadata, None)
-        
+
         service = MetadataService()
-        
+
         success, errors = service.process_channel_metadata(
             mock_db, test_channel, "https://youtube.com/@testchannel"
         )
-        
+
         assert success is False
         assert any("already being monitored" in error for error in errors)
         assert test_channel.metadata_status == "failed"
     
+    @patch('app.youtube_service.youtube_service.extract_channel_info')
     @patch('app.metadata_service.youtube_service.extract_channel_metadata_full')
-    def test_process_channel_metadata_extraction_failure(self, mock_metadata_extract,
+    def test_process_channel_metadata_extraction_failure(self, mock_metadata_extract, mock_extract_info,
                                                         mock_settings, test_channel):
         """Test metadata processing when extraction fails."""
         # Mock database session
         mock_db = Mock(spec=Session)
-        
+
         # Create test directory
-        test_dir = os.path.join(mock_settings.media_directory, "Test Channel [UC123456789]")
+        test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123456789]")
         os.makedirs(test_dir, exist_ok=True)
-        
+
+        # Mock channel info extraction (for directory creation)
+        mock_extract_info.return_value = (True, {
+            'name': 'Test Channel',
+            'channel_id': 'UC123456789'
+        }, None)
+
         # Mock YouTube extraction failure
         mock_metadata_extract.return_value = (False, None, "Private channel")
-        
+
         service = MetadataService()
-        
+
         success, errors = service.process_channel_metadata(
             mock_db, test_channel, "https://youtube.com/@testchannel"
         )
-        
+
         assert success is False
         assert any("Metadata extraction failed" in error for error in errors)
         assert test_channel.metadata_status == "failed"
     
+    @patch('app.youtube_service.youtube_service.extract_channel_info')
     @patch('app.metadata_service.youtube_service.extract_channel_metadata_full')
     @patch('app.metadata_service.image_service.download_channel_images')
     def test_process_channel_metadata_image_failure_partial_success(self, mock_image_download,
                                                                    mock_metadata_extract,
+                                                                   mock_extract_info,
                                                                    mock_settings, test_channel,
                                                                    sample_metadata):
         """Test metadata processing when images fail but metadata succeeds."""
         # Mock database session
         mock_db = Mock(spec=Session)
         mock_db.query.return_value.filter.return_value.first.return_value = None
-        
+
         # Create test directory
-        test_dir = os.path.join(mock_settings.media_directory, "Test Channel [UC123456789]")
+        test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123456789]")
         os.makedirs(test_dir, exist_ok=True)
-        
+
+        # Mock channel info extraction (for directory creation)
+        mock_extract_info.return_value = (True, {
+            'name': 'Test Channel',
+            'channel_id': 'UC123456789'
+        }, None)
+
         # Mock successful metadata extraction
         mock_metadata_extract.return_value = (True, sample_metadata, None)
-        
+
         # Mock image download failure
-        mock_image_download.return_value = (False, {'cover': None, 'backdrop': None}, 
+        mock_image_download.return_value = (False, {'cover': None, 'backdrop': None},
                                           ["Network error downloading images"])
-        
+
         service = MetadataService()
-        
+
         success, errors = service.process_channel_metadata(
             mock_db, test_channel, "https://youtube.com/@testchannel"
         )
-        
+
         # Should succeed overall since metadata extraction worked
         assert success is True
         assert len(errors) > 0  # But should have warnings about images
@@ -229,7 +258,7 @@ class TestMetadataService:
         service = MetadataService()
         
         # Create valid test directory
-        test_dir = os.path.join(mock_settings.media_directory, "test_channel")
+        test_dir = os.path.join(mock_settings.media_dir, "test_channel")
         os.makedirs(test_dir)
         
         valid, errors = service.validate_directory_structure(test_dir)
@@ -241,7 +270,7 @@ class TestMetadataService:
         """Test directory structure validation for missing directory."""
         service = MetadataService()
         
-        missing_dir = os.path.join(mock_settings.media_directory, "missing")
+        missing_dir = os.path.join(mock_settings.media_dir, "missing")
         
         valid, errors = service.validate_directory_structure(missing_dir)
         
@@ -251,12 +280,13 @@ class TestMetadataService:
     def test_validate_directory_structure_outside_media_root(self, mock_settings):
         """Test directory structure validation for path outside media root."""
         service = MetadataService()
-        
-        # Try to validate a directory outside media root
+
+        # Create a directory outside media root
         outside_dir = "/tmp/outside_media"
-        
+        os.makedirs(outside_dir, exist_ok=True)
+
         valid, errors = service.validate_directory_structure(outside_dir)
-        
+
         assert valid is False
         assert any("outside media root" in error for error in errors)
     
@@ -266,7 +296,7 @@ class TestMetadataService:
                                             mock_settings, sample_metadata):
         """Test successful metadata refresh for existing channel."""
         # Create test channel with existing directory
-        test_dir = os.path.join(mock_settings.media_directory, "Test Channel [UC123456789]")
+        test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123456789]")
         os.makedirs(test_dir)
         
         channel = Channel(
@@ -332,7 +362,7 @@ class TestMetadataServiceRollback:
         service = MetadataService()
         
         # Create test directory
-        test_dir = os.path.join(mock_settings.media_directory, "test_rollback")
+        test_dir = os.path.join(mock_settings.media_dir, "test_rollback")
         os.makedirs(test_dir)
         assert os.path.exists(test_dir)
         
@@ -348,7 +378,7 @@ class TestMetadataServiceRollback:
         service = MetadataService()
         
         # Create test file
-        test_file = os.path.join(mock_settings.media_directory, "test.txt")
+        test_file = os.path.join(mock_settings.media_dir, "test.txt")
         with open(test_file, 'w') as f:
             f.write("test")
         assert os.path.exists(test_file)

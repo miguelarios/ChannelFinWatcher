@@ -1,15 +1,22 @@
 """Application configuration management."""
 import os
 from functools import lru_cache
+from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
-    
+
+    model_config = ConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+        extra='allow'  # Allow extra fields for testing
+    )
+
     # Database Configuration
     database_url: str = "sqlite:////app/data/app.db"
-    
+
     # Application Paths
     media_dir: str = "/app/media"
     temp_dir: str = "/app/temp"
@@ -22,7 +29,7 @@ class Settings(BaseSettings):
 
     # Optional Cookie File (for age-restricted content)
     cookies_file: str = "/app/data/cookies.txt"  # Consolidated into data directory
-    
+
     # Application Metadata
     app_name: str = "ChannelFinWatcher"
     app_version: str = "0.1.0"
@@ -30,10 +37,6 @@ class Settings(BaseSettings):
     # Scheduler Configuration (Story 007)
     scheduler_timezone: str = "UTC"  # Override with TZ environment variable
     scheduler_database_url: str = "sqlite:////app/data/scheduler_jobs.db"
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
