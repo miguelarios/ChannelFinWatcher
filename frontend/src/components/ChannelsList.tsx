@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { YoutubeIcon, TrashIcon, CheckCircleIcon, EditIcon, CheckIcon, XIcon, RefreshCwIcon, AlertCircleIcon, HardDriveIcon, DownloadIcon } from 'lucide-react'
+import { YoutubeIcon, TrashIcon, CheckCircleIcon, EditIcon, CheckIcon, XIcon, RefreshCwIcon, AlertCircleIcon, HardDriveIcon, DownloadIcon, MoreVertical } from 'lucide-react'
 
 /**
  * ChannelsList Component - Displays and manages YouTube channels with inline limit editing
@@ -123,6 +123,11 @@ export function ChannelsList({
   const [reindexError, setReindexError] = useState<string>('')
   const [reindexSuccess, setReindexSuccess] = useState<string>('')
 
+  // === KEBAB MENU STATE ===
+  // Track which channel has its action menu open
+  const [openMenuChannelId, setOpenMenuChannelId] = useState<number | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
   if (!channels || channels.length === 0) {
     return null
   }
@@ -141,11 +146,26 @@ export function ChannelsList({
           editInputRef.current.select()   // Select all text for easy replacement
         }
       }, 10)
-      
+
       // Cleanup timer if component unmounts or editingChannelId changes
       return () => clearTimeout(timer)
     }
   }, [editingChannelId]) // Re-run whenever the editing channel changes
+
+  // === UX ENHANCEMENT: CLOSE MENU ON OUTSIDE CLICK ===
+  // When user clicks outside the menu, close it
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setOpenMenuChannelId(null)
+      }
+    }
+
+    if (openMenuChannelId !== null) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [openMenuChannelId])
 
   // === EVENT HANDLERS ===
   
@@ -499,11 +519,11 @@ export function ChannelsList({
    */
   const reindexChannel = async (channelId: number, e: React.MouseEvent) => {
     e.stopPropagation()
-    
+
     setReindexingChannelId(channelId)
     setReindexError('')
     setReindexSuccess('')
-    
+
     try {
       const response = await fetch(`/api/v1/channels/${channelId}/reindex`, {
         method: 'POST',
@@ -514,14 +534,14 @@ export function ChannelsList({
 
       if (response.ok) {
         const result = await response.json()
-        
+
         // Display success message with statistics
         const { found, missing, added } = result
         setReindexSuccess(`Reindex complete - found ${found}, added ${added}, missing ${missing}`)
-        
+
         // Auto-clear success message after 5 seconds
         setTimeout(() => setReindexSuccess(''), 5000)
-        
+
       } else {
         const errorData = await response.json()
         setReindexError(errorData.detail || 'Failed to reindex channel')
@@ -532,6 +552,14 @@ export function ChannelsList({
     } finally {
       setReindexingChannelId(null)
     }
+  }
+
+  /**
+   * Toggles the kebab menu for a channel
+   */
+  const toggleMenu = (channelId: number, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setOpenMenuChannelId(openMenuChannelId === channelId ? null : channelId)
   }
 
   return (
@@ -625,7 +653,7 @@ export function ChannelsList({
                   >
                     Limit: {channel.limit}
                   </button>
-                  
+
                   {/* Traditional edit icon - alternative way to start editing */}
                   <button
                     onClick={(e) => startEditingLimit(channel, e)}
@@ -634,50 +662,87 @@ export function ChannelsList({
                   >
                     <EditIcon className="h-3 w-3" />
                   </button>
-                  
-                  {/* Refresh metadata button */}
-                  <button
-                    onClick={(e) => refreshChannelMetadata(channel.id, e)}
-                    disabled={refreshingChannelId === channel.id}
-                    className="text-gray-400 hover:text-blue-600 p-1 disabled:text-gray-300"
-                    title="Refresh metadata"
-                  >
-                    <RefreshCwIcon className={`h-3 w-3 ${refreshingChannelId === channel.id ? 'animate-spin' : ''}`} />
-                  </button>
-                  
-                  {/* Reindex button */}
-                  <button
-                    onClick={(e) => reindexChannel(channel.id, e)}
-                    disabled={reindexingChannelId === channel.id}
-                    className="text-gray-400 hover:text-yellow-600 p-1 disabled:text-gray-300"
-                    title="Reindex media (sync DB with disk)"
-                  >
-                    <RefreshCwIcon className={`h-3 w-3 ${reindexingChannelId === channel.id ? 'animate-spin' : ''}`} />
-                  </button>
-                  
-                  {/* Download videos button */}
-                  <button
-                    onClick={(e) => downloadChannelVideos(channel.id, e)}
-                    disabled={downloadingChannelId === channel.id || !channel.enabled}
-                    className="text-gray-400 hover:text-green-600 p-1 disabled:text-gray-300"
-                    title={!channel.enabled ? "Channel disabled" : "Download recent videos"}
-                  >
-                    <DownloadIcon className={`h-3 w-3 ${downloadingChannelId === channel.id ? 'animate-pulse' : ''}`} />
-                  </button>
+
+                  {/* Kebab menu with overflow actions */}
+                  <div className="relative" ref={openMenuChannelId === channel.id ? menuRef : null}>
+                    <button
+                      onClick={(e) => toggleMenu(channel.id, e)}
+                      className="text-gray-400 hover:text-gray-600 p-1"
+                      title="More actions"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </button>
+
+                    {/* Dropdown menu */}
+                    {openMenuChannelId === channel.id && (
+                      <div
+                        className="absolute right-0 mt-1 w-48 bg-white rounded-md shadow-lg z-10 border border-gray-200"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="py-1">
+                          {/* Refresh metadata */}
+                          <button
+                            onClick={(e) => {
+                              refreshChannelMetadata(channel.id, e)
+                              setOpenMenuChannelId(null)
+                            }}
+                            disabled={refreshingChannelId === channel.id}
+                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed flex items-center"
+                          >
+                            <RefreshCwIcon className={`h-4 w-4 mr-2 ${refreshingChannelId === channel.id ? 'animate-spin' : ''}`} />
+                            Refresh metadata
+                          </button>
+
+                          {/* Reindex media */}
+                          <button
+                            onClick={(e) => {
+                              reindexChannel(channel.id, e)
+                              setOpenMenuChannelId(null)
+                            }}
+                            disabled={reindexingChannelId === channel.id}
+                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed flex items-center"
+                          >
+                            <HardDriveIcon className={`h-4 w-4 mr-2 ${reindexingChannelId === channel.id ? 'animate-spin' : ''}`} />
+                            Reindex media
+                          </button>
+
+                          {/* Download videos */}
+                          <button
+                            onClick={(e) => {
+                              downloadChannelVideos(channel.id, e)
+                              setOpenMenuChannelId(null)
+                            }}
+                            disabled={downloadingChannelId === channel.id || !channel.enabled}
+                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed flex items-center"
+                          >
+                            <DownloadIcon className={`h-4 w-4 mr-2 ${downloadingChannelId === channel.id ? 'animate-pulse' : ''}`} />
+                            Download recent videos
+                          </button>
+
+                          {/* Divider */}
+                          <div className="border-t border-gray-200 my-1"></div>
+
+                          {/* Delete channel */}
+                          <button
+                            onClick={(e) => {
+                              showDeleteModal(channel, e)
+                              setOpenMenuChannelId(null)
+                            }}
+                            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center"
+                          >
+                            <TrashIcon className="h-4 w-4 mr-2" />
+                            Delete channel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
-              
+
               {selectedChannelId === channel.id && editingChannelId !== channel.id && (
                 <CheckCircleIcon className="h-4 w-4 text-green-600 mr-2" />
               )}
-              
-              <button
-                className="text-gray-400 hover:text-red-600 p-1 ml-2"
-                onClick={(e) => showDeleteModal(channel, e)}
-                title="Remove channel"
-              >
-                <TrashIcon className="h-4 w-4" />
-              </button>
             </div>
           </div>
         ))}
