@@ -16,7 +16,7 @@ ChannelFinWatcher downloads YouTube videos using yt-dlp, which creates `.info.js
 **NFO Generation Workflow:**
 - **tvshow.nfo**: Generated when channel is first added to monitoring
 - **season.nfo**: Generated automatically when first episode of a year is downloaded (simple, year-based only)
-- **episode.nfo**: Generated immediately after each episode download (metadata is available early in download process)
+- **episode.nfo**: Generated after each episode download completes successfully (ensures video filename is finalized)
 - **Manual Regeneration**: Kebab menu on channel dashboard cards provides "Regenerate NFO Files" option to rebuild all NFO files recursively
 
 ### Functional Requirements
@@ -35,6 +35,17 @@ ChannelFinWatcher downloads YouTube videos using yt-dlp, which creates `.info.js
   - And the NFO contains `<studio>YouTube</studio>`
   - And the NFO contains `<genre>` tags for each item in the `tags` array
   - And the NFO contains matching `<tag>` elements for each genre
+  - And `nfo_last_generated` is set to current timestamp
+
+#### [ ] Scenario: Regenerate tvshow.nfo when channel metadata is manually updated
+- **Given** a channel exists with a tvshow.nfo file
+  - And the user manually triggers a channel metadata update (refresh)
+- **When** the channel metadata update completes successfully
+  - And the channel-level info.json is updated with new metadata
+- **Then** the tvshow.nfo file is automatically regenerated
+  - And the NFO is updated with the latest `channel`, `description`, and `tags` values
+  - And `nfo_last_generated` timestamp is updated
+  - And a log entry indicates tvshow.nfo was regenerated due to metadata update
 
 #### [ ] Scenario: Generate season.nfo when first episode of year is downloaded
 - **Given** a video is being downloaded from a monitored channel
@@ -43,16 +54,18 @@ ChannelFinWatcher downloads YouTube videos using yt-dlp, which creates `.info.js
 - **When** the first episode download begins and the year folder is created
 - **Then** a `season.nfo` file is automatically created in the year directory
   - And the NFO contains `<title>` with the year (e.g., "2021")
+  - And the NFO contains `<season>` with the year as the season number (e.g., "2021")
   - And the NFO contains `<dateadded>` with the current timestamp in format `YYYY-MM-DD HH:MM:SS`
   - And the NFO contains empty `<plot />` and `<outline />` tags
   - And the NFO contains empty `<art />` tag
 
-#### [ ] Scenario: Generate episode.nfo immediately after episode metadata is downloaded
-- **Given** a video is being downloaded from a monitored channel
-  - And yt-dlp creates the `.info.json` file with episode metadata
+#### [ ] Scenario: Generate episode.nfo after episode download completes
+- **Given** a video download from a monitored channel has completed successfully
+  - And yt-dlp has created the `.info.json` file with episode metadata
   - And the info.json contains fields: `title`, `description`, `upload_date`, `uploader`, `duration`, `tags`, `id`, `channel`, `channel_id`
-- **When** the episode info.json file is written to disk (early in download process)
-- **Then** an NFO file named `<basename>.nfo` is immediately created
+  - And the video file has been finalized with its permanent filename
+- **When** the video download completes and post-processing finishes
+- **Then** an NFO file named `<basename>.nfo` is created matching the video filename
   - And the NFO contains `<title>` from the `title` field
   - And the NFO contains `<showtitle>` from the `channel` field
   - And the NFO contains `<plot>` from the `description` field
@@ -61,10 +74,10 @@ ChannelFinWatcher downloads YouTube videos using yt-dlp, which creates `.info.js
   - And the NFO contains `<year>` extracted from `upload_date`
   - And the NFO contains `<runtime>` from `duration` field (converted to minutes)
   - And the NFO contains `<director>` tags populated from `uploader` field
-  - And the NFO contains `<genre>` tags for each item in the `tags` array
+  - And the NFO contains `<genre>` tags for each item in the `categories` array
+  - And the NFO contains `<tag>` tags for each item in the `tags` array
   - And the NFO contains `<uniqueid type="youtube">` with the video `id`
   - And the NFO contains `<studio>YouTube</studio>`
-  - But the video file download may still be in progress
 
 #### [ ] Scenario: Handle missing optional metadata fields
 - **Given** a video info.json file with missing optional fields (e.g., no tags, no description)
@@ -102,9 +115,52 @@ ChannelFinWatcher downloads YouTube videos using yt-dlp, which creates `.info.js
   - And shows a summary notification with counts of files created/updated/failed
   - And respects the overwrite configuration setting
   - And logs all operations performed
+  - And updates the `nfo_last_generated` timestamp in the database
+
+#### [ ] Scenario: Delete NFO files when videos are cleaned up
+- **Given** the retention cleanup process deletes old videos to maintain channel limits
+  - And deleted videos have associated NFO files
+  - And deleted videos may be in year/season directories
+- **When** a video file is deleted by the cleanup process
+- **Then** the corresponding episode.nfo file is also deleted
+  - And if the video directory becomes empty, the entire directory is removed
+  - And if a year/season directory becomes empty after cleanup, the season.nfo is also deleted
+  - And the empty year/season directory is removed
+  - And deletion is logged with video ID and file paths
+- **Given** all videos in a channel are deleted (channel removal)
+- **When** the channel cleanup process runs
+- **Then** the tvshow.nfo file is deleted along with the channel directory
+  - And all associated season.nfo and episode.nfo files are removed
+  - And `nfo_last_generated` is set to NULL (or channel record is removed)
+
+#### [ ] Scenario: Backfill NFO files for existing channels after migration
+- **Given** the NFO feature schema migration has run
+  - And existing channels have `nfo_last_generated = NULL` (no NFO files generated yet)
+  - And the user navigates to Settings → NFO Generation
+- **When** the settings page loads
+  - And there are channels with `nfo_last_generated = NULL`
+- **Then** a prominent notification appears indicating backfill is needed
+  - And displays: "X channels need NFO files generated. [Start Backfill] [Dismiss]"
+- **When** the user clicks "Start Backfill"
+- **Then** a background job begins processing channels sequentially
+  - And processes one channel at a time (avoids overwhelming disk I/O)
+  - And for each channel:
+    - Generates tvshow.nfo in channel root
+    - Scans all year/season directories and generates season.nfo files
+    - Scans all video directories and generates episode.nfo files
+    - Sets `nfo_last_generated = current_timestamp` when channel completes
+  - And displays a progress indicator showing: "Generating NFO files... Channel 5 of 23"
+  - And allows user to pause/resume the backfill process
+  - And is resumable if interrupted (only processes channels where `nfo_last_generated IS NULL`)
+  - And shows final summary: "NFO backfill complete: 23 channels, 1,234 files created"
+- **Given** backfill is running
+  - And the user closes the browser or navigates away
+- **Then** the backfill continues running in the background
+  - And progress is saved to database (via `nfo_last_generated` timestamp)
+  - And can be monitored by returning to Settings → NFO Generation page
 
 ### Non-functional Requirements
-- **Performance:** NFO generation should complete for 1000 episodes within 10 seconds
+- **Performance:** NFO generation should not noticeably delay download completion or manual regeneration operations
 - **Reliability:** Invalid or malformed JSON files should be logged and skipped without crashing the process
 - **Usability:** Provide clear logging of which NFO files were created, skipped, or failed
 - **Maintainability:** NFO generation logic should be modular and testable independently of download logic
@@ -113,11 +169,14 @@ ChannelFinWatcher downloads YouTube videos using yt-dlp, which creates `.info.js
 - **Blocked by:** None (can be developed independently)
 - **Blocks:** None (enhancement to existing functionality)
 
-### Engineering TODOs
-- [ ] Research Jellyfin NFO XML schema validation requirements
-- [ ] Determine if NFO generation should be part of post-download processing or a separate scheduled task
-- [ ] Decide on configuration options: auto-generate on download, batch process, overwrite vs preserve
-- [ ] Investigate if we need to handle special characters or encoding issues in XML output
+### Channel Metadata Download (Already Implemented)
+The system already downloads channel-level metadata using `youtube_service.extract_channel_metadata_full()`:
+- Called when a new channel is added to monitoring
+- Uses `yt_dlp.YoutubeDL.extract_info(url, download=False)` with `extract_flat=False` and `playlistend=1`
+- Removes the `entries` key to reduce file size from ~24MB to ~5KB
+- Saves to `{channel_name} [{channel_id}].info.json` in the channel root directory
+- This file contains: `channel`, `channel_id`, `description`, `tags`, `channel_follower_count`, etc.
+- **Note**: Channel info.json does NOT have a `categories` field (only episode-level info.json has categories)
 
 ---
 
@@ -139,30 +198,70 @@ ChannelFinWatcher downloads YouTube videos using yt-dlp, which creates `.info.js
 #### 2. [ ] Backend - Add NFO Configuration Settings
 - **Description:** Add configuration options to control NFO generation behavior
 - **Estimation:** 2 hours
-- **Acceptance Criteria:** 
-  - [ ] Config option to enable/disable auto NFO generation
+- **Acceptance Criteria:**
+  - [ ] Config option to enable/disable auto NFO generation (all-or-nothing)
   - [ ] Config option to overwrite existing NFO files vs preserve
-  - [ ] Config option to specify which NFO types to generate (show/season/episode)
   - [ ] Default configuration added to config/config.yaml
 
+**Example config/config.yaml structure:**
+```yaml
+# NFO file generation for Jellyfin metadata
+nfo:
+  # Enable/disable automatic NFO generation for all channels
+  enabled: true
+
+  # Overwrite existing NFO files on regeneration
+  # true: Always overwrite existing files
+  # false: Preserve existing files (skip if already exists)
+  overwrite_existing: false
+```
+
+#### 2.5. [ ] Backend - Add Database Schema for NFO Tracking
+- **Description:** Add database field to track NFO generation timestamps
+- **Estimation:** 1 hour
+- **Acceptance Criteria:**
+  - [ ] Add `nfo_last_generated` timestamp field to Channel table (nullable, default NULL)
+  - [ ] Create database migration for new field
+  - [ ] Migration leaves `nfo_last_generated = NULL` for existing channels (enables backfill detection)
+  - [ ] New channels created after migration get `nfo_last_generated` set when tvshow.nfo is created
+  - [ ] Update ORM models to include new field
+  - [ ] Add database index on `nfo_last_generated` for efficient backfill queries
+
 #### 3. [ ] Backend - Integrate NFO Generation into Download Workflow
-- **Description:** Hook NFO generation into post-download processing
-- **Estimation:** 4 hours
-- **Acceptance Criteria:** 
+- **Description:** Hook NFO generation into post-download processing and cleanup
+- **Estimation:** 5 hours
+- **Acceptance Criteria:**
   - [ ] NFO files are automatically generated after video download completes
+  - [ ] NFO files are automatically deleted when videos are cleaned up (retention limits)
+  - [ ] Empty directories and season.nfo files are cleaned up when all videos in season/year are deleted
   - [ ] NFO generation respects configuration settings
   - [ ] Failed NFO generation does not block download completion
-  - [ ] NFO generation status is reflected in download logs
+  - [ ] NFO generation and deletion status is reflected in download logs
 
 #### 4. [ ] Backend - Create Batch NFO Generation Endpoint
 - **Description:** Create API endpoint to regenerate NFO files for existing media library
 - **Estimation:** 4 hours
-- **Acceptance Criteria:** 
+- **Acceptance Criteria:**
   - [ ] API endpoint accepts channel/directory path parameter
   - [ ] Endpoint can process entire channel or specific season
   - [ ] Endpoint returns summary of files created/skipped/failed
   - [ ] Endpoint respects overwrite configuration
   - [ ] Endpoint is rate-limited to prevent resource exhaustion
+  - [ ] Endpoint updates `nfo_last_generated` timestamp after successful generation
+
+#### 4.5. [ ] Backend - Create NFO Backfill Background Job
+- **Description:** Implement background job to process NFO backfill for existing channels after migration
+- **Estimation:** 4 hours
+- **Acceptance Criteria:**
+  - [ ] Background job queries for channels where `nfo_last_generated IS NULL`
+  - [ ] Processes channels sequentially (one at a time) to avoid disk I/O overload
+  - [ ] For each channel: generates tvshow.nfo, all season.nfo, all episode.nfo files
+  - [ ] Updates `nfo_last_generated` timestamp after each channel completes
+  - [ ] Job is resumable if interrupted (idempotent based on NULL check)
+  - [ ] Provides progress updates via WebSocket or polling endpoint
+  - [ ] Allows pause/resume functionality
+  - [ ] Logs detailed progress and errors
+  - [ ] Respects global NFO generation configuration (overwrite mode, etc.)
 
 #### 5. [ ] Testing - Unit Tests for NFO Generator
 - **Description:** Write comprehensive unit tests for NFO generation logic
@@ -170,7 +269,7 @@ ChannelFinWatcher downloads YouTube videos using yt-dlp, which creates `.info.js
 - **Acceptance Criteria:** 
   - [ ] Test tvshow.nfo generation with complete metadata
   - [ ] Test tvshow.nfo generation with minimal metadata
-  - [ ] Test season.nfo generation for playlist and year directories
+  - [ ] Test season.nfo generation for year directories
   - [ ] Test episode.nfo generation with all fields
   - [ ] Test episode.nfo generation with missing optional fields
   - [ ] Test XML validation and character escaping
@@ -178,35 +277,59 @@ ChannelFinWatcher downloads YouTube videos using yt-dlp, which creates `.info.js
 
 #### 6. [ ] Testing - Integration Tests for NFO Workflow
 - **Description:** Test end-to-end NFO generation in download workflow
-- **Estimation:** 3 hours
-- **Acceptance Criteria:** 
+- **Estimation:** 5 hours
+- **Acceptance Criteria:**
   - [ ] Test NFO generation triggered by successful download
   - [ ] Test NFO generation with existing files (overwrite mode)
   - [ ] Test NFO generation with existing files (preserve mode)
-  - [ ] Test error handling when info.json is malformed
+  - [ ] Test NFO deletion when video is deleted during retention cleanup
+  - [ ] Test season.nfo deletion when all videos in year/season are deleted
+  - [ ] Test empty directory cleanup after NFO and video deletion
+  - [ ] Test channel metadata update triggers tvshow.nfo regeneration
+  - [ ] Test error handling when info.json is missing (NFO generation skipped)
+  - [ ] Test error handling when info.json is malformed (NFO generation skipped)
   - [ ] Test batch generation endpoint
+  - [ ] Test backfill process with multiple channels
+  - [ ] Test backfill resume after interruption (only processes channels with NULL timestamp)
+  - [ ] Test backfill pause/resume functionality
+  - [ ] Test that new channels after migration get `nfo_last_generated` set immediately
+  - [ ] Test backfill skips channels where `nfo_last_generated IS NOT NULL`
 
 #### 7. [ ] Frontend - Add NFO Management UI
 - **Description:** Add UI controls for NFO generation settings and manual triggers, including kebab menu option on channel cards
-- **Estimation:** 6 hours
-- **Acceptance Criteria:** 
-  - [ ] Settings page has NFO generation configuration options
-  - [ ] Channel card on dashboard has kebab menu (⋮) with "Regenerate NFO Files" option
-  - [ ] Clicking "Regenerate NFO Files" shows confirmation dialog
-  - [ ] Batch operation shows progress indicator with percentage/counts
-  - [ ] Summary notification displays results (created/updated/failed counts)
-  - [ ] UI displays NFO generation status in download history
+- **Estimation:** 8 hours
+- **Acceptance Criteria:**
+  - [ ] **Global Settings page** has NFO generation configuration:
+    - Enable/disable NFO generation (applies to all channels)
+    - Overwrite existing NFO files vs preserve mode
+  - [ ] Settings page detects channels needing backfill (`nfo_last_generated IS NULL`)
+  - [ ] Prominent notification banner on Settings page when backfill needed
+  - [ ] "Start Backfill" button triggers background job
+  - [ ] Real-time progress indicator for backfill: "Generating NFO files... Channel 5 of 23"
+  - [ ] Pause/Resume buttons for backfill process
+  - [ ] Final summary notification when backfill completes
+  - [ ] **Per-channel manual trigger** via kebab menu (⋮) on channel dashboard cards:
+    - "Regenerate NFO Files" option in kebab menu
+    - Clicking shows confirmation dialog
+    - Manual regeneration shows progress indicator with percentage/counts
+    - Summary notification displays results (created/updated/failed counts)
+  - [ ] Download history shows brief NFO generation status (e.g., "NFO: Created" or "NFO: Failed")
   - [ ] UI shows validation errors for failed NFO generation
 
 #### 8. [ ] Documentation - NFO Feature Documentation
 - **Description:** Document NFO generation feature for users and developers
-- **Estimation:** 2 hours
-- **Acceptance Criteria:** 
+- **Estimation:** 3 hours
+- **Acceptance Criteria:**
   - [ ] User guide explains NFO generation feature
   - [ ] User guide shows Jellyfin configuration for NFO files
+  - [ ] User guide documents backfill process for existing installations
+  - [ ] User guide explains migration-triggered backfill detection
   - [ ] Technical docs explain NFO XML structure and mapping
+  - [ ] Technical docs explain backfill architecture and resumability
   - [ ] API documentation updated for batch generation endpoint
+  - [ ] API documentation updated for backfill endpoints
   - [ ] Configuration reference updated with NFO settings
+  - [ ] Database schema changes documented in migration notes
 
 ---
 
@@ -215,15 +338,23 @@ ChannelFinWatcher downloads YouTube videos using yt-dlp, which creates `.info.js
 ### Must Have
 - [ ] tvshow.nfo, season.nfo, and episode.nfo files are generated with correct Jellyfin schema
 - [ ] NFO files contain all available metadata from info.json files
+- [ ] NFO files generated automatically after video downloads complete
+- [ ] Database schema migration adds tracking field (`nfo_last_generated`)
+- [ ] NFO generation controlled by global configuration only (no per-channel disable)
+- [ ] Backfill process detects existing channels via NULL timestamp
+- [ ] Backfill is resumable if interrupted (idempotent based on timestamp)
 - [ ] Configuration options work as documented
 - [ ] Unit and integration tests pass
 - [ ] Basic user documentation exists
+- [ ] Backfill process documented for existing installations
 
-### Should Have  
-- [ ] Frontend UI for manual NFO regeneration
+### Should Have
+- [ ] Frontend UI for manual NFO regeneration via kebab menu
+- [ ] Frontend UI for backfill notification and progress
+- [ ] Pause/resume functionality for backfill process
 - [ ] Batch NFO generation API endpoint
 - [ ] Comprehensive error handling and logging
-- [ ] Performance acceptable for large media libraries
+- [ ] Performance acceptable for large media libraries (sequential processing)
 
 ### Notes for Future
 - Consider adding support for additional NFO metadata fields (ratings, actors, thumbnails)
@@ -265,15 +396,14 @@ ChannelFinWatcher downloads YouTube videos using yt-dlp, which creates `.info.js
     <originaltitle>Steve the Bartender</originaltitle>
     <showtitle>Steve the Bartender</showtitle>
     <plot>
-Want to know more about about Steve the Bartender? 
-        
+Want to know more about about Steve the Bartender?
+
 I have 20+ years of experience working in the hospitality industry...
     </plot>
     <studio>YouTube</studio>
     <genre>Bartender</genre>
     <genre>Cocktails</genre>
     <genre>Recipe</genre>
-    <tag>Youtube</tag>
     <tag>Bartender</tag>
     <tag>Cocktails</tag>
     <tag>Recipe</tag>
@@ -288,9 +418,14 @@ I have 20+ years of experience working in the hospitality industry...
   <outline />
   <dateadded>2024-11-14 14:49:22</dateadded>
   <title>2021</title>
+  <season>2021</season>
   <art />
 </season>
 ```
+
+**Note on Numbering**:
+- `<season>`: Uses the upload year as the season number (e.g., "2021")
+- `<episode>`: Intentionally omitted - Jellyfin will use alphabetical/date sorting within each season
 
 ### Example Episode-Level info.json Structure
 ```json
@@ -384,7 +519,11 @@ def prettify_xml(elem):
     return reparsed.toprettyxml(indent="    ", encoding="utf-8")
 
 def generate_tvshow_nfo(channel_info):
-    """Generate tvshow.nfo from channel info.json"""
+    """Generate tvshow.nfo from channel info.json
+
+    Note: Channel-level info.json does NOT have a 'categories' field.
+    We map 'tags' to both <genre> and <tag> for completeness.
+    """
     root = ET.Element('tvshow')
 
     ET.SubElement(root, 'title').text = channel_info.get('channel', '')
@@ -393,13 +532,36 @@ def generate_tvshow_nfo(channel_info):
     ET.SubElement(root, 'plot').text = channel_info.get('description', '')
     ET.SubElement(root, 'studio').text = 'YouTube'
 
-    # Categories → genres
-    for category in channel_info.get('categories', []):
-        ET.SubElement(root, 'genre').text = category
-
-    # Tags → tags
+    # Channel tags → both genres and tags
+    # (Channel info.json doesn't have categories field)
     for tag in channel_info.get('tags', []):
+        ET.SubElement(root, 'genre').text = tag
         ET.SubElement(root, 'tag').text = tag
+
+    return prettify_xml(root)
+
+def generate_season_nfo(year):
+    """Generate season.nfo for year-based seasons
+
+    Args:
+        year: Year string (e.g., "2021") extracted from directory name
+    """
+    root = ET.Element('season')
+
+    # Empty plot and outline tags
+    ET.SubElement(root, 'plot')
+    ET.SubElement(root, 'outline')
+
+    # Current timestamp for dateadded
+    dateadded = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ET.SubElement(root, 'dateadded').text = dateadded
+
+    # Title and season number both use the year
+    ET.SubElement(root, 'title').text = str(year)
+    ET.SubElement(root, 'season').text = str(year)
+
+    # Empty art tag
+    ET.SubElement(root, 'art')
 
     return prettify_xml(root)
 
@@ -460,6 +622,121 @@ def generate_episode_nfo(episode_info):
     ET.SubElement(root, 'dateadded').text = dateadded
 
     return prettify_xml(root)
+
+def write_nfo_file(nfo_path, xml_content):
+    """Write NFO content to file with proper UTF-8 encoding and atomic write
+
+    Args:
+        nfo_path: Absolute path to .nfo file
+        xml_content: XML bytes from prettify_xml()
+
+    Raises:
+        IOError: If file write fails
+    """
+    import os
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # Write atomically using temp file + rename (atomic on POSIX systems)
+    temp_path = f"{nfo_path}.tmp"
+    try:
+        with open(temp_path, 'wb') as f:
+            f.write(xml_content)
+
+        # Atomic rename (overwrites existing file)
+        os.rename(temp_path, nfo_path)
+        logger.info(f"Created NFO file: {nfo_path}")
+
+    except Exception as e:
+        # Clean up temp file on error
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        logger.error(f"Failed to write NFO: {nfo_path}, Error: {e}")
+        raise
+
+def get_nfo_paths(video_info_json_path):
+    """Construct NFO file paths from video info.json path
+
+    Args:
+        video_info_json_path: Absolute path to episode .info.json file
+
+    Returns:
+        dict: Paths for all three NFO types
+            {
+                'tvshow': '/channel/tvshow.nfo',
+                'season': '/channel/2021/season.nfo',
+                'episode': '/channel/2021/video/video.nfo'
+            }
+
+    Example:
+        Input: /channel/2021/video [ID]/video [ID].info.json
+        Output: {
+            'episode': /channel/2021/video [ID]/video [ID].nfo
+            'season': /channel/2021/season.nfo
+            'tvshow': /channel/tvshow.nfo
+        }
+    """
+    import os
+
+    # Construct episode NFO path (same basename as .info.json)
+    base_path = video_info_json_path.replace('.info.json', '')
+    episode_nfo = f"{base_path}.nfo"
+
+    # Navigate up directory tree to find season and channel paths
+    video_dir = os.path.dirname(video_info_json_path)  # Video directory
+    season_dir = os.path.dirname(video_dir)             # Year folder (e.g., "2021")
+    channel_dir = os.path.dirname(season_dir)           # Channel root
+
+    season_nfo = os.path.join(season_dir, 'season.nfo')
+    tvshow_nfo = os.path.join(channel_dir, 'tvshow.nfo')
+
+    return {
+        'tvshow': tvshow_nfo,
+        'season': season_nfo,
+        'episode': episode_nfo
+    }
+
+def discover_videos_for_backfill(channel_dir):
+    """Find all videos in channel directory that need NFO files
+
+    Args:
+        channel_dir: Absolute path to channel root directory
+
+    Returns:
+        list: Paths to .info.json files for all episodes (not channel metadata)
+
+    Note:
+        Only returns .info.json files that have corresponding video files.
+        Skips channel-level info.json (which has no video file).
+    """
+    import os
+
+    info_json_files = []
+
+    # Walk channel directory recursively looking for .info.json files
+    for root, dirs, files in os.walk(channel_dir):
+        for file in files:
+            # Skip hidden files and non-json files
+            if not file.endswith('.info.json') or file.startswith('.'):
+                continue
+
+            info_path = os.path.join(root, file)
+
+            # Check if corresponding video file exists
+            # Try common video extensions
+            base_path = info_path.replace('.info.json', '')
+            video_extensions = ['.mkv', '.mp4', '.webm', '.m4v']
+
+            has_video = any(
+                os.path.exists(f"{base_path}{ext}")
+                for ext in video_extensions
+            )
+
+            if has_video:
+                info_json_files.append(info_path)
+
+    return sorted(info_json_files)  # Consistent ordering
 ```
 
 ### File System Layout Example
@@ -468,23 +745,18 @@ def generate_episode_nfo(episode_info):
 └── Steve the Bartender [UCfEJUzPnT-HdNqOqdX3A0lA]/
     ├── Steve the Bartender [@StevetheBartender_].info.json  # Channel metadata
     ├── tvshow.nfo                                             # Generated from above
-    ├── 2021/                                                  # Season folder
-    │   ├── season.nfo                                         # Generated (title="2021")
+    ├── 2021/                                                  # Season folder (year-based)
+    │   ├── season.nfo                                         # Generated (title="2021", season="2021")
     │   └── Steve the Bartender - 20211207 - Paloma 3 Ways [Day4-sm3U1s]/
     │       ├── Steve the Bartender - 20211207 - Paloma 3 Ways [Day4-sm3U1s].mkv
     │       ├── Steve the Bartender - 20211207 - Paloma 3 Ways [Day4-sm3U1s].info.json
     │       └── Steve the Bartender - 20211207 - Paloma 3 Ways [Day4-sm3U1s].nfo  # Generated
-    └── Cocktail Prep - Syrups, liqueurs, shrubs & cordials/  # Playlist folder
-        ├── season.nfo                                         # Generated (title="Cocktail Prep...")
-        └── Liqueurs - Allspice liqueur/
-            ├── Liqueurs - Allspice liqueur.mkv
-            ├── Liqueurs - Allspice liqueur.info.json
-            └── Liqueurs - Allspice liqueur.nfo                # Generated
+    └── 2022/                                                  # Another season folder
+        └── season.nfo                                         # Generated (title="2022", season="2022")
 ```
 
 ### Important Implementation Notes
-1. **XML Escaping**: All text content must be properly XML-escaped (handle &, <, >, ", ')
-   - **Note**: Python's `xml.etree.ElementTree` automatically handles XML character escaping
+1. **XML Character Escaping**: Python's `xml.etree.ElementTree` automatically handles XML character escaping for special characters (&, <, >, ", ')
 2. **Duration Conversion**: yt-dlp provides duration in seconds, Jellyfin expects minutes in `<runtime>`
 3. **Date Formatting**:
    - `upload_date` from yt-dlp is in YYYYMMDD format
@@ -497,6 +769,20 @@ def generate_episode_nfo(episode_info):
    - JSON `\n` escape sequences are automatically converted to actual newlines by `json.load()`
    - ElementTree preserves newlines as-is in XML text content
    - No manual replacement needed - Jellyfin displays newlines correctly
+
+### Complete tvshow.nfo Field Mapping
+
+| NFO Field | JSON Source | Transformation Required | Required? | Notes |
+|-----------|-------------|------------------------|-----------|-------|
+| `<title>` | `channel` | None - direct copy | ✅ Required | Channel name |
+| `<originaltitle>` | `channel` | None - direct copy | ✅ Required | Same as title |
+| `<showtitle>` | `channel` | None - direct copy | ✅ Required | Same as title |
+| `<plot>` | `description` | None - newlines preserved automatically | ⚠️ Optional | Channel description |
+| `<studio>` | *hardcoded* | Always set to `YouTube` | ✅ Required | Platform identifier |
+| `<genre>` (multiple) | `tags` array | Create one `<genre>` tag per tag | ⚠️ Optional | Channel tags mapped to genres |
+| `<tag>` (multiple) | `tags` array | Create one `<tag>` tag per tag | ⚠️ Optional | Channel tags |
+
+**Note**: Channel-level info.json does NOT have a `categories` field. We map `tags` to both `<genre>` and `<tag>` elements for maximum compatibility with Jellyfin's metadata display.
 
 ### Complete Episode NFO Field Mapping
 
@@ -560,9 +846,18 @@ To ensure Jellyfin reads NFO files:
 3. Metadata readers: Set priority for "NFO" high
 
 ### Error Scenarios to Handle
-- info.json file missing or corrupted
-- Missing required fields (title, channel)
-- Invalid characters in XML content
-- File write permissions issues
-- Disk space issues
-- Concurrent access to same NFO file
+
+**Critical Errors (Skip NFO generation and log):**
+- **info.json file missing**: If .info.json doesn't exist, skip NFO generation entirely (critical dependency)
+- **info.json file corrupted**: If JSON parsing fails, skip NFO generation and log error with file path
+- **Missing required fields**: If `title` or `channel` fields are missing from info.json, skip NFO generation and log warning
+
+**Recoverable Errors (Generate NFO with available data):**
+- **Missing optional fields**: Generate NFO with available data, omit missing optional fields
+- **Invalid characters in XML**: ElementTree handles escaping automatically, but log if unexpected characters cause issues
+- **File write permissions**: Log error with file path, mark channel NFO generation as failed, continue with other channels
+- **Disk space issues**: Log error, mark generation as failed, alert user via notification
+
+**Concurrency Errors:**
+- **Concurrent NFO access**: Use file locking or atomic writes to prevent corruption
+- **Multiple regeneration requests**: Queue requests and process sequentially per channel
