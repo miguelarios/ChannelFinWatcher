@@ -301,6 +301,8 @@ I have 20+ years of experience working in the hospitality industry...
   "upload_date": "20211207",
   "uploader": "Steve the Bartender",
   "duration": 922,
+  "language": "en",
+  "categories": ["Howto & Style"],
   "tags": [
     "mexican cocktails",
     "tequila cocktails",
@@ -318,15 +320,17 @@ I have 20+ years of experience working in the hospitality industry...
     <title>Paloma 3 Ways - Classic, Upgraded & Clarified!</title>
     <showtitle>Steve the Bartender</showtitle>
     <plot>Celebrating Patrón's Paloma Week...</plot>
+    <language>en</language>
     <aired>2021-12-07</aired>
     <year>2021</year>
     <runtime>15</runtime>
     <director>Steve the Bartender</director>
     <studio>YouTube</studio>
     <uniqueid type="youtube" default="true">Day4-sm3U1s</uniqueid>
-    <genre>mexican cocktails</genre>
-    <genre>tequila cocktails</genre>
-    <genre>cocktail recipe</genre>
+    <genre>Howto & Style</genre>
+    <tag>mexican cocktails</tag>
+    <tag>tequila cocktails</tag>
+    <tag>cocktail recipe</tag>
     <dateadded>2021-12-07 00:00:00</dateadded>
 </episodedetails>
 ```
@@ -371,6 +375,7 @@ Per Jellyfin documentation at https://jellyfin.org/docs/general/server/metadata/
 ```python
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
+from datetime import datetime
 
 def prettify_xml(elem):
     """Return a pretty-printed XML string."""
@@ -381,17 +386,79 @@ def prettify_xml(elem):
 def generate_tvshow_nfo(channel_info):
     """Generate tvshow.nfo from channel info.json"""
     root = ET.Element('tvshow')
-    
+
     ET.SubElement(root, 'title').text = channel_info.get('channel', '')
     ET.SubElement(root, 'originaltitle').text = channel_info.get('channel', '')
     ET.SubElement(root, 'showtitle').text = channel_info.get('channel', '')
     ET.SubElement(root, 'plot').text = channel_info.get('description', '')
     ET.SubElement(root, 'studio').text = 'YouTube'
-    
+
+    # Categories → genres
+    for category in channel_info.get('categories', []):
+        ET.SubElement(root, 'genre').text = category
+
+    # Tags → tags
     for tag in channel_info.get('tags', []):
-        ET.SubElement(root, 'genre').text = tag
         ET.SubElement(root, 'tag').text = tag
-    
+
+    return prettify_xml(root)
+
+def generate_episode_nfo(episode_info):
+    """Generate episode.nfo from video info.json"""
+    root = ET.Element('episodedetails')
+
+    # Required fields
+    ET.SubElement(root, 'title').text = episode_info.get('title', 'Unknown Title')
+    ET.SubElement(root, 'showtitle').text = episode_info.get('channel', '')
+
+    # Optional description (newlines preserved automatically)
+    description = episode_info.get('description')
+    if description:
+        ET.SubElement(root, 'plot').text = description
+
+    # Language (ISO 639-1: en, es, etc.)
+    language = episode_info.get('language')
+    if language:
+        ET.SubElement(root, 'language').text = language
+
+    # Date fields (upload_date: YYYYMMDD → YYYY-MM-DD)
+    upload_date = episode_info.get('upload_date')
+    if upload_date:
+        aired_date = datetime.strptime(upload_date, "%Y%m%d").strftime("%Y-%m-%d")
+        ET.SubElement(root, 'aired').text = aired_date
+        ET.SubElement(root, 'year').text = upload_date[:4]
+
+    # Duration (seconds → minutes)
+    duration = episode_info.get('duration')
+    if duration and duration > 0:
+        runtime_minutes = duration // 60
+        ET.SubElement(root, 'runtime').text = str(runtime_minutes)
+
+    # Optional fields
+    uploader = episode_info.get('uploader')
+    if uploader:
+        ET.SubElement(root, 'director').text = uploader
+
+    ET.SubElement(root, 'studio').text = 'YouTube'
+
+    # Unique ID
+    video_id = episode_info.get('id')
+    if video_id:
+        uniqueid_elem = ET.SubElement(root, 'uniqueid', type='youtube', default='true')
+        uniqueid_elem.text = video_id
+
+    # Categories → genres
+    for category in episode_info.get('categories', []):
+        ET.SubElement(root, 'genre').text = category
+
+    # Tags → tags
+    for tag in episode_info.get('tags', []):
+        ET.SubElement(root, 'tag').text = tag
+
+    # Date added (current timestamp)
+    dateadded = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ET.SubElement(root, 'dateadded').text = dateadded
+
     return prettify_xml(root)
 ```
 
@@ -417,14 +484,74 @@ def generate_tvshow_nfo(channel_info):
 
 ### Important Implementation Notes
 1. **XML Escaping**: All text content must be properly XML-escaped (handle &, <, >, ", ')
+   - **Note**: Python's `xml.etree.ElementTree` automatically handles XML character escaping
 2. **Duration Conversion**: yt-dlp provides duration in seconds, Jellyfin expects minutes in `<runtime>`
-3. **Date Formatting**: 
+3. **Date Formatting**:
    - `upload_date` from yt-dlp is in YYYYMMDD format
    - Jellyfin `<aired>` expects YYYY-MM-DD
    - Jellyfin `<dateadded>` expects YYYY-MM-DD HH:MM:SS
 4. **Missing Data**: Handle cases where optional fields are None/null/missing
 5. **File Naming**: Episode NFO must match video filename exactly (minus extension)
 6. **UTF-8 Encoding**: Always use UTF-8 encoding with BOM declaration in XML header
+7. **Newline Handling in Descriptions**:
+   - JSON `\n` escape sequences are automatically converted to actual newlines by `json.load()`
+   - ElementTree preserves newlines as-is in XML text content
+   - No manual replacement needed - Jellyfin displays newlines correctly
+
+### Complete Episode NFO Field Mapping
+
+| NFO Field | JSON Source | Transformation Required | Required? | Notes |
+|-----------|-------------|------------------------|-----------|-------|
+| `<title>` | `title` | None - direct copy | ✅ Required | Episode title |
+| `<showtitle>` | `channel` | None - direct copy | ✅ Required | Channel name |
+| `<plot>` | `description` | None - newlines preserved automatically | ⚠️ Optional | Episode description |
+| `<language>` | `language` | None - direct copy (ISO 639-1) | ⚠️ Optional | ISO 639-1 codes: "en", "es", etc. |
+| `<aired>` | `upload_date` | **Format conversion**: `20211207` → `2021-12-07` | ✅ Required | Upload date |
+| `<year>` | `upload_date` | **Extract year**: `20211207` → `2021` | ✅ Required | Upload year |
+| `<runtime>` | `duration` | **Convert seconds to minutes**: `922` → `15` | ⚠️ Optional | Video duration |
+| `<director>` | `uploader` | None - direct copy | ⚠️ Optional | Channel uploader/creator |
+| `<studio>` | *hardcoded* | Always set to `YouTube` | ✅ Required | Platform identifier |
+| `<uniqueid type="youtube">` | `id` | Wrap in uniqueid tag with attributes | ✅ Required | YouTube video ID |
+| `<genre>` (multiple) | `categories` array | Create one `<genre>` tag per category | ⚠️ Optional | Broad categorization (e.g., "Howto & Style") |
+| `<tag>` (multiple) | `tags` array | Create one `<tag>` tag per tag | ⚠️ Optional | Specific descriptors (e.g., "cocktails") |
+| `<dateadded>` | *file creation time* | **Format as**: `YYYY-MM-DD HH:MM:SS` | ⚠️ Optional | When file was added to library |
+
+**Key Distinction - Categories vs Tags:**
+- **`categories`** → **`<genre>`**: Broad YouTube categories (e.g., "Entertainment", "Education", "Howto & Style")
+- **`tags`** → **`<tag>`**: Specific user-defined tags (e.g., "mexican cocktails", "tequila cocktails")
+
+**Transformation Examples:**
+
+```python
+# Date formatting (upload_date → aired)
+from datetime import datetime
+upload_date = "20211207"
+aired_date = datetime.strptime(upload_date, "%Y%m%d").strftime("%Y-%m-%d")
+# Result: "2021-12-07"
+
+# Duration conversion (duration → runtime)
+duration_seconds = 922
+runtime_minutes = duration_seconds // 60  # Integer division
+# Result: 15
+
+# Year extraction (upload_date → year)
+upload_date = "20211207"
+year = upload_date[:4]  # First 4 characters
+# Result: "2021"
+
+# Categories → genres (multiple elements)
+for category in info.get('categories', []):
+    ET.SubElement(root, 'genre').text = category
+
+# Tags → tags (multiple elements)
+for tag in info.get('tags', []):
+    ET.SubElement(root, 'tag').text = tag
+
+# Language (ISO 639-1)
+language = info.get('language')
+if language:
+    ET.SubElement(root, 'language').text = language
+```
 
 ### Jellyfin Library Configuration
 To ensure Jellyfin reads NFO files:
