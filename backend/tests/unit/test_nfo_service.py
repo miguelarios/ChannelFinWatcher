@@ -787,9 +787,10 @@ class TestTvshowNFOGeneration:
         Test tvshow NFO generation with complete channel metadata.
 
         Validates:
-        - Channel name maps to title, originaltitle, showtitle
+        - Channel name maps to title
         - Description is included
-        - Tags map to both genres and tags
+        - Unique ID is included
+        - Tags are included (no genres)
         - Studio is "YouTube"
         """
         # Setup: Create channel directory and metadata file
@@ -817,17 +818,23 @@ class TestTvshowNFOGeneration:
 
         assert root.tag == 'tvshow'
         assert root.find('title').text == sample_channel_info['channel']
-        assert root.find('originaltitle').text == sample_channel_info['channel']
-        assert root.find('showtitle').text == sample_channel_info['channel']
         assert root.find('plot').text == sample_channel_info['description']
         assert root.find('studio').text == 'YouTube'
 
-        # Verify: Tags mapped to both genres and tags
+        # Verify: Unique ID
+        uniqueid = root.find('uniqueid')
+        assert uniqueid is not None
+        assert uniqueid.get('type') == 'youtube'
+        assert uniqueid.get('default') == 'true'
+        assert uniqueid.text == sample_channel_info['id']
+
+        # Verify: Tags only (no genres)
         genres = [g.text for g in root.findall('genre')]
         tags = [t.text for t in root.findall('tag')]
 
+        assert len(genres) == 0, "Genres should not be present"
+
         for tag in sample_channel_info['tags']:
-            assert tag in genres, f"{tag} not in genres"
             assert tag in tags, f"{tag} not in tags"
 
     def test_tvshow_nfo_generation_with_minimal_metadata(
