@@ -303,10 +303,13 @@ class NFOService:
         """
         Create season.nfo XML content for year-based seasons.
 
-        Season NFO is minimal - Jellyfin just needs:
-        - Title: The year (e.g., "2021")
-        - Season number: The year (e.g., 2021)
+        Season NFO includes:
+        - Title: The year (e.g., "2025")
+        - Season number: The year (e.g., 2025)
+        - Premiered: Always January 1st of the year (e.g., "2025-01-01")
+        - Release date: Same as premiered
         - Date added: Current timestamp
+        - Lock data: Set to false (allows Jellyfin to update metadata)
 
         Args:
             year: Year string (e.g., "2021")
@@ -321,17 +324,27 @@ class NFOService:
         ET.SubElement(root, 'plot')
         ET.SubElement(root, 'outline')
 
+        # Lock data: false allows Jellyfin to update metadata if needed
+        ET.SubElement(root, 'lockdata').text = 'false'
+
         # Current timestamp for when season was created
         dateadded = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ET.SubElement(root, 'dateadded').text = dateadded
 
-        # Title and season number both use the year
-        # Why year as season number? Makes chronological sorting natural in Jellyfin
+        # Title and year both use the year value
         ET.SubElement(root, 'title').text = str(year)
-        ET.SubElement(root, 'season').text = str(year)
+        ET.SubElement(root, 'year').text = str(year)
 
-        # Empty art tag (no custom season artwork)
-        ET.SubElement(root, 'art')
+        # Premiered and releasedate: Always January 1st of the year
+        # Why January 1st? Provides consistent date for season organization
+        # regardless of when first video was actually uploaded
+        jan_first = f"{year}-01-01"
+        ET.SubElement(root, 'premiered').text = jan_first
+        ET.SubElement(root, 'releasedate').text = jan_first
+
+        # Season number: Use the year for chronological sorting
+        ET.SubElement(root, 'seasonnumber').text = str(year)
+        ET.SubElement(root, 'season').text = str(year)
 
         return self._prettify_xml(root)
 
