@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { YoutubeIcon, TrashIcon, CheckCircleIcon, EditIcon, CheckIcon, XIcon, RefreshCwIcon, AlertCircleIcon, HardDriveIcon, DownloadIcon, MoreVertical } from 'lucide-react'
+import { YoutubeIcon, TrashIcon, CheckCircleIcon, EditIcon, CheckIcon, XIcon, RefreshCwIcon, AlertCircleIcon, HardDriveIcon, DownloadIcon, MoreVertical, FileText } from 'lucide-react'
 
 /**
  * ChannelsList Component - Displays and manages YouTube channels with inline limit editing
@@ -127,6 +127,16 @@ export function ChannelsList({
   // Track which channel has its action menu open
   const [openMenuChannelId, setOpenMenuChannelId] = useState<number | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  // === NFO REGENERATION STATE ===
+  // Track which channel is regenerating NFO files
+  const [regeneratingNfoChannelId, setRegeneratingNfoChannelId] = useState<number | null>(null)
+  const [nfoRegenerationProgress, setNfoRegenerationProgress] = useState<string>('')
+  const [showNfoConfirmDialog, setShowNfoConfirmDialog] = useState(false)
+  const [nfoConfirmChannelId, setNfoConfirmChannelId] = useState<number | null>(null)
+  const [nfoConfirmChannelName, setNfoConfirmChannelName] = useState<string>('')
+  const [nfoSuccess, setNfoSuccess] = useState<string>('')
+  const [nfoError, setNfoError] = useState<string>('')
 
   if (!channels || channels.length === 0) {
     return null
@@ -562,6 +572,72 @@ export function ChannelsList({
     setOpenMenuChannelId(openMenuChannelId === channelId ? null : channelId)
   }
 
+  /**
+   * Shows NFO regeneration confirmation dialog
+   */
+  const showNfoRegenerateDialog = (channel: Channel, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setNfoConfirmChannelId(channel.id)
+    setNfoConfirmChannelName(channel.name)
+    setShowNfoConfirmDialog(true)
+  }
+
+  /**
+   * Confirms and triggers NFO regeneration for a channel
+   */
+  const confirmNfoRegeneration = async () => {
+    if (!nfoConfirmChannelId) return
+
+    setShowNfoConfirmDialog(false)
+    setRegeneratingNfoChannelId(nfoConfirmChannelId)
+    setNfoError('')
+    setNfoSuccess('')
+    setNfoRegenerationProgress('Initializing...')
+
+    try {
+      const response = await fetch(`/api/v1/channels/${nfoConfirmChannelId}/nfo/regenerate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+
+        // Display success message with statistics
+        const { files_created, files_updated, files_failed } = result
+        setNfoSuccess(
+          `NFO regeneration complete: ${files_created} created, ${files_updated} updated, ${files_failed} failed`
+        )
+
+        // Auto-clear success message after 5 seconds
+        setTimeout(() => setNfoSuccess(''), 5000)
+
+      } else {
+        const errorData = await response.json()
+        setNfoError(errorData.detail || 'Failed to regenerate NFO files')
+      }
+    } catch (error) {
+      console.error('Error regenerating NFO files:', error)
+      setNfoError('Network error: Failed to regenerate NFO files')
+    } finally {
+      setRegeneratingNfoChannelId(null)
+      setNfoRegenerationProgress('')
+      setNfoConfirmChannelId(null)
+      setNfoConfirmChannelName('')
+    }
+  }
+
+  /**
+   * Cancels NFO regeneration confirmation dialog
+   */
+  const cancelNfoDialog = () => {
+    setShowNfoConfirmDialog(false)
+    setNfoConfirmChannelId(null)
+    setNfoConfirmChannelName('')
+  }
+
   return (
     <div>
       <h3 className="text-lg font-medium mb-4">Your Channels</h3>
@@ -719,6 +795,19 @@ export function ChannelsList({
                             Download recent videos
                           </button>
 
+                          {/* Regenerate NFO files */}
+                          <button
+                            onClick={(e) => {
+                              showNfoRegenerateDialog(channel, e)
+                              setOpenMenuChannelId(null)
+                            }}
+                            disabled={regeneratingNfoChannelId === channel.id}
+                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed flex items-center"
+                          >
+                            <FileText className={`h-4 w-4 mr-2 ${regeneratingNfoChannelId === channel.id ? 'animate-pulse' : ''}`} />
+                            Regenerate NFO files
+                          </button>
+
                           {/* Divider */}
                           <div className="border-t border-gray-200 my-1"></div>
 
@@ -844,6 +933,48 @@ export function ChannelsList({
         </div>
       )}
 
+      {/* === NFO REGENERATION SUCCESS MESSAGE === */}
+      {nfoSuccess && (
+        <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
+          <div className="flex items-center">
+            <CheckCircleIcon className="h-4 w-4 text-green-600 mr-2" />
+            <span className="text-sm text-green-700">{nfoSuccess}</span>
+            <button
+              onClick={() => setNfoSuccess('')}
+              className="ml-auto text-green-600 hover:text-green-700"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* === NFO REGENERATION ERROR MESSAGE === */}
+      {nfoError && (
+        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+          <div className="flex items-center">
+            <AlertCircleIcon className="h-4 w-4 text-red-600 mr-2" />
+            <span className="text-sm text-red-700">{nfoError}</span>
+            <button
+              onClick={() => setNfoError('')}
+              className="ml-auto text-red-600 hover:text-red-700"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* === NFO REGENERATION PROGRESS === */}
+      {regeneratingNfoChannelId !== null && nfoRegenerationProgress && (
+        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+          <div className="flex items-center">
+            <RefreshCwIcon className="h-4 w-4 text-blue-600 mr-2 animate-spin" />
+            <span className="text-sm text-blue-700">{nfoRegenerationProgress}</span>
+          </div>
+        </div>
+      )}
+
       {/* === DELETE CONFIRMATION MODAL === */}
       {deleteModal.show && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -901,20 +1032,20 @@ export function ChannelsList({
             <h3 className="text-lg font-medium text-gray-900 mb-4">
               Confirm Limit Reduction
             </h3>
-            
+
             {/* Clear explanation of what's about to happen */}
             <p className="text-sm text-gray-600 mb-4">
               You're reducing the video limit from <strong>{originalLimit}</strong> to{' '}
               <strong>{pendingUpdate.newLimit}</strong>. This is a significant reduction
               that will affect future downloads.
             </p>
-            
+
             {/* Important note about existing videos */}
             <p className="text-xs text-gray-500 mb-6">
               Note: Existing videos beyond the new limit won't be deleted immediately,
               but future downloads will respect the new limit.
             </p>
-            
+
             {/* Action buttons */}
             <div className="flex space-x-3">
               {/* Confirm button (red to indicate significant action) */}
@@ -925,12 +1056,50 @@ export function ChannelsList({
               >
                 {isUpdating ? 'Updating...' : 'Confirm'}
               </button>
-              
+
               {/* Cancel button (safe option) */}
               <button
                 onClick={cancelConfirmDialog}
                 disabled={isUpdating}
                 className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-md text-sm font-medium disabled:bg-gray-200"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* === NFO REGENERATION CONFIRMATION DIALOG === */}
+      {showNfoConfirmDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md mx-4">
+            <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
+              <FileText className="h-5 w-5 mr-2 text-blue-600" />
+              Regenerate NFO Files
+            </h3>
+
+            <p className="text-sm text-gray-600 mb-4">
+              Regenerate all NFO files for <strong>{nfoConfirmChannelName}</strong>?
+            </p>
+
+            <p className="text-xs text-gray-500 mb-6">
+              This will recreate tvshow.nfo, all season.nfo files, and all episode.nfo files
+              based on current metadata. Existing NFO files will be overwritten according to
+              your settings.
+            </p>
+
+            <div className="flex space-x-3">
+              <button
+                onClick={confirmNfoRegeneration}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+              >
+                Regenerate
+              </button>
+
+              <button
+                onClick={cancelNfoDialog}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-md text-sm font-medium"
               >
                 Cancel
               </button>

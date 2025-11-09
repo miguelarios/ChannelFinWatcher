@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { Settings as SettingsIcon, Save, AlertCircle, CheckCircle, Info, Clock, Calendar } from 'lucide-react'
+import { Settings as SettingsIcon, Save, AlertCircle, CheckCircle, Info, Clock, Calendar, FileText } from 'lucide-react'
+import { NfoBackfillManager } from './NfoBackfillManager'
 
 /**
  * Interface for the default video limit settings response from API.
@@ -91,6 +92,15 @@ export function Settings() {
   const [schedulerError, setSchedulerError] = useState<string>('')
   const [schedulerSuccess, setSchedulerSuccess] = useState<string>('')
   const [hasChannels, setHasChannels] = useState<boolean>(true)
+
+  // NFO settings state
+  const [nfoEnabled, setNfoEnabled] = useState<boolean>(true)
+  const [originalNfoEnabled, setOriginalNfoEnabled] = useState<boolean>(true)
+  const [nfoOverwrite, setNfoOverwrite] = useState<boolean>(false)
+  const [originalNfoOverwrite, setOriginalNfoOverwrite] = useState<boolean>(false)
+  const [nfoSaving, setNfoSaving] = useState<boolean>(false)
+  const [nfoError, setNfoError] = useState<string>('')
+  const [nfoSuccess, setNfoSuccess] = useState<string>('')
 
   /**
    * Fetch current default video limit setting from backend API.
@@ -364,6 +374,70 @@ export function Settings() {
   }
 
   /**
+   * Fetch NFO settings from backend.
+   */
+  const fetchNfoSettings = async () => {
+    try {
+      const response = await fetch('/api/v1/settings/nfo')
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch NFO settings')
+      }
+
+      const data = await response.json()
+      setNfoEnabled(data.enabled)
+      setOriginalNfoEnabled(data.enabled)
+      setNfoOverwrite(data.overwrite_existing)
+      setOriginalNfoOverwrite(data.overwrite_existing)
+
+    } catch (err) {
+      console.error('Error fetching NFO settings:', err)
+      // Don't show error on initial load - use defaults
+    }
+  }
+
+  /**
+   * Save NFO settings to backend.
+   */
+  const saveNfoSettings = async () => {
+    try {
+      setNfoSaving(true)
+      setNfoError('')
+      setNfoSuccess('')
+
+      const response = await fetch('/api/v1/settings/nfo', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          enabled: nfoEnabled,
+          overwrite_existing: nfoOverwrite,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.detail || 'Failed to update NFO settings')
+      }
+
+      const data = await response.json()
+      setOriginalNfoEnabled(data.enabled)
+      setOriginalNfoOverwrite(data.overwrite_existing)
+      setNfoSuccess('NFO settings updated successfully')
+
+      // Clear success message after 3 seconds
+      setTimeout(() => setNfoSuccess(''), 3000)
+
+    } catch (err) {
+      console.error('Error saving NFO settings:', err)
+      setNfoError(err instanceof Error ? err.message : 'Failed to save NFO settings')
+    } finally {
+      setNfoSaving(false)
+    }
+  }
+
+  /**
    * Toggle scheduler enabled/disabled state (Story 007).
    *
    * Preserves the cron schedule configuration while enabling/disabling
@@ -449,7 +523,8 @@ export function Settings() {
     Promise.all([
       fetchDefaultLimit(),
       fetchSchedulerStatus(),
-      checkChannelsExist()
+      checkChannelsExist(),
+      fetchNfoSettings()
     ])
   }, [])
 
@@ -782,6 +857,128 @@ export function Settings() {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Divider */}
+        <div className="border-t border-gray-200 my-8"></div>
+
+        {/* NFO File Generation Section */}
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
+              <FileText className="h-5 w-5 mr-2 text-blue-600" />
+              NFO File Generation
+            </h3>
+
+            {/* NFO Backfill Manager */}
+            <NfoBackfillManager />
+
+            {/* NFO Error Message */}
+            {nfoError && (
+              <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
+                <div className="flex items-center">
+                  <AlertCircle className="h-5 w-5 text-red-600 mr-2" />
+                  <span className="text-red-800">{nfoError}</span>
+                </div>
+              </div>
+            )}
+
+            {/* NFO Success Message */}
+            {nfoSuccess && (
+              <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-md">
+                <div className="flex items-center">
+                  <CheckCircle className="h-5 w-5 text-green-600 mr-2" />
+                  <span className="text-green-800">{nfoSuccess}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Enable/Disable NFO Generation */}
+            <div className="mt-6 space-y-4">
+              <div className="flex items-start">
+                <div className="flex items-center h-5">
+                  <input
+                    type="checkbox"
+                    id="nfoEnabled"
+                    checked={nfoEnabled}
+                    onChange={(e) => setNfoEnabled(e.target.checked)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    disabled={nfoSaving}
+                  />
+                </div>
+                <div className="ml-3 text-sm flex-1">
+                  <label htmlFor="nfoEnabled" className="font-medium text-gray-700">
+                    Automatically generate NFO files for new downloads
+                  </label>
+                  <p className="text-gray-500 mt-1">
+                    NFO files provide rich metadata for Jellyfin media servers, including descriptions, tags, and upload dates
+                  </p>
+                </div>
+              </div>
+
+              {/* Overwrite Existing NFO Files */}
+              <div className="flex items-start">
+                <div className="flex items-center h-5">
+                  <input
+                    type="checkbox"
+                    id="nfoOverwrite"
+                    checked={nfoOverwrite}
+                    onChange={(e) => setNfoOverwrite(e.target.checked)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    disabled={nfoSaving}
+                  />
+                </div>
+                <div className="ml-3 text-sm flex-1">
+                  <label htmlFor="nfoOverwrite" className="font-medium text-gray-700">
+                    Overwrite existing NFO files during regeneration
+                  </label>
+                  <p className="text-gray-500 mt-1">
+                    When disabled, existing NFO files are preserved and not modified
+                  </p>
+                </div>
+              </div>
+
+              {/* Save Button */}
+              <div className="flex justify-end">
+                <button
+                  onClick={saveNfoSettings}
+                  disabled={
+                    nfoSaving ||
+                    (nfoEnabled === originalNfoEnabled && nfoOverwrite === originalNfoOverwrite)
+                  }
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {nfoSaving ? (
+                    <>
+                      <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Save NFO Settings
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Information Panel */}
+            <div className="mt-6 bg-blue-50 border border-blue-200 rounded-md p-4">
+              <div className="flex items-start">
+                <Info className="h-5 w-5 text-blue-600 mr-2 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-blue-800">
+                  <p className="font-medium mb-2">About NFO Files:</p>
+                  <ul className="space-y-1 list-disc list-inside">
+                    <li>NFO files are automatically created during video downloads</li>
+                    <li>Includes tvshow.nfo (channel), season.nfo (year folders), and episode.nfo (videos)</li>
+                    <li>Use "Regenerate NFO Files" from channel kebab menu to rebuild existing files</li>
+                    <li>Compatible with Jellyfin media server for rich metadata display</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
