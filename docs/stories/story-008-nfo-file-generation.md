@@ -29,12 +29,10 @@ ChannelFinWatcher downloads YouTube videos using yt-dlp, which creates `.info.js
 - **When** the channel is first added and metadata is retrieved
 - **Then** a `tvshow.nfo` file is automatically created in the channel directory
   - And the NFO contains `<title>` populated from `channel` field
-  - And the NFO contains `<originaltitle>` populated from `channel` field
-  - And the NFO contains `<showtitle>` populated from `channel` field
   - And the NFO contains `<plot>` populated from `description` field
+  - And the NFO contains `<uniqueid type="youtube">` populated from channel `id` field
   - And the NFO contains `<studio>YouTube</studio>`
-  - And the NFO contains `<genre>` tags for each item in the `tags` array
-  - And the NFO contains matching `<tag>` elements for each genre
+  - And the NFO contains `<tag>` elements for each tag
   - And `nfo_last_generated` is set to current timestamp
 
 #### [ ] Scenario: Regenerate tvshow.nfo when channel metadata is manually updated
@@ -393,17 +391,13 @@ nfo:
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <tvshow>
     <title>Steve the Bartender</title>
-    <originaltitle>Steve the Bartender</originaltitle>
-    <showtitle>Steve the Bartender</showtitle>
     <plot>
 Want to know more about about Steve the Bartender?
 
 I have 20+ years of experience working in the hospitality industry...
     </plot>
+    <uniqueid type="youtube" default="true">UCfEJUzPnT-HdNqOqdX3A0lA</uniqueid>
     <studio>YouTube</studio>
-    <genre>Bartender</genre>
-    <genre>Cocktails</genre>
-    <genre>Recipe</genre>
     <tag>Bartender</tag>
     <tag>Cocktails</tag>
     <tag>Recipe</tag>
@@ -494,10 +488,10 @@ Per Jellyfin documentation at https://jellyfin.org/docs/general/server/metadata/
 - `episode` - Episode number (for episodes)
 
 **Key Show Tags:**
-- `title`, `originaltitle`, `showtitle` - Show names
+- `title` - Show name
 - `plot` - Show description
+- `uniqueid` - Unique identifier for channel tracking
 - `studio` - Studio/network (multiple allowed)
-- `genre` - Multiple tags allowed
 - `tag` - Multiple tags allowed
 
 **Key Season Tags:**
@@ -521,21 +515,24 @@ def prettify_xml(elem):
 def generate_tvshow_nfo(channel_info):
     """Generate tvshow.nfo from channel info.json
 
-    Note: Channel-level info.json does NOT have a 'categories' field.
-    We map 'tags' to both <genre> and <tag> for completeness.
+    Simplified structure with uniqueid for channel tracking.
+    Tags only (no genres) for cleaner metadata.
     """
     root = ET.Element('tvshow')
 
     ET.SubElement(root, 'title').text = channel_info.get('channel', '')
-    ET.SubElement(root, 'originaltitle').text = channel_info.get('channel', '')
-    ET.SubElement(root, 'showtitle').text = channel_info.get('channel', '')
     ET.SubElement(root, 'plot').text = channel_info.get('description', '')
+
+    # Unique ID: YouTube channel ID
+    channel_id = channel_info.get('id') or channel_info.get('channel_id')
+    if channel_id:
+        uniqueid_elem = ET.SubElement(root, 'uniqueid', type='youtube', default='true')
+        uniqueid_elem.text = channel_id
+
     ET.SubElement(root, 'studio').text = 'YouTube'
 
-    # Channel tags → both genres and tags
-    # (Channel info.json doesn't have categories field)
+    # Channel tags (no genres)
     for tag in channel_info.get('tags', []):
-        ET.SubElement(root, 'genre').text = tag
         ET.SubElement(root, 'tag').text = tag
 
     return prettify_xml(root)
@@ -775,14 +772,12 @@ def discover_videos_for_backfill(channel_dir):
 | NFO Field | JSON Source | Transformation Required | Required? | Notes |
 |-----------|-------------|------------------------|-----------|-------|
 | `<title>` | `channel` | None - direct copy | ✅ Required | Channel name |
-| `<originaltitle>` | `channel` | None - direct copy | ✅ Required | Same as title |
-| `<showtitle>` | `channel` | None - direct copy | ✅ Required | Same as title |
 | `<plot>` | `description` | None - newlines preserved automatically | ⚠️ Optional | Channel description |
+| `<uniqueid type="youtube">` | `id` or `channel_id` | Wrap in uniqueid tag with attributes | ✅ Required | YouTube channel ID |
 | `<studio>` | *hardcoded* | Always set to `YouTube` | ✅ Required | Platform identifier |
-| `<genre>` (multiple) | `tags` array | Create one `<genre>` tag per tag | ⚠️ Optional | Channel tags mapped to genres |
 | `<tag>` (multiple) | `tags` array | Create one `<tag>` tag per tag | ⚠️ Optional | Channel tags |
 
-**Note**: Channel-level info.json does NOT have a `categories` field. We map `tags` to both `<genre>` and `<tag>` elements for maximum compatibility with Jellyfin's metadata display.
+**Note**: Simplified tvshow.nfo structure uses tags only (no genres) for cleaner metadata. The uniqueid allows Jellyfin to track channels across library rebuilds.
 
 ### Complete Episode NFO Field Mapping
 

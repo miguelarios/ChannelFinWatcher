@@ -405,12 +405,10 @@ class NFOService:
         JSON Field    → NFO Tag           | Notes
         --------------------------------------------------------
         channel       → <title>           | Channel name
-        channel       → <originaltitle>   | Same as title
-        channel       → <showtitle>       | Same as title
         description   → <plot>            | Channel description
+        id/channel_id → <uniqueid>        | YouTube channel ID
         hardcoded     → <studio>          | Always "YouTube"
-        tags[]        → <genre>           | One tag per tag (channel has no categories)
-        tags[]        → <tag>             | Duplicate for compatibility
+        tags[]        → <tag>             | One tag per tag
 
         Args:
             channel_info: Dictionary from channel .info.json file
@@ -420,26 +418,30 @@ class NFOService:
         """
         root = ET.Element('tvshow')
 
-        # Channel name → title, originaltitle, showtitle
-        # Why three tags? Jellyfin uses different tags in different contexts
+        # Channel name → title
+        # Why just title? Simplified from previous implementation
         channel_name = channel_info.get('channel', '')
         ET.SubElement(root, 'title').text = channel_name
-        ET.SubElement(root, 'originaltitle').text = channel_name
-        ET.SubElement(root, 'showtitle').text = channel_name
 
         # Channel description → plot
         description = channel_info.get('description', '')
         if description:
             ET.SubElement(root, 'plot').text = description
 
+        # Unique ID: YouTube channel ID
+        # Why uniqueid? Allows Jellyfin to track channels across library rebuilds
+        # Try 'id' first, fallback to 'channel_id'
+        channel_id = channel_info.get('id') or channel_info.get('channel_id')
+        if channel_id:
+            uniqueid_elem = ET.SubElement(root, 'uniqueid', type='youtube', default='true')
+            uniqueid_elem.text = channel_id
+
         # Studio: Always YouTube
         ET.SubElement(root, 'studio').text = 'YouTube'
 
-        # Channel tags → both genres and tags
-        # Why both? Channel info.json doesn't have 'categories' field,
-        # so we map 'tags' to both <genre> and <tag> for maximum compatibility
+        # Channel tags → tags only (no genres)
+        # Why tags only? Simpler metadata structure, tags are more specific
         for tag in channel_info.get('tags', []):
-            ET.SubElement(root, 'genre').text = tag
             ET.SubElement(root, 'tag').text = tag
 
         return self._prettify_xml(root)
