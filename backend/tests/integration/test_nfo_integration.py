@@ -171,6 +171,7 @@ class TestNFOGenerationTriggeredByDownload:
         assert root.tag == 'episodedetails'
         assert root.find('title').text == sample_episode_metadata['title']
         assert root.find('showtitle').text == sample_episode_metadata['channel']
+        assert root.find('premiered').text == '2025-01-09'
         assert root.find('aired').text == '2025-01-09'
         assert root.find('runtime').text == '62'  # 3746 / 60 = 62
 

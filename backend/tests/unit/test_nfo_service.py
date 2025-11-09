@@ -239,6 +239,7 @@ class TestEpisodeNFOGeneration:
         assert root.find('title').text == sample_episode_info['title']
         assert root.find('showtitle').text == sample_episode_info['channel']
         assert root.find('plot').text == sample_episode_info['description']
+        assert root.find('premiered').text == '2025-01-09'
         assert root.find('aired').text == '2025-01-09'
         assert root.find('year').text == '2025'
         assert root.find('runtime').text == '62'  # 3746 seconds / 60
@@ -422,6 +423,7 @@ class TestEpisodeNFOGeneration:
         Validates:
         - upload_date format: 20250109 → 2025-01-09
         - Year extraction: 20250109 → 2025
+        - premiered and aired tags both get the same date
         - Invalid dates are handled gracefully
         """
         # Setup: Episode with various date formats
@@ -451,6 +453,7 @@ class TestEpisodeNFOGeneration:
         tree = ET.parse(nfo_path)
         root = tree.getroot()
 
+        assert root.find('premiered').text == '2021-12-07'
         assert root.find('aired').text == '2021-12-07'
         assert root.find('year').text == '2021'
 

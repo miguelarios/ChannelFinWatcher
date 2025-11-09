@@ -158,6 +158,7 @@ class NFOService:
         title               → <title>         | Direct copy
         channel             → <showtitle>     | Direct copy (show name)
         description         → <plot>          | Direct copy (newlines preserved)
+        upload_date         → <premiered>     | Format: 20211207 → 2021-12-07
         upload_date         → <aired>         | Format: 20211207 → 2021-12-07
         upload_date         → <year>          | Extract: 20211207 → 2021
         duration (seconds)  → <runtime>       | Convert: 922 → 15 (minutes)
@@ -192,9 +193,10 @@ class NFOService:
         upload_date = episode_info.get('upload_date')
         if upload_date:
             try:
-                # Transform YYYYMMDD → YYYY-MM-DD for Jellyfin <aired> tag
+                # Transform YYYYMMDD → YYYY-MM-DD for Jellyfin <premiered> and <aired> tags
                 # Why strptime/strftime? Safe date parsing with validation
                 aired_date = datetime.strptime(upload_date, "%Y%m%d").strftime("%Y-%m-%d")
+                ET.SubElement(root, 'premiered').text = aired_date
                 ET.SubElement(root, 'aired').text = aired_date
 
                 # Extract year for <year> tag
