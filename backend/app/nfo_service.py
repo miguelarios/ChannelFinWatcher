@@ -177,12 +177,13 @@ class NFOService:
         # Why showtitle? Jellyfin uses this to group episodes into shows
         ET.SubElement(root, 'showtitle').text = episode_info.get('channel', '')
 
-        # Optional: Description/plot (preserves newlines automatically)
-        # Why optional? Some videos may not have descriptions
+        # Description/plot (preserves newlines automatically)
+        # Why always create? Jellyfin expects plot element even if empty
         # Why no manual newline handling? ElementTree preserves them as-is
-        description = episode_info.get('description')
+        description = episode_info.get('description', '')
+        plot_elem = ET.SubElement(root, 'plot')
         if description:
-            ET.SubElement(root, 'plot').text = description
+            plot_elem.text = description
 
         # Optional: Language (ISO 639-1 codes: "en", "es", "fr", etc.)
         language = episode_info.get('language')

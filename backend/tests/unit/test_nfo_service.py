@@ -306,8 +306,11 @@ class TestEpisodeNFOGeneration:
         assert root.find('showtitle').text == "Test Channel"
         assert root.find('studio').text == 'YouTube'
 
-        # Optional fields should not exist or be empty
-        assert root.find('plot') is None or root.find('plot').text is None
+        # Plot element should always exist, but text may be None if no description
+        assert root.find('plot') is not None
+        assert root.find('plot').text is None or root.find('plot').text == ''
+
+        # Optional fields should not exist when data is missing
         assert root.find('aired') is None
         assert root.find('runtime') is None
 
