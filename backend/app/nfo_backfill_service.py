@@ -335,6 +335,130 @@ class NFOBackfillService:
         finally:
             db.close()
 
+    async def regenerate_channel_nfo(self, channel_id: int) -> Dict:
+        """
+        Regenerate all NFO files for a specific channel.
+
+        This is a public method that allows regenerating NFO files for a single
+        channel without running the full backfill job. Useful for:
+        - Manual NFO regeneration via API
+        - Fixing corrupted NFO files
+        - Updating NFO files after metadata changes
+
+        Args:
+            channel_id: Database ID of channel to process
+
+        Returns:
+            Dict with results:
+            {
+                "success": bool,
+                "channel_name": str,
+                "files_created": int,
+                "files_skipped": int,
+                "files_failed": int,
+                "error": Optional[str]
+            }
+
+        Example:
+            result = await nfo_backfill_service.regenerate_channel_nfo(123)
+            if result["success"]:
+                print(f"Created {result['files_created']} NFO files")
+        """
+        db = SessionLocal()
+        try:
+            # Find channel
+            channel = db.query(Channel).filter(Channel.id == channel_id).first()
+            if not channel:
+                return {
+                    "success": False,
+                    "error": f"Channel with ID {channel_id} not found",
+                    "files_created": 0,
+                    "files_skipped": 0,
+                    "files_failed": 0
+                }
+
+            # Verify channel directory exists
+            if not channel.directory_path or not os.path.exists(channel.directory_path):
+                return {
+                    "success": False,
+                    "channel_name": channel.name,
+                    "error": f"Channel directory not found: {channel.directory_path}",
+                    "files_created": 0,
+                    "files_skipped": 0,
+                    "files_failed": 0
+                }
+
+            logger.info(f"Regenerating NFO files for channel: {channel.name} (ID: {channel_id})")
+
+            # Track counters for this operation
+            files_created = 0
+            files_skipped = 0
+            files_failed = 0
+
+            channel_dir = channel.directory_path
+
+            # Step 1: Generate tvshow.nfo (channel-level metadata)
+            tvshow_success = await self._generate_tvshow_nfo(channel, channel_dir)
+            if tvshow_success:
+                files_created += 1
+            else:
+                files_failed += 1
+
+            # Step 2: Generate season.nfo for each year directory
+            year_dirs = self._discover_year_directories(channel_dir)
+            for year_dir in year_dirs:
+                season_success = await self._generate_season_nfo(year_dir)
+                if season_success:
+                    files_created += 1
+                else:
+                    files_failed += 1
+
+            # Step 3: Generate episode.nfo for each video
+            video_info_files = self._discover_videos_for_backfill(channel_dir)
+            logger.info(f"Found {len(video_info_files)} videos for channel {channel.name}")
+
+            for info_json_path in video_info_files:
+                episode_success = await self._generate_episode_nfo(info_json_path, channel)
+                if episode_success:
+                    files_created += 1
+                elif episode_success is False:
+                    files_failed += 1
+                else:
+                    # None means file already exists (skipped)
+                    files_skipped += 1
+
+            # Update timestamp to mark as regenerated
+            channel.nfo_last_generated = datetime.utcnow()
+            db.commit()
+
+            logger.info(
+                f"Completed NFO regeneration for channel {channel.name}: "
+                f"{files_created} created, {files_skipped} skipped, {files_failed} failed"
+            )
+
+            return {
+                "success": True,
+                "channel_name": channel.name,
+                "files_created": files_created,
+                "files_skipped": files_skipped,
+                "files_failed": files_failed,
+                "error": None
+            }
+
+        except Exception as e:
+            logger.error(f"Error regenerating NFO for channel {channel_id}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return {
+                "success": False,
+                "error": str(e),
+                "files_created": 0,
+                "files_skipped": 0,
+                "files_failed": 0
+            }
+        finally:
+            db.close()
+
     # =========================================================================
     # PRIVATE METHODS - INTERNAL PROCESSING
     # =========================================================================

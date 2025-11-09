@@ -1312,3 +1312,89 @@ async def get_nfo_backfill_needed(db: Session = Depends(get_db)):
         "channels_needing_backfill": count,
         "message": f"{count} channel{'s' if count != 1 else ''} need{'s' if count == 1 else ''} NFO backfill"
     }
+
+
+@router.post("/channels/{channel_id}/nfo/regenerate", tags=["NFO"])
+async def regenerate_channel_nfo(channel_id: int, db: Session = Depends(get_db)):
+    """
+    Regenerate all NFO files for a specific channel.
+
+    This endpoint regenerates tvshow.nfo, season.nfo files, and episode.nfo
+    files for all videos in the specified channel. Useful for:
+    - Fixing corrupted NFO files
+    - Updating metadata after manual changes
+    - Re-generating NFO files after Jellyfin issues
+
+    The regeneration process:
+    1. Generates/overwrites tvshow.nfo (channel-level metadata)
+    2. Generates/overwrites season.nfo for each year directory
+    3. Generates/overwrites episode.nfo for each video
+    4. Updates nfo_last_generated timestamp
+
+    Args:
+        channel_id: Database ID of channel to regenerate NFO files for
+        db: Database session dependency
+
+    Returns:
+        dict: Regeneration results with file counts
+
+    Raises:
+        HTTPException 404: If channel not found
+        HTTPException 400: If channel directory doesn't exist
+        HTTPException 500: If regeneration fails
+
+    Example:
+        POST /api/v1/channels/123/nfo/regenerate
+        Response:
+        {
+            "success": true,
+            "channel_name": "Mrs Rachel",
+            "files_created": 127,
+            "files_skipped": 5,
+            "files_failed": 0,
+            "message": "Successfully regenerated NFO files for Mrs Rachel"
+        }
+    """
+    import asyncio
+    from app.nfo_backfill_service import nfo_backfill_service
+
+    try:
+        # Verify channel exists first
+        channel = db.query(Channel).filter(Channel.id == channel_id).first()
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
+
+        logger.info(f"NFO regeneration requested for channel: {channel.name} (ID: {channel_id})")
+
+        # Run regeneration (async operation)
+        result = await nfo_backfill_service.regenerate_channel_nfo(channel_id)
+
+        if not result["success"]:
+            # Check if it's a "not found" error (shouldn't happen since we checked above)
+            if "not found" in result.get("error", "").lower():
+                raise HTTPException(status_code=404, detail=result["error"])
+            # Check if it's a directory error
+            elif "directory not found" in result.get("error", "").lower():
+                raise HTTPException(status_code=400, detail=result["error"])
+            # Other errors
+            else:
+                raise HTTPException(status_code=500, detail=result.get("error", "Unknown error"))
+
+        # Success response
+        return {
+            "success": True,
+            "channel_name": result["channel_name"],
+            "files_created": result["files_created"],
+            "files_skipped": result["files_skipped"],
+            "files_failed": result["files_failed"],
+            "message": f"Successfully regenerated NFO files for {result['channel_name']}"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error regenerating NFO for channel {channel_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to regenerate NFO files: {str(e)}"
+        )
