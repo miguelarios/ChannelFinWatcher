@@ -436,13 +436,23 @@ def initialize_default_settings(db_session) -> bool:
             },
             {
                 'key': 'default_quality_preset',
-                'value': 'best', 
+                'value': 'best',
                 'description': 'Default video quality preset for new channels (best, 1080p, 720p, 480p).'
             },
             {
                 'key': 'default_schedule',
                 'value': '0 0 * * *',
                 'description': 'Default cron schedule for channel monitoring (daily at midnight UTC).'
+            },
+            {
+                'key': 'nfo_enabled',
+                'value': 'true',
+                'description': 'Enable/disable NFO file generation for new video downloads. NFO files provide Jellyfin-compatible metadata.'
+            },
+            {
+                'key': 'nfo_overwrite_existing',
+                'value': 'false',
+                'description': 'Overwrite existing NFO files during regeneration. Set to true to force update all NFO files.'
             }
         ]
         
