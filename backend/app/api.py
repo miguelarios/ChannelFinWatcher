@@ -1282,6 +1282,174 @@ async def get_nfo_backfill_status():
     return status
 
 
+@router.get("/settings/nfo", tags=["Settings"])
+async def get_nfo_settings(db: Session = Depends(get_db)):
+    """
+    Get NFO generation settings.
+
+    Returns current configuration for NFO file generation including:
+    - enabled: Whether NFO generation is globally enabled
+    - overwrite_existing: Whether to overwrite existing NFO files during regeneration
+
+    Returns:
+        dict: NFO settings configuration
+
+    Example:
+        GET /api/v1/settings/nfo
+        Response:
+        {
+            "enabled": true,
+            "overwrite_existing": false,
+            "description": {
+                "enabled": "Enable/disable NFO file generation...",
+                "overwrite_existing": "Overwrite existing NFO files..."
+            }
+        }
+    """
+    try:
+        # Query NFO settings from database
+        enabled_setting = db.query(ApplicationSettings).filter(
+            ApplicationSettings.key == 'nfo_enabled'
+        ).first()
+
+        overwrite_setting = db.query(ApplicationSettings).filter(
+            ApplicationSettings.key == 'nfo_overwrite_existing'
+        ).first()
+
+        # Return current settings (with defaults if not found)
+        return {
+            "enabled": enabled_setting.value == "true" if enabled_setting else True,
+            "overwrite_existing": overwrite_setting.value == "true" if overwrite_setting else False,
+            "description": {
+                "enabled": enabled_setting.description if enabled_setting else "Enable/disable NFO file generation",
+                "overwrite_existing": overwrite_setting.description if overwrite_setting else "Overwrite existing NFO files during regeneration"
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get NFO settings: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error while retrieving NFO settings"
+        )
+
+
+@router.put("/settings/nfo", tags=["Settings"])
+async def update_nfo_settings(
+    settings: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    Update NFO generation settings.
+
+    Updates the global NFO generation configuration. Changes take effect:
+    - enabled: Affects new video downloads (existing videos unchanged)
+    - overwrite_existing: Affects NFO regeneration operations
+
+    Args:
+        settings: Dictionary with enabled and/or overwrite_existing boolean values
+
+    Returns:
+        dict: Updated NFO settings
+
+    Raises:
+        HTTPException 400: If settings validation fails
+        HTTPException 500: If database update fails
+
+    Example:
+        PUT /api/v1/settings/nfo
+        Body: {
+            "enabled": true,
+            "overwrite_existing": false
+        }
+    """
+    try:
+        from datetime import datetime
+
+        # Validate input
+        if 'enabled' not in settings and 'overwrite_existing' not in settings:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one setting (enabled or overwrite_existing) must be provided"
+            )
+
+        # Update enabled setting if provided
+        if 'enabled' in settings:
+            enabled_value = "true" if settings['enabled'] else "false"
+            enabled_setting = db.query(ApplicationSettings).filter(
+                ApplicationSettings.key == 'nfo_enabled'
+            ).first()
+
+            if enabled_setting:
+                enabled_setting.value = enabled_value
+                enabled_setting.updated_at = datetime.utcnow()
+            else:
+                # Create if doesn't exist
+                enabled_setting = ApplicationSettings(
+                    key='nfo_enabled',
+                    value=enabled_value,
+                    description='Enable/disable NFO file generation for new video downloads.',
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                db.add(enabled_setting)
+
+            logger.info(f"NFO generation {'enabled' if settings['enabled'] else 'disabled'}")
+
+        # Update overwrite setting if provided
+        if 'overwrite_existing' in settings:
+            overwrite_value = "true" if settings['overwrite_existing'] else "false"
+            overwrite_setting = db.query(ApplicationSettings).filter(
+                ApplicationSettings.key == 'nfo_overwrite_existing'
+            ).first()
+
+            if overwrite_setting:
+                overwrite_setting.value = overwrite_value
+                overwrite_setting.updated_at = datetime.utcnow()
+            else:
+                # Create if doesn't exist
+                overwrite_setting = ApplicationSettings(
+                    key='nfo_overwrite_existing',
+                    value=overwrite_value,
+                    description='Overwrite existing NFO files during regeneration.',
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                db.add(overwrite_setting)
+
+            logger.info(f"NFO overwrite existing set to {settings['overwrite_existing']}")
+
+        # Commit changes
+        db.commit()
+
+        # Sync to YAML configuration
+        try:
+            if 'enabled' in settings:
+                sync_setting_to_yaml('nfo_enabled', "true" if settings['enabled'] else "false")
+            if 'overwrite_existing' in settings:
+                sync_setting_to_yaml('nfo_overwrite_existing', "true" if settings['overwrite_existing'] else "false")
+        except Exception as e:
+            logger.warning(f"Failed to sync NFO settings to YAML: {e}")
+            # Don't fail the request - database update succeeded
+
+        # Return updated settings
+        return {
+            "enabled": settings.get('enabled', enabled_setting.value == "true" if 'enabled_setting' in locals() else True),
+            "overwrite_existing": settings.get('overwrite_existing', overwrite_setting.value == "true" if 'overwrite_setting' in locals() else False),
+            "message": "NFO settings updated successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update NFO settings: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error while updating NFO settings"
+        )
+
+
 @router.get("/nfo/backfill/needed", tags=["NFO"])
 async def get_nfo_backfill_needed(db: Session = Depends(get_db)):
     """
