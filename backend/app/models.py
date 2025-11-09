@@ -44,6 +44,9 @@ class Channel(Base):
     metadata_status = Column(String, default="pending", index=True)       # pending, completed, failed, refreshing
     cover_image_path = Column(String, nullable=True)                      # Path to cover image
     backdrop_image_path = Column(String, nullable=True)                   # Path to backdrop image
+
+    # NFO file generation tracking (Story 008)
+    nfo_last_generated = Column(DateTime, nullable=True, index=True)      # Last NFO generation timestamp (NULL = needs backfill)
     
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)                 # When channel was added
