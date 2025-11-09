@@ -228,6 +228,12 @@ class TestNFOGenerationTriggeredByDownload:
         assert root.tag == 'season'
         assert root.find('title').text == '2025'
         assert root.find('season').text == '2025'
+        # Verify new fields (premiered should be January 1st of the year)
+        assert root.find('premiered').text == '2025-01-01'
+        assert root.find('releasedate').text == '2025-01-01'
+        assert root.find('year').text == '2025'
+        assert root.find('seasonnumber').text == '2025'
+        assert root.find('lockdata').text == 'false'
 
     def test_existing_season_nfo_not_overwritten(
         self,

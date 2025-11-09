@@ -736,8 +736,10 @@ class TestSeasonNFOGeneration:
 
         Validates:
         - All required tags are present
-        - Empty tags (plot, outline, art) are included
+        - Empty tags (plot, outline) are included
         - dateadded has correct format
+        - premiered and releasedate are always January 1st of the year
+        - lockdata is set to 'false'
         """
         # Setup
         year_dir = os.path.join(temp_media_dir, "Channel", "2023")
@@ -755,14 +757,31 @@ class TestSeasonNFOGeneration:
         # Required elements exist
         assert root.find('plot') is not None
         assert root.find('outline') is not None
-        assert root.find('title') is not None
-        assert root.find('season') is not None
+        assert root.find('lockdata') is not None
         assert root.find('dateadded') is not None
-        assert root.find('art') is not None
+        assert root.find('title') is not None
+        assert root.find('year') is not None
+        assert root.find('premiered') is not None
+        assert root.find('releasedate') is not None
+        assert root.find('seasonnumber') is not None
+        assert root.find('season') is not None
 
         # Empty elements
         assert root.find('plot').text is None or root.find('plot').text == ''
         assert root.find('outline').text is None or root.find('outline').text == ''
+
+        # lockdata should be 'false'
+        assert root.find('lockdata').text == 'false'
+
+        # Year fields should match directory year
+        assert root.find('title').text == '2023'
+        assert root.find('year').text == '2023'
+        assert root.find('seasonnumber').text == '2023'
+        assert root.find('season').text == '2023'
+
+        # premiered and releasedate should always be January 1st of the year
+        assert root.find('premiered').text == '2023-01-01'
+        assert root.find('releasedate').text == '2023-01-01'
 
         # dateadded format: YYYY-MM-DD HH:MM:SS
         dateadded = root.find('dateadded').text
