@@ -1,0 +1,10 @@
+channels: []
+settings:
+  default_video_limit: 10
+  default_quality_preset: best
+  default_schedule: 0 0 * * *
+  cron_schedule: 0 0 * * *
+  scheduler_enabled: 'true'
+  scheduler_running: 'false'
+  scheduler_last_run: null
+  scheduler_next_run: null

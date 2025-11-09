@@ -12,6 +12,7 @@ import yt_dlp
 from app.models import Channel, Download, DownloadHistory
 from app.config import get_settings
 from app.utils import channel_dir_name
+from app.nfo_service import get_nfo_service
 
 logger = logging.getLogger(__name__)
 
@@ -566,6 +567,42 @@ class VideoDownloadService:
                     download.file_size = os.path.getsize(video_file_path)
                     download.completed_at = datetime.utcnow()
                     db.commit()
+
+                    # ========================================================================
+                    # NFO FILE GENERATION (Post-download processing)
+                    # ========================================================================
+                    # Why here? After db.commit() ensures download is recorded even if NFO fails
+                    # Pattern: Call downstream service, handle errors gracefully
+                    # ========================================================================
+
+                    try:
+                        nfo_service = get_nfo_service()
+
+                        # Generate episode.nfo for this video
+                        # This reads the .info.json created by yt-dlp and transforms to Jellyfin XML
+                        success, error = nfo_service.generate_episode_nfo(video_file_path, channel)
+                        if not success:
+                            # Log warning but don't fail the download
+                            # Why? Video downloaded successfully - NFO is nice-to-have metadata
+                            logger.warning(f"NFO generation failed for {video_id}: {error}")
+
+                        # Generate season.nfo if this is the first video in a new year
+                        # Extract year directory from video path
+                        # Example: /media/.../Channel/2021/Video/video.mkv → /media/.../Channel/2021/
+                        video_dir = os.path.dirname(video_file_path)
+                        year_dir = os.path.dirname(video_dir)
+                        season_nfo_path = os.path.join(year_dir, 'season.nfo')
+
+                        # Only generate if season.nfo doesn't exist yet (avoid unnecessary writes)
+                        if not os.path.exists(season_nfo_path):
+                            success, error = nfo_service.generate_season_nfo(year_dir)
+                            if not success:
+                                logger.warning(f"Season NFO generation failed for {year_dir}: {error}")
+
+                    except Exception as e:
+                        # Catch-all for unexpected NFO errors (don't crash the download process)
+                        # Why broad except? NFO is non-critical, download should always complete
+                        logger.error(f"Unexpected error during NFO generation for {video_id}: {e}")
 
                     logger.info(f"Successfully downloaded: {video_title} → {video_file_path}")
                     return True, None

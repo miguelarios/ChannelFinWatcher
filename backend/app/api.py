@@ -1110,3 +1110,205 @@ async def validate_cron_expression(expression: str):
         "time_until_next": schedule_info.get("time_until_next"),
         "human_readable": schedule_info.get("human_readable", "")
     }
+
+
+# === NFO BACKFILL ENDPOINTS (Story 008) ===
+
+@router.post("/nfo/backfill/start", tags=["NFO"])
+async def start_nfo_backfill():
+    """
+    Start NFO backfill process for existing channels.
+
+    This endpoint initiates the background job that retroactively generates
+    NFO files for channels that were added before the NFO generation feature
+    was implemented.
+
+    The backfill process:
+    1. Identifies channels with nfo_last_generated = NULL
+    2. Processes each channel sequentially (one at a time)
+    3. Generates tvshow.nfo, season.nfo, and episode.nfo files
+    4. Updates nfo_last_generated timestamp when complete
+
+    Returns:
+        dict: 202 Accepted with job status
+
+    Raises:
+        HTTPException 409: If backfill is already running
+
+    Example:
+        POST /api/v1/nfo/backfill/start
+        Response:
+        {
+            "status": "started",
+            "total_channels": 5,
+            "message": "NFO backfill job started"
+        }
+    """
+    import asyncio
+    from app.nfo_backfill_service import nfo_backfill_service
+
+    try:
+        # Check if already running
+        if nfo_backfill_service.running:
+            raise HTTPException(status_code=409, detail="Backfill job is already running")
+
+        # Get count of channels needing backfill
+        total_channels = nfo_backfill_service.get_channels_needing_backfill()
+
+        # Start backfill in background (fire and forget)
+        # Why asyncio.create_task? Allows API to return immediately while job runs
+        # This follows the pattern from scheduled_download_job.py
+        asyncio.create_task(nfo_backfill_service.start_backfill())
+
+        return {
+            "status": "started",
+            "total_channels": total_channels,
+            "message": "NFO backfill job started in background"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start NFO backfill: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start backfill: {str(e)}")
+
+
+@router.post("/nfo/backfill/pause", tags=["NFO"])
+async def pause_nfo_backfill():
+    """
+    Pause currently running NFO backfill job.
+
+    The job will finish processing the current channel and then pause
+    before starting the next channel. This ensures no partial processing.
+
+    Returns:
+        dict: Current status with pause confirmation
+
+    Example:
+        POST /api/v1/nfo/backfill/pause
+        Response:
+        {
+            "status": "pausing",
+            "message": "Backfill will pause after current channel completes",
+            "current_channel": "Mrs Rachel",
+            "channels_processed": 2,
+            "total_channels": 5
+        }
+    """
+    from app.nfo_backfill_service import nfo_backfill_service
+
+    result = nfo_backfill_service.pause()
+    return result
+
+
+@router.post("/nfo/backfill/resume", tags=["NFO"])
+async def resume_nfo_backfill():
+    """
+    Resume paused NFO backfill job.
+
+    Continues processing from where it left off. The idempotent nature
+    of backfill (based on NULL timestamps) means we can safely restart
+    even if interrupted unexpectedly.
+
+    Returns:
+        dict: 202 Accepted with resume confirmation
+
+    Example:
+        POST /api/v1/nfo/backfill/resume
+        Response:
+        {
+            "status": "resumed",
+            "message": "NFO backfill job resumed"
+        }
+    """
+    import asyncio
+    from app.nfo_backfill_service import nfo_backfill_service
+
+    try:
+        # Check if not paused
+        if not nfo_backfill_service.paused:
+            return {
+                "status": "not_paused",
+                "message": "Backfill is not currently paused"
+            }
+
+        # Resume in background (fire and forget)
+        asyncio.create_task(nfo_backfill_service.resume())
+
+        return {
+            "status": "resumed",
+            "message": "NFO backfill job resumed"
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to resume NFO backfill: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to resume backfill: {str(e)}")
+
+
+@router.get("/nfo/backfill/status", tags=["NFO"])
+async def get_nfo_backfill_status():
+    """
+    Get current NFO backfill job status.
+
+    Returns comprehensive status information including:
+    - Whether job is running or paused
+    - Current channel being processed
+    - Progress (channels processed/total)
+    - File counts (created/skipped/failed)
+
+    Returns:
+        dict: Current status with progress details
+
+    Example:
+        GET /api/v1/nfo/backfill/status
+        Response:
+        {
+            "running": true,
+            "paused": false,
+            "current_channel_id": 3,
+            "current_channel_name": "Mrs Rachel",
+            "total_channels": 5,
+            "channels_processed": 2,
+            "channels_remaining": 3,
+            "files_created": 127,
+            "files_skipped": 5,
+            "files_failed": 2,
+            "started_at": "2025-11-08T22:30:00"
+        }
+    """
+    from app.nfo_backfill_service import nfo_backfill_service
+
+    status = nfo_backfill_service.get_status()
+    return status
+
+
+@router.get("/nfo/backfill/needed", tags=["NFO"])
+async def get_nfo_backfill_needed(db: Session = Depends(get_db)):
+    """
+    Check how many channels need NFO backfill.
+
+    Queries the database for channels with nfo_last_generated = NULL.
+    Useful for UI to show backfill status before starting.
+
+    Args:
+        db: Database session dependency
+
+    Returns:
+        dict: Count of channels needing backfill
+
+    Example:
+        GET /api/v1/nfo/backfill/needed
+        Response:
+        {
+            "channels_needing_backfill": 5,
+            "message": "5 channels need NFO backfill"
+        }
+    """
+    from app.nfo_backfill_service import nfo_backfill_service
+
+    count = nfo_backfill_service.get_channels_needing_backfill()
+
+    return {
+        "channels_needing_backfill": count,
+        "message": f"{count} channel{'s' if count != 1 else ''} need{'s' if count == 1 else ''} NFO backfill"
+    }
