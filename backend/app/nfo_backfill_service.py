@@ -59,7 +59,7 @@ from typing import List, Optional, Dict
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.models import Channel
+from app.models import Channel, ApplicationSettings
 from app.nfo_service import get_nfo_service
 
 logger = logging.getLogger(__name__)
@@ -390,6 +390,14 @@ class NFOBackfillService:
 
             logger.info(f"Regenerating NFO files for channel: {channel.name} (ID: {channel_id})")
 
+            # Query the overwrite setting from database
+            overwrite_setting = db.query(ApplicationSettings).filter(
+                ApplicationSettings.key == 'nfo_overwrite_existing'
+            ).first()
+            overwrite = overwrite_setting.value == "true" if overwrite_setting else False
+
+            logger.info(f"NFO overwrite setting: {overwrite}")
+
             # Track counters for this operation
             files_created = 0
             files_skipped = 0
@@ -400,7 +408,7 @@ class NFOBackfillService:
             channel_dir = channel.directory_path
 
             # Step 1: Generate tvshow.nfo (channel-level metadata)
-            tvshow_success, tvshow_error = await self._generate_tvshow_nfo(channel, channel_dir)
+            tvshow_success, tvshow_error = await self._generate_tvshow_nfo(channel, channel_dir, overwrite)
             if tvshow_success:
                 files_created += 1
             elif tvshow_success is False:
@@ -416,7 +424,7 @@ class NFOBackfillService:
             # Step 2: Generate season.nfo for each year directory
             year_dirs = self._discover_year_directories(channel_dir)
             for year_dir in year_dirs:
-                season_success, season_error = await self._generate_season_nfo(year_dir)
+                season_success, season_error = await self._generate_season_nfo(year_dir, overwrite)
                 if season_success:
                     files_created += 1
                 elif season_success is False:
@@ -435,7 +443,7 @@ class NFOBackfillService:
             logger.info(f"Found {len(video_info_files)} videos for channel {channel.name}")
 
             for info_json_path in video_info_files:
-                episode_success, episode_error = await self._generate_episode_nfo(info_json_path, channel)
+                episode_success, episode_error = await self._generate_episode_nfo(info_json_path, channel, overwrite)
                 if episode_success:
                     files_created += 1
                 elif episode_success is False:
@@ -624,25 +632,26 @@ class NFOBackfillService:
             # Don't mark as completed - will be retried on next backfill run
             self.channels_processed += 1  # Still increment to continue with other channels
 
-    async def _generate_tvshow_nfo(self, channel: Channel, channel_dir: str) -> tuple:
+    async def _generate_tvshow_nfo(self, channel: Channel, channel_dir: str, overwrite: bool = False) -> tuple:
         """
         Generate tvshow.nfo for channel.
 
         Args:
             channel: Channel database object
             channel_dir: Path to channel directory
+            overwrite: If True, overwrite existing NFO files; if False, skip existing files
 
         Returns:
             tuple: (success: Optional[bool], error: Optional[str])
                 - (True, None) if successful
                 - (False, error_msg) if failed
-                - (None, None) if skipped (already exists)
+                - (None, None) if skipped (already exists and overwrite=False)
         """
         nfo_service = get_nfo_service()
 
         # Check if tvshow.nfo already exists
         tvshow_nfo_path = os.path.join(channel_dir, 'tvshow.nfo')
-        if os.path.exists(tvshow_nfo_path):
+        if os.path.exists(tvshow_nfo_path) and not overwrite:
             logger.debug(f"tvshow.nfo already exists for {channel.name}, skipping")
             return (None, None)  # Skipped
 
@@ -663,24 +672,25 @@ class NFOBackfillService:
         logger.debug(f"Generated tvshow.nfo for {channel.name}")
         return (True, None)
 
-    async def _generate_season_nfo(self, year_dir: str) -> tuple:
+    async def _generate_season_nfo(self, year_dir: str, overwrite: bool = False) -> tuple:
         """
         Generate season.nfo for year directory.
 
         Args:
             year_dir: Path to year directory (e.g., "/media/.../2021/")
+            overwrite: If True, overwrite existing NFO files; if False, skip existing files
 
         Returns:
             tuple: (success: Optional[bool], error: Optional[str])
                 - (True, None) if successful
                 - (False, error_msg) if failed
-                - (None, None) if skipped (already exists)
+                - (None, None) if skipped (already exists and overwrite=False)
         """
         nfo_service = get_nfo_service()
 
         # Check if season.nfo already exists
         season_nfo_path = os.path.join(year_dir, 'season.nfo')
-        if os.path.exists(season_nfo_path):
+        if os.path.exists(season_nfo_path) and not overwrite:
             logger.debug(f"season.nfo already exists in {year_dir}, skipping")
             return (None, None)  # Skipped
 
@@ -694,19 +704,20 @@ class NFOBackfillService:
         logger.debug(f"Generated season.nfo for {year_dir}")
         return (True, None)
 
-    async def _generate_episode_nfo(self, info_json_path: str, channel: Channel) -> tuple:
+    async def _generate_episode_nfo(self, info_json_path: str, channel: Channel, overwrite: bool = False) -> tuple:
         """
         Generate episode.nfo for video.
 
         Args:
             info_json_path: Path to video .info.json file
             channel: Channel database object
+            overwrite: If True, overwrite existing NFO files; if False, skip existing files
 
         Returns:
             tuple: (success: Optional[bool], error: Optional[str])
                 - (True, None) if successful
                 - (False, error_msg) if failed
-                - (None, None) if skipped (already exists)
+                - (None, None) if skipped (already exists and overwrite=False)
         """
         nfo_service = get_nfo_service()
 
@@ -721,7 +732,7 @@ class NFOBackfillService:
 
         # Check if episode.nfo already exists
         nfo_path = video_file_path.replace('.mkv', '.nfo').replace('.mp4', '.nfo').replace('.webm', '.nfo')
-        if os.path.exists(nfo_path):
+        if os.path.exists(nfo_path) and not overwrite:
             logger.debug(f"episode.nfo already exists for {video_file_path}, skipping")
             return (None, None)  # Skipped
 
