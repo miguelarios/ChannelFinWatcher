@@ -394,35 +394,60 @@ class NFOBackfillService:
             files_created = 0
             files_skipped = 0
             files_failed = 0
+            # NEW: Track failed files with their error messages for detailed reporting
+            failed_files = []
 
             channel_dir = channel.directory_path
 
             # Step 1: Generate tvshow.nfo (channel-level metadata)
-            tvshow_success = await self._generate_tvshow_nfo(channel, channel_dir)
+            tvshow_success, tvshow_error = await self._generate_tvshow_nfo(channel, channel_dir)
             if tvshow_success:
                 files_created += 1
-            else:
+            elif tvshow_success is False:
                 files_failed += 1
+                failed_files.append({
+                    "file": "tvshow.nfo",
+                    "path": os.path.join(channel_dir, "tvshow.nfo"),
+                    "error": tvshow_error or "Unknown error"
+                })
+            else:
+                files_skipped += 1
 
             # Step 2: Generate season.nfo for each year directory
             year_dirs = self._discover_year_directories(channel_dir)
             for year_dir in year_dirs:
-                season_success = await self._generate_season_nfo(year_dir)
+                season_success, season_error = await self._generate_season_nfo(year_dir)
                 if season_success:
                     files_created += 1
-                else:
+                elif season_success is False:
                     files_failed += 1
+                    season_nfo_path = os.path.join(year_dir, "season.nfo")
+                    failed_files.append({
+                        "file": f"season.nfo ({os.path.basename(year_dir)})",
+                        "path": season_nfo_path,
+                        "error": season_error or "Unknown error"
+                    })
+                else:
+                    files_skipped += 1
 
             # Step 3: Generate episode.nfo for each video
             video_info_files = self._discover_videos_for_backfill(channel_dir)
             logger.info(f"Found {len(video_info_files)} videos for channel {channel.name}")
 
             for info_json_path in video_info_files:
-                episode_success = await self._generate_episode_nfo(info_json_path, channel)
+                episode_success, episode_error = await self._generate_episode_nfo(info_json_path, channel)
                 if episode_success:
                     files_created += 1
                 elif episode_success is False:
                     files_failed += 1
+                    # Get the video file path for better error reporting
+                    video_path = self._get_video_file_path(info_json_path)
+                    video_filename = os.path.basename(video_path) if video_path else info_json_path
+                    failed_files.append({
+                        "file": f"episode.nfo for {video_filename}",
+                        "path": video_path or info_json_path,
+                        "error": episode_error or "Unknown error"
+                    })
                 else:
                     # None means file already exists (skipped)
                     files_skipped += 1
@@ -431,10 +456,18 @@ class NFOBackfillService:
             channel.nfo_last_generated = datetime.utcnow()
             db.commit()
 
+            # Enhanced logging: Show summary and details of failures
             logger.info(
                 f"Completed NFO regeneration for channel {channel.name}: "
                 f"{files_created} created, {files_skipped} skipped, {files_failed} failed"
             )
+
+            # NEW: Log detailed failure information if there were any failures
+            if failed_files:
+                logger.error(f"Failed to generate {len(failed_files)} NFO file(s) for channel {channel.name}:")
+                for failure in failed_files:
+                    logger.error(f"  - {failure['file']}: {failure['error']}")
+                    logger.error(f"    Path: {failure['path']}")
 
             return {
                 "success": True,
@@ -506,33 +539,57 @@ class NFOBackfillService:
             channel_files_created = 0
             channel_files_skipped = 0
             channel_files_failed = 0
+            # Track failed files with error details for this channel
+            failed_files = []
 
             # Step 1: Generate tvshow.nfo (channel-level metadata)
-            tvshow_success = await self._generate_tvshow_nfo(channel, channel_dir)
+            tvshow_success, tvshow_error = await self._generate_tvshow_nfo(channel, channel_dir)
             if tvshow_success:
                 channel_files_created += 1
-            else:
+            elif tvshow_success is False:
                 channel_files_failed += 1
+                failed_files.append({
+                    "file": "tvshow.nfo",
+                    "path": os.path.join(channel_dir, "tvshow.nfo"),
+                    "error": tvshow_error or "Unknown error"
+                })
+            else:
+                channel_files_skipped += 1
 
             # Step 2: Generate season.nfo for each year directory
             year_dirs = self._discover_year_directories(channel_dir)
             for year_dir in year_dirs:
-                season_success = await self._generate_season_nfo(year_dir)
+                season_success, season_error = await self._generate_season_nfo(year_dir)
                 if season_success:
                     channel_files_created += 1
-                else:
+                elif season_success is False:
                     channel_files_failed += 1
+                    season_nfo_path = os.path.join(year_dir, "season.nfo")
+                    failed_files.append({
+                        "file": f"season.nfo ({os.path.basename(year_dir)})",
+                        "path": season_nfo_path,
+                        "error": season_error or "Unknown error"
+                    })
+                else:
+                    channel_files_skipped += 1
 
             # Step 3: Generate episode.nfo for each video
             video_info_files = self._discover_videos_for_backfill(channel_dir)
             logger.info(f"Found {len(video_info_files)} videos for channel {channel.name}")
 
             for info_json_path in video_info_files:
-                episode_success = await self._generate_episode_nfo(info_json_path, channel)
+                episode_success, episode_error = await self._generate_episode_nfo(info_json_path, channel)
                 if episode_success:
                     channel_files_created += 1
                 elif episode_success is False:
                     channel_files_failed += 1
+                    video_path = self._get_video_file_path(info_json_path)
+                    video_filename = os.path.basename(video_path) if video_path else info_json_path
+                    failed_files.append({
+                        "file": f"episode.nfo for {video_filename}",
+                        "path": video_path or info_json_path,
+                        "error": episode_error or "Unknown error"
+                    })
                 else:
                     # None means file already exists (skipped)
                     channel_files_skipped += 1
@@ -553,6 +610,13 @@ class NFOBackfillService:
                 f"{channel_files_created} created, {channel_files_skipped} skipped, {channel_files_failed} failed"
             )
 
+            # Log detailed failure information if there were any failures
+            if failed_files:
+                logger.error(f"Failed to generate {len(failed_files)} NFO file(s) for channel {channel.name}:")
+                for failure in failed_files:
+                    logger.error(f"  - {failure['file']}: {failure['error']}")
+                    logger.error(f"    Path: {failure['path']}")
+
             self.channels_processed += 1
 
         except Exception as e:
@@ -560,7 +624,7 @@ class NFOBackfillService:
             # Don't mark as completed - will be retried on next backfill run
             self.channels_processed += 1  # Still increment to continue with other channels
 
-    async def _generate_tvshow_nfo(self, channel: Channel, channel_dir: str) -> bool:
+    async def _generate_tvshow_nfo(self, channel: Channel, channel_dir: str) -> tuple:
         """
         Generate tvshow.nfo for channel.
 
@@ -569,7 +633,10 @@ class NFOBackfillService:
             channel_dir: Path to channel directory
 
         Returns:
-            bool: True if successful, False if failed
+            tuple: (success: Optional[bool], error: Optional[str])
+                - (True, None) if successful
+                - (False, error_msg) if failed
+                - (None, None) if skipped (already exists)
         """
         nfo_service = get_nfo_service()
 
@@ -577,25 +644,26 @@ class NFOBackfillService:
         tvshow_nfo_path = os.path.join(channel_dir, 'tvshow.nfo')
         if os.path.exists(tvshow_nfo_path):
             logger.debug(f"tvshow.nfo already exists for {channel.name}, skipping")
-            return None  # Skipped
+            return (None, None)  # Skipped
 
         # Find channel metadata file
         # Why metadata_path? This is where channel .info.json is stored
         if not channel.metadata_path or not os.path.exists(channel.metadata_path):
-            logger.warning(f"Channel metadata not found for {channel.name}: {channel.metadata_path}")
-            return False
+            error_msg = f"Channel metadata not found: {channel.metadata_path}"
+            logger.error(f"Failed to generate tvshow.nfo for {channel.name}: {error_msg}")
+            return (False, error_msg)
 
         # Generate tvshow.nfo
         success, error = nfo_service.generate_tvshow_nfo(channel.metadata_path, channel_dir)
 
         if not success:
             logger.error(f"Failed to generate tvshow.nfo for {channel.name}: {error}")
-            return False
+            return (False, error)
 
         logger.debug(f"Generated tvshow.nfo for {channel.name}")
-        return True
+        return (True, None)
 
-    async def _generate_season_nfo(self, year_dir: str) -> Optional[bool]:
+    async def _generate_season_nfo(self, year_dir: str) -> tuple:
         """
         Generate season.nfo for year directory.
 
@@ -603,7 +671,10 @@ class NFOBackfillService:
             year_dir: Path to year directory (e.g., "/media/.../2021/")
 
         Returns:
-            bool: True if successful, False if failed, None if skipped
+            tuple: (success: Optional[bool], error: Optional[str])
+                - (True, None) if successful
+                - (False, error_msg) if failed
+                - (None, None) if skipped (already exists)
         """
         nfo_service = get_nfo_service()
 
@@ -611,19 +682,19 @@ class NFOBackfillService:
         season_nfo_path = os.path.join(year_dir, 'season.nfo')
         if os.path.exists(season_nfo_path):
             logger.debug(f"season.nfo already exists in {year_dir}, skipping")
-            return None  # Skipped
+            return (None, None)  # Skipped
 
         # Generate season.nfo
         success, error = nfo_service.generate_season_nfo(year_dir)
 
         if not success:
             logger.error(f"Failed to generate season.nfo for {year_dir}: {error}")
-            return False
+            return (False, error)
 
         logger.debug(f"Generated season.nfo for {year_dir}")
-        return True
+        return (True, None)
 
-    async def _generate_episode_nfo(self, info_json_path: str, channel: Channel) -> Optional[bool]:
+    async def _generate_episode_nfo(self, info_json_path: str, channel: Channel) -> tuple:
         """
         Generate episode.nfo for video.
 
@@ -632,7 +703,10 @@ class NFOBackfillService:
             channel: Channel database object
 
         Returns:
-            bool: True if successful, False if failed, None if skipped
+            tuple: (success: Optional[bool], error: Optional[str])
+                - (True, None) if successful
+                - (False, error_msg) if failed
+                - (None, None) if skipped (already exists)
         """
         nfo_service = get_nfo_service()
 
@@ -641,24 +715,25 @@ class NFOBackfillService:
         video_file_path = self._get_video_file_path(info_json_path)
 
         if not video_file_path:
-            logger.warning(f"No video file found for {info_json_path}")
-            return False
+            error_msg = f"No video file found for {info_json_path}"
+            logger.error(f"Failed to generate episode.nfo: {error_msg}")
+            return (False, error_msg)
 
         # Check if episode.nfo already exists
         nfo_path = video_file_path.replace('.mkv', '.nfo').replace('.mp4', '.nfo').replace('.webm', '.nfo')
         if os.path.exists(nfo_path):
             logger.debug(f"episode.nfo already exists for {video_file_path}, skipping")
-            return None  # Skipped
+            return (None, None)  # Skipped
 
         # Generate episode.nfo
         success, error = nfo_service.generate_episode_nfo(video_file_path, channel)
 
         if not success:
-            logger.warning(f"Failed to generate episode.nfo for {video_file_path}: {error}")
-            return False
+            logger.error(f"Failed to generate episode.nfo for {video_file_path}: {error}")
+            return (False, error)
 
         logger.debug(f"Generated episode.nfo for {video_file_path}")
-        return True
+        return (True, None)
 
     def _discover_year_directories(self, channel_dir: str) -> List[str]:
         """
