@@ -158,6 +158,7 @@ class NFOService:
         title               → <title>         | Direct copy
         channel             → <showtitle>     | Direct copy (show name)
         description         → <plot>          | Direct copy (newlines preserved)
+        upload_date         → <premiered>     | Format: 20211207 → 2021-12-07
         upload_date         → <aired>         | Format: 20211207 → 2021-12-07
         upload_date         → <year>          | Extract: 20211207 → 2021
         duration (seconds)  → <runtime>       | Convert: 922 → 15 (minutes)
@@ -176,12 +177,13 @@ class NFOService:
         # Why showtitle? Jellyfin uses this to group episodes into shows
         ET.SubElement(root, 'showtitle').text = episode_info.get('channel', '')
 
-        # Optional: Description/plot (preserves newlines automatically)
-        # Why optional? Some videos may not have descriptions
+        # Description/plot (preserves newlines automatically)
+        # Why always create? Jellyfin expects plot element even if empty
         # Why no manual newline handling? ElementTree preserves them as-is
-        description = episode_info.get('description')
+        description = episode_info.get('description', '')
+        plot_elem = ET.SubElement(root, 'plot')
         if description:
-            ET.SubElement(root, 'plot').text = description
+            plot_elem.text = description
 
         # Optional: Language (ISO 639-1 codes: "en", "es", "fr", etc.)
         language = episode_info.get('language')
@@ -192,9 +194,10 @@ class NFOService:
         upload_date = episode_info.get('upload_date')
         if upload_date:
             try:
-                # Transform YYYYMMDD → YYYY-MM-DD for Jellyfin <aired> tag
+                # Transform YYYYMMDD → YYYY-MM-DD for Jellyfin <premiered> and <aired> tags
                 # Why strptime/strftime? Safe date parsing with validation
                 aired_date = datetime.strptime(upload_date, "%Y%m%d").strftime("%Y-%m-%d")
+                ET.SubElement(root, 'premiered').text = aired_date
                 ET.SubElement(root, 'aired').text = aired_date
 
                 # Extract year for <year> tag

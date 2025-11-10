@@ -105,6 +105,7 @@ def main():
             ("Root element is <episodedetails>", root.tag == 'episodedetails'),
             ("<title> field present", root.find('title') is not None),
             ("<showtitle> field present", root.find('showtitle') is not None),
+            ("<premiered> date formatted correctly", root.find('premiered') is not None and '-' in root.find('premiered').text if root.find('premiered') is not None else False),
             ("<aired> date formatted correctly", root.find('aired') is not None and '-' in root.find('aired').text if root.find('aired') is not None else False),
             ("<runtime> converted to minutes", root.find('runtime') is not None),
             ("<uniqueid> with YouTube ID", root.find('uniqueid') is not None),
@@ -121,8 +122,11 @@ def main():
         # Show actual transformed values
         print_section("Step 5: Transformation Examples")
 
+        if root.find('premiered') is not None:
+            print_info("upload_date → premiered", f"{episode_info.get('upload_date')} → {root.find('premiered').text}")
+
         if root.find('aired') is not None:
-            print_info("upload_date transformation", f"{episode_info.get('upload_date')} → {root.find('aired').text}")
+            print_info("upload_date → aired", f"{episode_info.get('upload_date')} → {root.find('aired').text}")
 
         if root.find('runtime') is not None:
             print_info("duration transformation", f"{episode_info.get('duration')} seconds → {root.find('runtime').text} minutes")
