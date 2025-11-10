@@ -137,7 +137,7 @@ def sample_channel_info():
 
     Important: Channel metadata does NOT have 'categories' field
     (only episode-level metadata has categories).
-    Tags are mapped to both genres and tags.
+    Tags are mapped to genres in tvshow.nfo.
     """
     return {
         "id": "UCzGzk0K7GLJ_edZu4u3TyUg",
@@ -815,7 +815,7 @@ class TestTvshowNFOGeneration:
         - Channel name maps to title
         - Description is included
         - Unique ID is included
-        - Tags are included (no genres)
+        - Genres are included (not tags)
         - Studio is "YouTube"
         """
         # Setup: Create channel directory and metadata file
@@ -853,14 +853,14 @@ class TestTvshowNFOGeneration:
         assert uniqueid.get('default') == 'true'
         assert uniqueid.text == sample_channel_info['id']
 
-        # Verify: Tags only (no genres)
+        # Verify: Genres (not tags)
         genres = [g.text for g in root.findall('genre')]
         tags = [t.text for t in root.findall('tag')]
 
-        assert len(genres) == 0, "Genres should not be present"
+        assert len(tags) == 0, "Tags should not be present"
 
         for tag in sample_channel_info['tags']:
-            assert tag in tags, f"{tag} not in tags"
+            assert tag in genres, f"{tag} not in genres"
 
     def test_tvshow_nfo_generation_with_minimal_metadata(
         self,

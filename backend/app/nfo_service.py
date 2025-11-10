@@ -424,7 +424,7 @@ class NFOService:
         description   → <plot>            | Channel description
         id/channel_id → <uniqueid>        | YouTube channel ID
         hardcoded     → <studio>          | Always "YouTube"
-        tags[]        → <tag>             | One tag per tag
+        tags[]        → <genre>           | One genre per tag
 
         Args:
             channel_info: Dictionary from channel .info.json file
@@ -455,10 +455,10 @@ class NFOService:
         # Studio: Always YouTube
         ET.SubElement(root, 'studio').text = 'YouTube'
 
-        # Channel tags → tags only (no genres)
-        # Why tags only? Simpler metadata structure, tags are more specific
+        # Channel tags → genres
+        # Why genres? Better semantic match for Jellyfin categorization
         for tag in channel_info.get('tags', []):
-            ET.SubElement(root, 'tag').text = tag
+            ET.SubElement(root, 'genre').text = tag
 
         return self._prettify_xml(root)
 
