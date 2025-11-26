@@ -24,6 +24,31 @@ logging.basicConfig(level=logging.INFO, force=True)
 # This is necessary because some loggers may inherit WARNING level from other configurations
 logging.getLogger('app').setLevel(logging.INFO)
 
+
+class HealthCheckFilter(logging.Filter):
+    """
+    Filter out health check endpoint logs from Uvicorn access logs.
+
+    Health checks are called frequently (by Docker, load balancers, or the frontend)
+    and clutter the logs with repetitive INFO messages like:
+        INFO: 127.0.0.1:47194 - "GET /health HTTP/1.1" 200 OK
+
+    This filter suppresses these specific log messages while keeping all other
+    access logs visible for debugging and monitoring.
+    """
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Check if this is a health check request log
+        # Uvicorn access logs contain the request path in the message
+        message = record.getMessage()
+        if '"GET /health HTTP' in message and '200' in message:
+            return False  # Suppress this log
+        return True  # Allow all other logs
+
+
+# Apply the filter to Uvicorn's access logger
+# Uvicorn uses "uvicorn.access" for HTTP request logs
+logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
+
 logger = logging.getLogger(__name__)
 
 # Get settings
