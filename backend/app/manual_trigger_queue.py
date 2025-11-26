@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 
 from app.models import ApplicationSettings, Channel
 from app.video_download_service import video_download_service
+from app.scheduled_download_job import cleanup_old_videos
 
 logger = logging.getLogger(__name__)
 
@@ -297,6 +298,20 @@ async def process_queue(db: Session) -> Tuple[int, int]:
                     f"Queued manual trigger completed for channel {channel_id}: "
                     f"{videos_downloaded} videos downloaded"
                 )
+
+                # === AUTOMATIC VIDEO CLEANUP ===
+                # Clean up old videos after queued manual downloads complete
+                try:
+                    deleted_count = await cleanup_old_videos(channel, db)
+                    if deleted_count > 0:
+                        logger.info(
+                            f"Cleaned up {deleted_count} old video(s) for channel '{channel.name}' "
+                            f"(limit: {channel.limit})"
+                        )
+                except Exception as cleanup_error:
+                    # Cleanup errors shouldn't fail the queue processing
+                    logger.error(f"Cleanup failed for channel '{channel.name}': {cleanup_error}")
+
                 successful += 1
             else:
                 logger.error(

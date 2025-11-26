@@ -16,7 +16,7 @@ from app.scheduled_download_job import (
     _is_retryable_error,
     _create_failed_history_record,
     _update_job_statistics,
-    _cleanup_old_videos
+    cleanup_old_videos
 )
 from app.models import Channel, DownloadHistory, ApplicationSettings, Download
 from app.overlap_prevention import JobAlreadyRunningError
@@ -449,7 +449,7 @@ class TestJobStatisticsSummary:
 
 
 class TestCleanupOldVideos:
-    """Test suite for _cleanup_old_videos function (BE-004B)."""
+    """Test suite for cleanup_old_videos function (BE-004B)."""
 
     @pytest.mark.asyncio
     async def test_no_cleanup_when_at_limit(self, db_session):
@@ -480,7 +480,7 @@ class TestCleanupOldVideos:
         db_session.commit()
 
         # Run cleanup
-        deleted_count = await _cleanup_old_videos(channel, db_session)
+        deleted_count = await cleanup_old_videos(channel, db_session)
 
         # Verify no deletions
         assert deleted_count == 0
@@ -517,7 +517,7 @@ class TestCleanupOldVideos:
         db_session.commit()
 
         # Run cleanup
-        deleted_count = await _cleanup_old_videos(channel, db_session)
+        deleted_count = await cleanup_old_videos(channel, db_session)
 
         # Verify no deletions
         assert deleted_count == 0
@@ -562,7 +562,7 @@ class TestCleanupOldVideos:
         mock_path.return_value = mock_path_instance
 
         # Run cleanup
-        deleted_count = await _cleanup_old_videos(channel, db_session)
+        deleted_count = await cleanup_old_videos(channel, db_session)
 
         # Verify 3 oldest videos were deleted
         assert deleted_count == 3
@@ -601,7 +601,7 @@ class TestCleanupOldVideos:
         db_session.commit()
 
         # Run cleanup on empty channel
-        deleted_count = await _cleanup_old_videos(channel, db_session)
+        deleted_count = await cleanup_old_videos(channel, db_session)
 
         # Should handle gracefully with no errors
         assert deleted_count == 0
@@ -641,7 +641,7 @@ class TestCleanupOldVideos:
         mock_path.return_value = mock_path_instance
 
         # Run cleanup - should handle missing files gracefully
-        deleted_count = await _cleanup_old_videos(channel, db_session)
+        deleted_count = await cleanup_old_videos(channel, db_session)
 
         # Database records should still be deleted
         assert deleted_count == 3
@@ -694,7 +694,7 @@ class TestCleanupOldVideos:
         ]
 
         # Run cleanup - should continue despite error
-        deleted_count = await _cleanup_old_videos(channel, db_session)
+        deleted_count = await cleanup_old_videos(channel, db_session)
 
         # All database records should be deleted (even if file deletion failed)
         assert deleted_count == 3
@@ -745,7 +745,7 @@ class TestCleanupOldVideos:
         db_session.commit()
 
         # Run cleanup
-        deleted_count = await _cleanup_old_videos(channel, db_session)
+        deleted_count = await cleanup_old_videos(channel, db_session)
 
         # No deletions (only 5 completed videos, which is at limit)
         assert deleted_count == 0
@@ -791,7 +791,7 @@ class TestCleanupOldVideos:
         mock_path.return_value = mock_path_instance
 
         # Run cleanup
-        deleted_count = await _cleanup_old_videos(channel, db_session)
+        deleted_count = await cleanup_old_videos(channel, db_session)
 
         # Verify correct count returned
         assert deleted_count == 5
@@ -812,7 +812,7 @@ class TestCleanupOldVideos:
         # Force a database error by making query fail
         with patch.object(db_session, 'query', side_effect=Exception("DB connection lost")):
             # Run cleanup - should handle error gracefully
-            deleted_count = await _cleanup_old_videos(channel, db_session)
+            deleted_count = await cleanup_old_videos(channel, db_session)
 
             # Should return 0 and not crash
             assert deleted_count == 0
