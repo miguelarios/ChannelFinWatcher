@@ -105,7 +105,7 @@ async def scheduled_download_job():
                         # Clean up old videos if channel exceeds configured limit
                         # This runs after downloads complete to maintain storage limits
                         try:
-                            deleted_count = await _cleanup_old_videos(channel, db)
+                            deleted_count = await cleanup_old_videos(channel, db)
                             downloaded_summary["total_videos_deleted"] += deleted_count
                             if deleted_count > 0:
                                 logger.info(
@@ -349,7 +349,7 @@ def _update_job_statistics(summary: dict, db: Session):
         logger.error(f"Failed to update job statistics: {e}")
 
 
-async def _cleanup_old_videos(channel: Channel, db: Session) -> int:
+async def cleanup_old_videos(channel: Channel, db: Session) -> int:
     """
     Delete oldest videos when channel exceeds configured limit.
 

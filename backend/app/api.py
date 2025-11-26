@@ -11,6 +11,7 @@ from app.models import Channel, Download, DownloadHistory, ApplicationSettings
 from app.youtube_service import youtube_service
 from app.metadata_service import metadata_service
 from app.video_download_service import video_download_service
+from app.scheduled_download_job import cleanup_old_videos
 from app.utils import update_channel_in_yaml, remove_channel_from_yaml, sync_setting_to_yaml, get_default_video_limit as get_default_limit_setting, channel_dir_name
 from app.schemas import (
     Channel as ChannelSchema,
@@ -771,6 +772,22 @@ async def trigger_channel_download(channel_id: int, db: Session = Depends(get_db
     try:
         # Process channel downloads using the video download service
         success, videos_downloaded, error_message = video_download_service.process_channel_downloads(channel, db)
+
+        # === AUTOMATIC VIDEO CLEANUP ===
+        # Clean up old videos if channel exceeds configured limit
+        # This ensures video limit is enforced for manual downloads (same as scheduled)
+        videos_deleted = 0
+        if success:
+            try:
+                videos_deleted = await cleanup_old_videos(channel, db)
+                if videos_deleted > 0:
+                    logger.info(
+                        f"Cleaned up {videos_deleted} old video(s) for channel '{channel.name}' "
+                        f"(limit: {channel.limit})"
+                    )
+            except Exception as cleanup_error:
+                # Cleanup errors shouldn't fail the download response
+                logger.error(f"Cleanup failed for channel '{channel.name}': {cleanup_error}")
 
         # Get the most recent download history record for this channel
         download_history = db.query(DownloadHistory).filter(
