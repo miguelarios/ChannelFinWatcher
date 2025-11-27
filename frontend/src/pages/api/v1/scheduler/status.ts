@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { fetchBackend, formatApiError } from '@/lib/apiClient'
 
 /**
  * Next.js API route proxy for scheduler status (Story 007 - FE-001).
@@ -27,8 +28,6 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://backend:8000'
-
   // Only allow GET method
   if (req.method !== 'GET') {
     return res.status(405).json({
@@ -38,40 +37,14 @@ export default async function handler(
   }
 
   try {
-    const response = await fetch(`${backendUrl}/api/v1/scheduler/status`, {
+    const { status, data } = await fetchBackend('/api/v1/scheduler/status', {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      operationType: 'standard', // 30-second timeout for status checks
     })
 
-    // Handle different response scenarios
-    let data
-    const contentType = response.headers.get('content-type')
-
-    if (contentType && contentType.includes('application/json')) {
-      data = await response.json()
-    } else {
-      // Handle non-JSON responses (errors, etc.)
-      const text = await response.text()
-      data = {
-        detail: 'Unexpected response format from backend',
-        error: text || 'No response body',
-        status: response.status
-      }
-    }
-
-    if (response.ok) {
-      res.status(200).json(data)
-    } else {
-      res.status(response.status).json(data)
-    }
+    res.status(status).json(data)
   } catch (error) {
-    console.error('Scheduler status API proxy error:', error)
-    res.status(500).json({
-      detail: 'Backend service unavailable',
-      error: 'Failed to connect to backend scheduler service',
-      suggestion: 'Please ensure the backend service is running and accessible'
-    })
+    const errorResponse = formatApiError(error, 'Scheduler status')
+    res.status(errorResponse.timedOut ? 504 : 500).json(errorResponse)
   }
 }

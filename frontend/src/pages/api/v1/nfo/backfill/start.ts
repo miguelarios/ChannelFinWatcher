@@ -1,5 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { fetchBackend, formatApiError } from '@/lib/apiClient'
 
+/**
+ * API route proxy for starting NFO backfill operations.
+ *
+ * Uses 'backfill' timeout (5 minutes) since this can be a long-running
+ * operation that processes many files.
+ */
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -8,28 +15,15 @@ export default async function handler(
     return res.status(405).json({ detail: 'Method not allowed' })
   }
 
-  const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://backend:8000'
-
   try {
-    const response = await fetch(`${backendUrl}/api/v1/nfo/backfill/start`, {
+    const { status, data } = await fetchBackend('/api/v1/nfo/backfill/start', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      operationType: 'backfill', // 5-minute timeout for backfill operations
     })
 
-    const data = await response.json()
-
-    if (response.ok) {
-      res.status(200).json(data)
-    } else {
-      res.status(response.status).json(data)
-    }
+    res.status(status).json(data)
   } catch (error) {
-    console.error('API proxy error:', error)
-    res.status(500).json({
-      detail: 'Backend service unavailable',
-      error: 'Failed to connect to backend'
-    })
+    const errorResponse = formatApiError(error, 'NFO backfill start')
+    res.status(errorResponse.timedOut ? 504 : 500).json(errorResponse)
   }
 }

@@ -1,39 +1,37 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { fetchBackend, formatApiError } from '@/lib/apiClient'
 
+/**
+ * API route proxy for refreshing channel metadata from YouTube.
+ *
+ * Uses 'metadata' timeout (2 minutes) since this involves
+ * YouTube API calls and potentially downloading assets.
+ */
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
   const { id } = req.query
-  const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://backend:8000'
-  
+
   // Only allow POST method for refresh
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST'])
     res.status(405).json({ detail: 'Method Not Allowed' })
     return
   }
-  
-  try {
-    const response = await fetch(`${backendUrl}/api/v1/channels/${id}/refresh-metadata`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
 
-    const data = await response.json()
-    
-    if (response.ok) {
-      res.status(200).json(data)
-    } else {
-      res.status(response.status).json(data)
-    }
+  try {
+    const { status, data } = await fetchBackend(
+      `/api/v1/channels/${id}/refresh-metadata`,
+      {
+        method: 'POST',
+        operationType: 'metadata', // 2-minute timeout for YouTube API calls
+      }
+    )
+
+    res.status(status).json(data)
   } catch (error) {
-    console.error('API proxy error:', error)
-    res.status(500).json({ 
-      detail: 'Backend service unavailable',
-      error: 'Failed to connect to backend'
-    })
+    const errorResponse = formatApiError(error, 'Refresh metadata')
+    res.status(errorResponse.timedOut ? 504 : 500).json(errorResponse)
   }
 }
