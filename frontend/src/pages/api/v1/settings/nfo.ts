@@ -1,32 +1,23 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { fetchBackend, formatApiError } from '@/lib/apiClient'
 
+/**
+ * API route proxy for NFO settings.
+ */
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://backend:8000'
-
   try {
-    const response = await fetch(`${backendUrl}/api/v1/settings/nfo`, {
+    const { status, data } = await fetchBackend('/api/v1/settings/nfo', {
       method: req.method,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: req.method !== 'GET' ? JSON.stringify(req.body) : undefined,
+      body: req.method !== 'GET' ? req.body : undefined,
+      operationType: 'standard',
     })
 
-    const data = await response.json()
-
-    if (response.ok) {
-      res.status(200).json(data)
-    } else {
-      res.status(response.status).json(data)
-    }
+    res.status(status).json(data)
   } catch (error) {
-    console.error('API proxy error:', error)
-    res.status(500).json({
-      detail: 'Backend service unavailable',
-      error: 'Failed to connect to backend'
-    })
+    const errorResponse = formatApiError(error, 'NFO settings')
+    res.status(errorResponse.timedOut ? 504 : 500).json(errorResponse)
   }
 }

@@ -1,5 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { fetchBackend, formatApiError } from '@/lib/apiClient'
 
+/**
+ * API route proxy for regenerating NFO files for a channel.
+ *
+ * Uses 'standard' timeout since NFO regeneration for a single
+ * channel is typically fast.
+ */
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -9,28 +16,19 @@ export default async function handler(
   }
 
   const { id } = req.query
-  const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://backend:8000'
 
   try {
-    const response = await fetch(`${backendUrl}/api/v1/channels/${id}/nfo/regenerate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
+    const { status, data } = await fetchBackend(
+      `/api/v1/channels/${id}/nfo/regenerate`,
+      {
+        method: 'POST',
+        operationType: 'standard',
+      }
+    )
 
-    const data = await response.json()
-
-    if (response.ok) {
-      res.status(200).json(data)
-    } else {
-      res.status(response.status).json(data)
-    }
+    res.status(status).json(data)
   } catch (error) {
-    console.error('API proxy error:', error)
-    res.status(500).json({
-      detail: 'Backend service unavailable',
-      error: 'Failed to connect to backend'
-    })
+    const errorResponse = formatApiError(error, 'NFO regenerate')
+    res.status(errorResponse.timedOut ? 504 : 500).json(errorResponse)
   }
 }

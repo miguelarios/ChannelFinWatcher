@@ -1,42 +1,37 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { fetchBackend, formatApiError } from '@/lib/apiClient'
 
+/**
+ * API route proxy for individual channel operations.
+ *
+ * Uses 'standard' timeout for GET requests.
+ * Uses 'metadata' timeout for PUT/DELETE (may involve file operations).
+ */
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  const { id } = req.query
-  const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://backend:8000'
-  
+  const { id, delete_media } = req.query
+
   try {
-    let url = `${backendUrl}/api/v1/channels/${id}`
-    
-    // For DELETE requests, add delete_media query parameter
-    if (req.method === 'DELETE' && req.query.delete_media !== undefined) {
-      const deleteMedia = req.query.delete_media === 'true'
-      url += `?delete_media=${deleteMedia}`
+    // Build endpoint with query params for DELETE
+    let endpoint = `/api/v1/channels/${id}`
+    if (req.method === 'DELETE' && delete_media !== undefined) {
+      endpoint += `?delete_media=${delete_media === 'true'}`
     }
-    
-    const response = await fetch(url, {
+
+    // DELETE may involve file operations, use metadata timeout
+    const operationType = req.method === 'DELETE' ? 'metadata' : 'standard'
+
+    const { status, data } = await fetchBackend(endpoint, {
       method: req.method,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: req.method !== 'GET' && req.method !== 'DELETE' ? JSON.stringify(req.body) : undefined,
+      body: req.method !== 'GET' && req.method !== 'DELETE' ? req.body : undefined,
+      operationType,
     })
 
-    const data = await response.json()
-    
-    if (response.ok) {
-      // Pass through the complete backend response (includes message, media_deleted, files_deleted)
-      res.status(200).json(data)
-    } else {
-      res.status(response.status).json(data)
-    }
+    res.status(status).json(data)
   } catch (error) {
-    console.error('API proxy error:', error)
-    res.status(500).json({ 
-      detail: 'Backend service unavailable',
-      error: 'Failed to connect to backend'
-    })
+    const errorResponse = formatApiError(error, 'Channel')
+    res.status(errorResponse.timedOut ? 504 : 500).json(errorResponse)
   }
 }
