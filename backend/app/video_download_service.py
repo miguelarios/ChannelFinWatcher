@@ -702,33 +702,58 @@ class VideoDownloadService:
                 logger.info(f"⚠️  No videos found for channel: {channel.name}")
                 return True, 0, None
 
-            # Process each video sequentially
-            downloaded_count = 0
-            skipped_count = 0
+            # ========================================================================
+            # PRE-FILTERING: Determine which videos are new vs already downloaded
+            # ========================================================================
+            # Why? Provide clear user feedback on what will actually be downloaded
+            # Before: "Found 20 videos, Processing 20 videos" (confusing)
+            # After: "Found 20 videos, 6 new to download, 14 already exist" (clear)
+            # ========================================================================
 
-            logger.info(f"Processing {len(videos)} videos for download")
+            logger.info(f"Checking which videos are new...")
+            new_videos = []
+            existing_videos = []
 
-            for idx, video_info in enumerate(videos, 1):
-                # Use new deduplication logic
+            for video_info in videos:
                 should_download, existing_download = self.should_download_video(video_info['id'], channel, db)
 
+                if should_download:
+                    new_videos.append(video_info)
+                else:
+                    existing_videos.append(video_info)
+
+            # Log clear summary of what will happen
+            if new_videos:
+                logger.info(f"✓ Found {len(new_videos)} new video(s) to download ({len(existing_videos)} already exist)")
+            else:
+                logger.info(f"✓ All {len(existing_videos)} videos already downloaded, nothing new to download")
+                history.status = 'completed'
+                history.videos_skipped = len(existing_videos)
+                history.completed_at = datetime.utcnow()
+                channel.last_check = datetime.utcnow()
+                db.commit()
+                return True, 0, None
+
+            # Process each NEW video sequentially
+            downloaded_count = 0
+            skipped_count = len(existing_videos)  # Already counted existing videos
+
+            logger.info(f"Processing {len(new_videos)} new video(s) for download")
+
+            # Download only NEW videos (already filtered above)
+            for idx, video_info in enumerate(new_videos, 1):
                 video_title_short = video_info['title'][:50] + '...' if len(video_info['title']) > 50 else video_info['title']
 
-                if not should_download:
-                    skipped_count += 1
-                    logger.info(f"  ⏭️  Video {idx}/{len(videos)}: SKIPPED (already exists) - {video_title_short}")
-                    continue
-
                 # Download the video
-                logger.info(f"  ⬇️  Video {idx}/{len(videos)}: DOWNLOADING - {video_title_short}")
+                logger.info(f"  ⬇️  Video {idx}/{len(new_videos)}: DOWNLOADING - {video_title_short}")
                 download_success, download_error = self.download_video(video_info, channel, db)
 
                 if download_success:
                     downloaded_count += 1
-                    logger.info(f"  ✅ Video {idx}/{len(videos)}: SUCCESS - {video_title_short}")
+                    logger.info(f"  ✅ Video {idx}/{len(new_videos)}: SUCCESS - {video_title_short}")
                 else:
                     # Log error but continue with remaining videos
-                    logger.warning(f"  ❌ Video {idx}/{len(videos)}: FAILED - {video_title_short}: {download_error}")
+                    logger.warning(f"  ❌ Video {idx}/{len(new_videos)}: FAILED - {video_title_short}: {download_error}")
             
             # Update history and channel
             history.videos_downloaded = downloaded_count
