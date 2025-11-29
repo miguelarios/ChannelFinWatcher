@@ -25,29 +25,44 @@ logging.basicConfig(level=logging.INFO, force=True)
 logging.getLogger('app').setLevel(logging.INFO)
 
 
-class HealthCheckFilter(logging.Filter):
+class AccessLogFilter(logging.Filter):
     """
-    Filter out health check endpoint logs from Uvicorn access logs.
+    Filter out repetitive polling endpoint logs from Uvicorn access logs.
 
-    Health checks are called frequently (by Docker, load balancers, or the frontend)
-    and clutter the logs with repetitive INFO messages like:
-        INFO: 127.0.0.1:47194 - "GET /health HTTP/1.1" 200 OK
+    Suppresses:
+    - /health - Health check endpoint (Docker, load balancers)
+    - /api/v1/scheduler/status - Frontend scheduler status polling
+    - /api/v1/channels - Frontend channel list polling
 
-    This filter suppresses these specific log messages while keeping all other
-    access logs visible for debugging and monitoring.
+    These endpoints are polled frequently (every few seconds) and clutter
+    logs with repetitive INFO messages that provide no value for monitoring.
+
+    Only filters successful (200 OK) GET requests. Failed requests remain visible.
     """
+
+    # Endpoints to suppress (only when returning 200 OK)
+    FILTERED_ENDPOINTS = [
+        '/health',
+        '/api/v1/scheduler/status',
+        '/api/v1/channels'
+    ]
+
     def filter(self, record: logging.LogRecord) -> bool:
-        # Check if this is a health check request log
-        # Uvicorn access logs contain the request path in the message
+        """Filter out logs for specific polling endpoints."""
         message = record.getMessage()
-        if '"GET /health HTTP' in message and '200' in message:
-            return False  # Suppress this log
+
+        # Check if this is a filtered endpoint with 200 response
+        # Match endpoint path with or without query parameters (e.g., /channels?page=1)
+        for endpoint in self.FILTERED_ENDPOINTS:
+            if f'"GET {endpoint}' in message and '200 OK' in message:
+                return False  # Suppress this log
+
         return True  # Allow all other logs
 
 
 # Apply the filter to Uvicorn's access logger
 # Uvicorn uses "uvicorn.access" for HTTP request logs
-logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
+logging.getLogger("uvicorn.access").addFilter(AccessLogFilter())
 
 logger = logging.getLogger(__name__)
 

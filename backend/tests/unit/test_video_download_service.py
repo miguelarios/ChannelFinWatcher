@@ -92,11 +92,35 @@ class TestVideoDownloadService:
     def test_service_initialization(self, mock_settings):
         """Test that service initializes correctly with proper settings."""
         service = VideoDownloadService()
-        
+
         assert service.media_path == mock_settings.media_dir
         assert service.temp_path == mock_settings.temp_dir
         assert service.download_opts['format'] == 'bv*+ba/b'
         assert service.download_opts['merge_output_format'] == 'mkv'
+
+    @patch('app.video_download_service.logger.isEnabledFor')
+    def test_service_initialization_debug_mode(self, mock_is_enabled, mock_settings):
+        """Test that yt-dlp options respect DEBUG logging level."""
+        mock_is_enabled.return_value = True  # Simulate DEBUG level
+
+        service = VideoDownloadService()
+
+        # In DEBUG mode, yt-dlp should be verbose
+        assert service.download_opts['quiet'] is False
+        assert service.download_opts['noprogress'] is False
+        assert service.download_opts['no_warnings'] is False
+
+    @patch('app.video_download_service.logger.isEnabledFor')
+    def test_service_initialization_info_mode(self, mock_is_enabled, mock_settings):
+        """Test that yt-dlp options are quiet in INFO logging level."""
+        mock_is_enabled.return_value = False  # Simulate INFO level
+
+        service = VideoDownloadService()
+
+        # In INFO mode, yt-dlp should be quiet
+        assert service.download_opts['quiet'] is True
+        assert service.download_opts['noprogress'] is True
+        assert service.download_opts['no_warnings'] is True
 
     @patch('app.video_download_service.yt_dlp.YoutubeDL')
     def test_get_recent_videos_success(self, mock_ydl_class, mock_settings, sample_video_info):
