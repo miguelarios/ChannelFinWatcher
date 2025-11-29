@@ -406,6 +406,7 @@ async def cleanup_old_videos(channel: Channel, db: Session) -> int:
         )
 
         deleted_count = 0
+        deleted_video_names = []  # Track deleted video names for logging
 
         for download in videos_to_delete:
             try:
@@ -425,6 +426,7 @@ async def cleanup_old_videos(channel: Channel, db: Session) -> int:
                 # Delete database record
                 db.delete(download)
                 deleted_count += 1
+                deleted_video_names.append(download.title)  # Track for summary log
 
                 logger.debug(
                     f"Deleted video '{download.title}' (ID: {download.video_id}, "
@@ -440,17 +442,28 @@ async def cleanup_old_videos(channel: Channel, db: Session) -> int:
                 try:
                     db.delete(download)
                     deleted_count += 1
+                    deleted_video_names.append(download.title)  # Track even if file deletion failed
                 except Exception as db_error:
                     logger.error(f"Failed to delete database record for video {download.video_id}: {db_error}")
 
         # Commit all deletions
         db.commit()
 
-        logger.info(
-            f"Cleanup completed for channel '{channel.name}': "
-            f"deleted {deleted_count}/{excess_count} video(s), "
-            f"now has {current_count - deleted_count} videos (limit: {channel.limit})"
-        )
+        # Build detailed log message with video names
+        if deleted_video_names:
+            video_list = "\n  - ".join(deleted_video_names)
+            logger.info(
+                f"Cleanup completed for channel '{channel.name}': "
+                f"deleted {deleted_count}/{excess_count} video(s), "
+                f"now has {current_count - deleted_count} videos (limit: {channel.limit})\n"
+                f"  Deleted videos:\n  - {video_list}"
+            )
+        else:
+            logger.info(
+                f"Cleanup completed for channel '{channel.name}': "
+                f"deleted {deleted_count}/{excess_count} video(s), "
+                f"now has {current_count - deleted_count} videos (limit: {channel.limit})"
+            )
 
         return deleted_count
 
