@@ -104,3 +104,18 @@ class TestAccessLogFilter:
         for log_msg in app_logs:
             record = MockLogRecord(log_msg)
             assert log_filter.filter(record) is True, f"Should allow app log: {log_msg}"
+
+    def test_filter_suppresses_endpoints_with_query_parameters(self):
+        """Test that endpoints with query parameters are also filtered."""
+        log_filter = AccessLogFilter()
+
+        # Should suppress endpoints even with query parameters
+        with_params = [
+            'INFO:     127.0.0.1:58064 - "GET /api/v1/channels?page=1 HTTP/1.1" 200 OK',
+            'INFO:     127.0.0.1:58064 - "GET /api/v1/channels?limit=50&offset=10 HTTP/1.1" 200 OK',
+            'INFO:     127.0.0.1:58052 - "GET /api/v1/scheduler/status?verbose=true HTTP/1.1" 200 OK'
+        ]
+
+        for log_msg in with_params:
+            record = MockLogRecord(log_msg)
+            assert log_filter.filter(record) is False, f"Should suppress: {log_msg}"

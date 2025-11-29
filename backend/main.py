@@ -52,8 +52,9 @@ class AccessLogFilter(logging.Filter):
         message = record.getMessage()
 
         # Check if this is a filtered endpoint with 200 response
+        # Match endpoint path with or without query parameters (e.g., /channels?page=1)
         for endpoint in self.FILTERED_ENDPOINTS:
-            if f'"GET {endpoint} HTTP' in message and '200 OK' in message:
+            if f'"GET {endpoint}' in message and '200 OK' in message:
                 return False  # Suppress this log
 
         return True  # Allow all other logs
