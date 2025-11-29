@@ -23,7 +23,8 @@ class TestAccessLogFilter:
         log_filter = AccessLogFilter()
 
         # Should suppress successful health checks
-        record = MockLogRecord('INFO:     127.0.0.1:47194 - "GET /health HTTP/1.1" 200 OK')
+        # Note: uvicorn's getMessage() format is without "OK" suffix
+        record = MockLogRecord('127.0.0.1:47194 - "GET /health HTTP/1.1" 200')
         assert log_filter.filter(record) is False
 
     def test_filter_suppresses_scheduler_status_endpoint(self):
@@ -31,7 +32,7 @@ class TestAccessLogFilter:
         log_filter = AccessLogFilter()
 
         # Should suppress successful scheduler status polls
-        record = MockLogRecord('INFO:     127.0.0.1:58052 - "GET /api/v1/scheduler/status HTTP/1.1" 200 OK')
+        record = MockLogRecord('127.0.0.1:58052 - "GET /api/v1/scheduler/status HTTP/1.1" 200')
         assert log_filter.filter(record) is False
 
     def test_filter_suppresses_channels_endpoint(self):
@@ -39,7 +40,7 @@ class TestAccessLogFilter:
         log_filter = AccessLogFilter()
 
         # Should suppress successful channels polls
-        record = MockLogRecord('INFO:     127.0.0.1:58064 - "GET /api/v1/channels HTTP/1.1" 200 OK')
+        record = MockLogRecord('127.0.0.1:58064 - "GET /api/v1/channels HTTP/1.1" 200')
         assert log_filter.filter(record) is False
 
     def test_filter_allows_error_responses(self):
@@ -48,9 +49,9 @@ class TestAccessLogFilter:
 
         # Should NOT suppress errors (500, 404, etc.)
         error_responses = [
-            'INFO:     127.0.0.1:58052 - "GET /api/v1/scheduler/status HTTP/1.1" 500 Internal Server Error',
-            'INFO:     127.0.0.1:58052 - "GET /health HTTP/1.1" 503 Service Unavailable',
-            'INFO:     127.0.0.1:58052 - "GET /api/v1/channels HTTP/1.1" 404 Not Found'
+            '127.0.0.1:58052 - "GET /api/v1/scheduler/status HTTP/1.1" 500',
+            '127.0.0.1:58052 - "GET /health HTTP/1.1" 503',
+            '127.0.0.1:58052 - "GET /api/v1/channels HTTP/1.1" 404'
         ]
 
         for error_msg in error_responses:
@@ -62,7 +63,7 @@ class TestAccessLogFilter:
         log_filter = AccessLogFilter()
 
         # Should NOT suppress POST requests
-        record = MockLogRecord('INFO:     127.0.0.1:58052 - "POST /api/v1/channels HTTP/1.1" 200 OK')
+        record = MockLogRecord('127.0.0.1:58052 - "POST /api/v1/channels HTTP/1.1" 200')
         assert log_filter.filter(record) is True
 
     def test_filter_allows_other_endpoints(self):
@@ -71,9 +72,9 @@ class TestAccessLogFilter:
 
         # Should NOT suppress other endpoints
         other_endpoints = [
-            'INFO:     127.0.0.1:58052 - "GET /api/v1/downloads HTTP/1.1" 200 OK',
-            'INFO:     127.0.0.1:58052 - "POST /api/v1/trigger-download HTTP/1.1" 200 OK',
-            'INFO:     127.0.0.1:58052 - "GET /api/v1/settings HTTP/1.1" 200 OK'
+            '127.0.0.1:58052 - "GET /api/v1/downloads HTTP/1.1" 200',
+            '127.0.0.1:58052 - "POST /api/v1/trigger-download HTTP/1.1" 200',
+            '127.0.0.1:58052 - "GET /api/v1/settings HTTP/1.1" 200'
         ]
 
         for endpoint_msg in other_endpoints:
@@ -111,9 +112,9 @@ class TestAccessLogFilter:
 
         # Should suppress endpoints even with query parameters
         with_params = [
-            'INFO:     127.0.0.1:58064 - "GET /api/v1/channels?page=1 HTTP/1.1" 200 OK',
-            'INFO:     127.0.0.1:58064 - "GET /api/v1/channels?limit=50&offset=10 HTTP/1.1" 200 OK',
-            'INFO:     127.0.0.1:58052 - "GET /api/v1/scheduler/status?verbose=true HTTP/1.1" 200 OK'
+            '127.0.0.1:58064 - "GET /api/v1/channels?page=1 HTTP/1.1" 200',
+            '127.0.0.1:58064 - "GET /api/v1/channels?limit=50&offset=10 HTTP/1.1" 200',
+            '127.0.0.1:58052 - "GET /api/v1/scheduler/status?verbose=true HTTP/1.1" 200'
         ]
 
         for log_msg in with_params:
