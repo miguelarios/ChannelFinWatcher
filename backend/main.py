@@ -52,17 +52,15 @@ class AccessLogFilter(logging.Filter):
         message = record.getMessage()
 
         # Check if this is a filtered endpoint with 200 response
-        # Match endpoint path with or without query parameters (e.g., /channels?page=1)
+        # Note: uvicorn's getMessage() returns format without "OK":
+        # '192.168.65.1:43351 - "GET /health HTTP/1.1" 200'
+        # The " OK" is added by formatter after filter runs
         for endpoint in self.FILTERED_ENDPOINTS:
-            if f'"GET {endpoint}' in message and '200 OK' in message:
+            if f'"GET {endpoint}' in message and '" 200' in message:
                 return False  # Suppress this log
 
         return True  # Allow all other logs
 
-
-# Apply the filter to Uvicorn's access logger
-# Uvicorn uses "uvicorn.access" for HTTP request logs
-logging.getLogger("uvicorn.access").addFilter(AccessLogFilter())
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +141,15 @@ async def lifespan(app: FastAPI):
         logger.info("Starting scheduler service...")
         await scheduler_service.start()
         logger.info("Scheduler service started successfully")
+
+        # Configure access log filter (after Uvicorn logging setup completes)
+        logger.info("Configuring access log filter...")
+        uvicorn_access_logger = logging.getLogger("uvicorn.access")
+        uvicorn_access_logger.addFilter(AccessLogFilter())
+        logger.info(
+            f"Access log filter registered - suppressing "
+            f"{len(AccessLogFilter.FILTERED_ENDPOINTS)} endpoints"
+        )
 
     except Exception as e:
         logger.error(f"Startup failed: {e}")
