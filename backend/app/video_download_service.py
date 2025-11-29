@@ -324,6 +324,70 @@ class VideoDownloadService:
 
         logger.warning(f"No video file found for video_id={video_id} in {channel_dir_path}")
         return None
+
+    def _extract_upload_date_from_info_json(self, video_file_path: str) -> Optional[str]:
+        """
+        Extract upload_date from the .info.json file created by yt-dlp.
+
+        After yt-dlp downloads a video, it creates a .info.json file alongside
+        the video file containing full metadata. We read this file to populate
+        the upload_date field in the database, which is needed for proper cleanup sorting.
+
+        Args:
+            video_file_path: Full path to the video file (e.g., /path/video.mkv)
+
+        Returns:
+            upload_date string (format: YYYYMMDD) if found, None otherwise
+
+        Example:
+            video_path = "/media/Channel/2023/video [abc123].mkv"
+            info_json_path = "/media/Channel/2023/video [abc123].info.json"
+            upload_date = _extract_upload_date_from_info_json(video_path)
+            # Returns: "20231115"
+        """
+        if not video_file_path:
+            return None
+
+        # Derive .info.json path from video file path
+        # Pattern: /path/to/video.mkv -> /path/to/video.info.json
+        info_json_path = None
+        video_extensions = ('.mkv', '.mp4', '.webm', '.avi', '.mov', '.flv', '.m4v', '.3gp')
+
+        for ext in video_extensions:
+            if video_file_path.endswith(ext):
+                info_json_path = video_file_path.replace(ext, '.info.json')
+                break
+
+        # Fallback: append .info.json if no extension matched
+        if not info_json_path:
+            info_json_path = f"{video_file_path}.info.json"
+
+        # Try to read and parse the .info.json file
+        try:
+            if not os.path.exists(info_json_path):
+                logger.debug(f"info.json not found at {info_json_path}")
+                return None
+
+            with open(info_json_path, 'r', encoding='utf-8') as f:
+                info_data = json.load(f)
+                upload_date = info_data.get('upload_date')
+
+                if upload_date:
+                    logger.debug(f"Extracted upload_date from info.json: {upload_date}")
+                    return upload_date
+                else:
+                    logger.debug(f"No upload_date field in info.json")
+                    return None
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"JSON parse error reading {info_json_path}: {e}")
+            return None
+        except IOError as e:
+            logger.warning(f"Could not read {info_json_path}: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"Unexpected error reading {info_json_path}: {e}")
+            return None
     
     def get_recent_videos(self, channel_url: str, limit: int = 10, channel_id: str = None) -> Tuple[bool, List[Dict], Optional[str]]:
         """
@@ -530,19 +594,13 @@ class VideoDownloadService:
                 download.status = 'downloading'
                 download.error_message = None
             else:
-                # Extract upload_date and log if missing (info level since cleanup now handles NULLs correctly)
-                upload_date_value = video_info.get('upload_date', '')
-                if not upload_date_value:
-                    logger.info(
-                        f"Missing upload_date for video {video_id} ({video_title}) in channel '{channel.name}'. "
-                        f"Cleanup logic will treat this as an old video. Download will continue normally."
-                    )
-
+                # Note: upload_date from flat extraction is usually empty
+                # We'll populate it from .info.json after download completes
                 download = Download(
                     channel_id=channel.id,
                     video_id=video_id,
                     title=video_title,
-                    upload_date=upload_date_value,
+                    upload_date=video_info.get('upload_date', ''),
                     duration=video_info.get('duration_string'),
                     status='downloading'
                 )
@@ -580,6 +638,26 @@ class VideoDownloadService:
                     download.file_path = video_file_path
                     download.file_size = os.path.getsize(video_file_path)
                     download.completed_at = datetime.utcnow()
+
+                    # ========================================================================
+                    # BACKFILL UPLOAD_DATE FROM .INFO.JSON
+                    # ========================================================================
+                    # Why? Flat extraction doesn't provide upload_date, but yt-dlp writes
+                    # it to .info.json during download. We read it back to populate the
+                    # database for proper cleanup sorting by age.
+                    # ========================================================================
+
+                    if not download.upload_date or download.upload_date == '':
+                        upload_date_from_json = self._extract_upload_date_from_info_json(video_file_path)
+                        if upload_date_from_json:
+                            download.upload_date = upload_date_from_json
+                            logger.debug(f"Populated upload_date={upload_date_from_json} from .info.json")
+                        else:
+                            logger.warning(
+                                f"Could not extract upload_date from .info.json for video {video_id}. "
+                                f"Cleanup logic will treat this as an old video."
+                            )
+
                     db.commit()
 
                     # ========================================================================
