@@ -43,15 +43,18 @@ class VideoDownloadService:
     def __init__(self):
         """
         Initialize the video download service with yt-dlp configuration.
-        
+
         Configuration based on the reference bash script from Story 5,
         optimized for Jellyfin directory structure and reliable downloads.
         """
         settings = get_settings()
-        
+
         # Base paths for media organization
         self.media_path = settings.media_dir
         self.temp_path = settings.temp_dir
+
+        # Check if DEBUG logging is enabled for level-aware yt-dlp verbosity
+        is_debug = logger.isEnabledFor(logging.DEBUG)
         
         # Configuration file path
         self.cookie_file = settings.cookies_file
@@ -88,7 +91,10 @@ class VideoDownloadService:
             ],
             'concurrent_fragments': 4,
             'ignoreerrors': True,  # Continue on individual video errors
-            'no_warnings': False,  # Show warnings for troubleshooting
+            # Level-aware logging: verbose only in DEBUG mode, quiet in INFO mode
+            'quiet': not is_debug,           # Suppress output unless DEBUG
+            'noprogress': not is_debug,      # Hide progress bars unless DEBUG
+            'no_warnings': not is_debug,     # Hide warnings unless DEBUG
             # NOTE: Removed extractor_args player_client override
             # yt-dlp 2025.09.26+ has smart automatic client selection that works better
             # than manual overrides. Let yt-dlp choose the optimal client for each video.
