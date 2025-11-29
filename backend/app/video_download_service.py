@@ -534,7 +534,7 @@ class VideoDownloadService:
                 upload_date_value = video_info.get('upload_date', '')
                 if not upload_date_value:
                     logger.info(
-                        f"Missing upload_date for video {video_id} ({video_title}). "
+                        f"Missing upload_date for video {video_id} ({video_title}) in channel '{channel.name}'. "
                         f"Cleanup logic will treat this as an old video. Download will continue normally."
                     )
 

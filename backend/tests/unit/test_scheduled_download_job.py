@@ -684,6 +684,9 @@ class TestCleanupOldVideos:
         assert "dated_0" in remaining_ids
         assert "dated_9" in remaining_ids
 
+        # Verify file deletion was attempted for all NULL videos
+        assert mock_rmtree.call_count == 5, "Should attempt to delete 5 video directories (all NULL videos)"
+
     @pytest.mark.asyncio
     @patch('app.scheduled_download_job.shutil.rmtree')
     @patch('app.scheduled_download_job.Path')
