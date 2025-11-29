@@ -530,11 +530,19 @@ class VideoDownloadService:
                 download.status = 'downloading'
                 download.error_message = None
             else:
+                # Extract upload_date and warn if missing
+                upload_date_value = video_info.get('upload_date', '')
+                if not upload_date_value:
+                    logger.warning(
+                        f"Missing upload_date for video {video_id} ({video_title}). "
+                        f"This may cause cleanup issues. Video will still download."
+                    )
+
                 download = Download(
                     channel_id=channel.id,
                     video_id=video_id,
                     title=video_title,
-                    upload_date=video_info.get('upload_date', ''),
+                    upload_date=upload_date_value,
                     duration=video_info.get('duration_string'),
                     status='downloading'
                 )
