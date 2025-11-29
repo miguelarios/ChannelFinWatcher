@@ -609,6 +609,84 @@ class TestCleanupOldVideos:
     @pytest.mark.asyncio
     @patch('app.scheduled_download_job.shutil.rmtree')
     @patch('app.scheduled_download_job.Path')
+    async def test_deletes_null_upload_dates_first_then_oldest(self, mock_path, mock_rmtree, db_session):
+        """Test that videos with NULL upload_date are deleted before oldest dated videos.
+
+        This test ensures the fix for the cleanup bug works correctly:
+        - Videos with NULL upload_date (old videos without metadata) are deleted first
+        - Among videos with valid upload_dates, oldest are deleted next
+        - Newly downloaded videos (with recent dates) are preserved
+        """
+        channel = Channel(
+            id=1,
+            name="Test Channel",
+            url="https://youtube.com/test",
+            channel_id="UC123",
+            limit=10
+        )
+        db_session.add(channel)
+        db_session.commit()
+
+        # Create 5 videos with NULL upload_date (old videos without metadata)
+        for i in range(5):
+            download = Download(
+                channel_id=channel.id,
+                video_id=f"null_{i}",
+                title=f"NULL Video {i}",
+                upload_date=None,  # NULL upload_date
+                status="completed",
+                file_exists=True,
+                file_path=f"/media/channel/null_{i}/video.mp4"
+            )
+            db_session.add(download)
+
+        # Create 10 videos with dates (should be kept)
+        for i in range(10):
+            download = Download(
+                channel_id=channel.id,
+                video_id=f"dated_{i}",
+                title=f"Dated Video {i}",
+                upload_date=f"202501{i:02d}",  # Valid upload dates
+                status="completed",
+                file_exists=True,
+                file_path=f"/media/channel/dated_{i}/video.mp4"
+            )
+            db_session.add(download)
+        db_session.commit()
+
+        # Mock file system
+        mock_path_instance = MagicMock()
+        mock_path_instance.parent.exists.return_value = True
+        mock_path.return_value = mock_path_instance
+
+        # Total: 15 videos, limit: 10 → should delete 5 videos
+        deleted_count = await cleanup_old_videos(channel, db_session)
+
+        # Verify 5 videos were deleted
+        assert deleted_count == 5
+
+        # Verify ALL NULL videos were deleted (priority deletion)
+        null_videos = db_session.query(Download).filter(
+            Download.channel_id == channel.id,
+            Download.upload_date.is_(None)
+        ).all()
+        assert len(null_videos) == 0, "All NULL upload_date videos should be deleted first"
+
+        # Verify ALL dated videos were kept
+        dated_videos = db_session.query(Download).filter(
+            Download.channel_id == channel.id,
+            Download.upload_date.isnot(None)
+        ).all()
+        assert len(dated_videos) == 10, "All videos with upload_dates should be kept"
+
+        # Verify specific dated videos are present
+        remaining_ids = [v.video_id for v in dated_videos]
+        assert "dated_0" in remaining_ids
+        assert "dated_9" in remaining_ids
+
+    @pytest.mark.asyncio
+    @patch('app.scheduled_download_job.shutil.rmtree')
+    @patch('app.scheduled_download_job.Path')
     async def test_handles_missing_files(self, mock_path, mock_rmtree, db_session):
         """Test graceful handling when video files don't exist on disk."""
         channel = Channel(

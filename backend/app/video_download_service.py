@@ -530,12 +530,12 @@ class VideoDownloadService:
                 download.status = 'downloading'
                 download.error_message = None
             else:
-                # Extract upload_date and warn if missing
+                # Extract upload_date and log if missing (info level since cleanup now handles NULLs correctly)
                 upload_date_value = video_info.get('upload_date', '')
                 if not upload_date_value:
-                    logger.warning(
+                    logger.info(
                         f"Missing upload_date for video {video_id} ({video_title}). "
-                        f"This may cause cleanup issues. Video will still download."
+                        f"Cleanup logic will treat this as an old video. Download will continue normally."
                     )
 
                 download = Download(

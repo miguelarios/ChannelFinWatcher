@@ -69,9 +69,11 @@ def upgrade() -> None:
                 info_json_path = file_path.replace(ext, '.info.json')
                 break
 
-        # If no extension matched, try appending .info.json directly
+        # If no extension matched, try appending .info.json directly (fallback)
         if not info_json_path:
             info_json_path = f"{file_path}.info.json" if file_path else None
+            if info_json_path:
+                print(f"  Info: Using fallback path for video_id {video_id}: {info_json_path}")
 
         # Skip if we couldn't determine a path
         if not info_json_path:
@@ -126,16 +128,19 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Optionally set upload_date back to NULL for backfilled videos.
+    """No downgrade necessary - backfilled data is legitimate and safe to keep.
 
-    Note: This downgrade is a no-op because:
-    1. The data we populated came from legitimate sources (info.json files)
-    2. Reverting would lose valuable metadata
-    3. There's no harm in keeping the upload dates even if rolling back
-    4. Re-running the migration would produce the same results
+    This migration populates upload_date from authoritative source (info.json).
+    Rolling back would lose valuable metadata without benefit.
 
-    If you really need to clear backfilled dates, you would run:
-    UPDATE downloads SET upload_date = NULL WHERE upload_date IS NOT NULL;
+    The cleanup logic (as of this migration) now handles NULL values correctly,
+    so there is no operational need to clear upload_date values.
+
+    If you need to manually clear this data for testing purposes:
+        UPDATE downloads SET upload_date = NULL WHERE upload_date IS NOT NULL;
+
+    IMPORTANT: Do NOT manually clear upload_dates in production.
+    The cleanup logic relies on upload_date for proper video age sorting.
     """
-    # Intentionally empty - we keep the backfilled data
+    # Intentionally empty - backfilled data should be preserved
     pass
