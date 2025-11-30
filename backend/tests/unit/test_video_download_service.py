@@ -389,11 +389,148 @@ class TestVideoDownloadService:
         safe_name = service._make_filesystem_safe(long_name, max_length=50)
         assert len(safe_name) == 50
 
+    def test_extract_upload_date_from_info_json_success(self, mock_settings):
+        """Test successful extraction of upload_date from .info.json file."""
+        service = VideoDownloadService()
+
+        # Create test directory structure
+        test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123]", "2023")
+        os.makedirs(test_dir, exist_ok=True)
+
+        # Create test video file and .info.json
+        video_path = os.path.join(test_dir, "Test Video [abc123].mkv")
+        info_json_path = os.path.join(test_dir, "Test Video [abc123].info.json")
+
+        # Write test .info.json with valid upload_date
+        with open(info_json_path, 'w', encoding='utf-8') as f:
+            json.dump({
+                "upload_date": "20231115",
+                "title": "Test Video",
+                "id": "abc123"
+            }, f)
+
+        upload_date = service._extract_upload_date_from_info_json(video_path)
+
+        assert upload_date == "20231115"
+
+    def test_extract_upload_date_from_info_json_missing_file(self, mock_settings):
+        """Test handling when .info.json file doesn't exist."""
+        service = VideoDownloadService()
+
+        # Path to non-existent video file
+        video_path = "/nonexistent/path/video.mkv"
+
+        upload_date = service._extract_upload_date_from_info_json(video_path)
+
+        assert upload_date is None
+
+    def test_extract_upload_date_from_info_json_no_upload_date_field(self, mock_settings):
+        """Test handling when .info.json exists but has no upload_date field."""
+        service = VideoDownloadService()
+
+        # Create test directory and files
+        test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123]", "2023")
+        os.makedirs(test_dir, exist_ok=True)
+
+        video_path = os.path.join(test_dir, "Test Video [xyz789].mkv")
+        info_json_path = os.path.join(test_dir, "Test Video [xyz789].info.json")
+
+        # Write .info.json WITHOUT upload_date field
+        with open(info_json_path, 'w', encoding='utf-8') as f:
+            json.dump({
+                "title": "Test Video",
+                "id": "xyz789"
+            }, f)
+
+        upload_date = service._extract_upload_date_from_info_json(video_path)
+
+        assert upload_date is None
+
+    def test_extract_upload_date_from_info_json_invalid_format(self, mock_settings):
+        """Test validation of upload_date format (should be YYYYMMDD - 8 digits)."""
+        service = VideoDownloadService()
+
+        test_cases = [
+            ("2023-11-15", "Dashed format"),  # Wrong format
+            ("20231", "Too short"),           # Too short
+            ("202311151234", "Too long"),     # Too long
+            ("abcd1234", "Non-numeric"),      # Contains letters
+            ("", "Empty string"),             # Empty
+        ]
+
+        for invalid_date, description in test_cases:
+            # Create test files
+            test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123]", "2023")
+            os.makedirs(test_dir, exist_ok=True)
+
+            video_path = os.path.join(test_dir, f"Test Video [{description}].mkv")
+            info_json_path = os.path.join(test_dir, f"Test Video [{description}].info.json")
+
+            with open(info_json_path, 'w', encoding='utf-8') as f:
+                json.dump({"upload_date": invalid_date}, f)
+
+            upload_date = service._extract_upload_date_from_info_json(video_path)
+
+            assert upload_date is None, f"Expected None for {description}, got {upload_date}"
+
+    def test_extract_upload_date_from_info_json_malformed_json(self, mock_settings):
+        """Test handling of malformed JSON in .info.json file."""
+        service = VideoDownloadService()
+
+        # Create test directory
+        test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123]", "2023")
+        os.makedirs(test_dir, exist_ok=True)
+
+        video_path = os.path.join(test_dir, "Test Video [bad123].mkv")
+        info_json_path = os.path.join(test_dir, "Test Video [bad123].info.json")
+
+        # Write malformed JSON
+        with open(info_json_path, 'w', encoding='utf-8') as f:
+            f.write("{invalid json content")
+
+        upload_date = service._extract_upload_date_from_info_json(video_path)
+
+        assert upload_date is None
+
+    def test_extract_upload_date_from_info_json_different_extensions(self, mock_settings):
+        """Test that extraction works with different video file extensions."""
+        service = VideoDownloadService()
+
+        test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123]", "2023")
+        os.makedirs(test_dir, exist_ok=True)
+
+        # Test multiple video extensions
+        # Note: video ID should not contain the extension to avoid .replace() issues
+        for idx, ext in enumerate(['.mkv', '.mp4', '.webm', '.avi']):
+            ext_name = ext[1:]  # Remove leading dot
+            video_path = os.path.join(test_dir, f"Test Video {idx} [vid{idx}]{ext}")
+            info_json_path = os.path.join(test_dir, f"Test Video {idx} [vid{idx}].info.json")
+
+            # Write valid .info.json
+            with open(info_json_path, 'w', encoding='utf-8') as f:
+                json.dump({"upload_date": "20231120"}, f)
+
+            upload_date = service._extract_upload_date_from_info_json(video_path)
+
+            assert upload_date == "20231120", f"Failed for extension {ext}"
+
+    def test_extract_upload_date_from_info_json_null_path(self, mock_settings):
+        """Test handling of None/empty video_file_path."""
+        service = VideoDownloadService()
+
+        # Test None path
+        upload_date = service._extract_upload_date_from_info_json(None)
+        assert upload_date is None
+
+        # Test empty string path
+        upload_date = service._extract_upload_date_from_info_json("")
+        assert upload_date is None
+
     def test_global_service_instance(self):
         """Test that global service instance is properly configured."""
         # The global instance should be importable and configured
         from app.video_download_service import video_download_service
-        
+
         assert video_download_service is not None
         assert hasattr(video_download_service, 'get_recent_videos')
         assert hasattr(video_download_service, 'download_video')

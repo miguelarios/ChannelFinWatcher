@@ -20,26 +20,30 @@ logger = logging.getLogger(__name__)
 class VideoDownloadService:
     """
     Service for downloading videos from YouTube channels using yt-dlp.
-    
+
     This service handles the core video download functionality, including:
     - Querying channels for recent videos without downloading
     - Downloading individual videos with proper organization
     - Sequential processing of multiple videos per channel
     - Status tracking and error handling
-    
+
     Key Features:
     - Uses database records to prevent duplicate downloads
     - Organizes files in Jellyfin-compatible directory structure
     - Sequential downloads to avoid overwhelming system resources
     - Comprehensive error handling for network and storage issues
-    
+
     Example:
         service = VideoDownloadService()
         success, count, error = service.process_channel_downloads(channel, db)
         if success:
             print(f"Downloaded {count} new videos")
     """
-    
+
+    # Recognized video file extensions
+    # Used for file detection, verification, and .info.json path derivation
+    VIDEO_EXTENSIONS = ('.mkv', '.mp4', '.webm', '.avi', '.mov', '.flv', '.m4v', '.3gp')
+
     def __init__(self):
         """
         Initialize the video download service with yt-dlp configuration.
@@ -265,14 +269,11 @@ class VideoDownloadService:
         if not os.path.exists(media_path):
             return False
 
-        # Video file extensions - must match _find_video_file_path
-        video_extensions = ('.mkv', '.mp4', '.webm', '.avi', '.mov', '.flv', '.m4v', '.3gp')
-
         for root, dirs, files in os.walk(media_path):
             for file in files:
                 # Must contain video ID AND be an actual video file AND not be a partial download
                 if (f"[{video_id}]" in file and
-                    file.lower().endswith(video_extensions) and
+                    file.lower().endswith(self.VIDEO_EXTENSIONS) and
                     not file.endswith('.part')):
                     return True
         return False
@@ -303,9 +304,6 @@ class VideoDownloadService:
             logger.warning(f"Channel directory not found: {channel_dir_path}")
             return None
 
-        # Video file extensions we recognize (lowercase for case-insensitive matching)
-        video_extensions = ('.mkv', '.mp4', '.webm', '.avi', '.mov', '.flv', '.m4v', '.3gp')
-
         # Walk directory tree looking for video file
         for root, dirs, files in os.walk(channel_dir_path):
             for filename in files:
@@ -317,7 +315,7 @@ class VideoDownloadService:
                         continue
 
                     # Check if it's a video file (not .info.json, .jpg, etc.)
-                    if filename.lower().endswith(video_extensions):
+                    if filename.lower().endswith(self.VIDEO_EXTENSIONS):
                         full_path = os.path.join(root, filename)
                         logger.debug(f"Found video file for {video_id}: {full_path}")
                         return full_path
@@ -337,7 +335,7 @@ class VideoDownloadService:
             video_file_path: Full path to the video file (e.g., /path/video.mkv)
 
         Returns:
-            upload_date string (format: YYYYMMDD) if found, None otherwise
+            upload_date string (format: YYYYMMDD) if found and valid, None otherwise
 
         Example:
             video_path = "/media/Channel/2023/video [abc123].mkv"
@@ -351,9 +349,8 @@ class VideoDownloadService:
         # Derive .info.json path from video file path
         # Pattern: /path/to/video.mkv -> /path/to/video.info.json
         info_json_path = None
-        video_extensions = ('.mkv', '.mp4', '.webm', '.avi', '.mov', '.flv', '.m4v', '.3gp')
 
-        for ext in video_extensions:
+        for ext in self.VIDEO_EXTENSIONS:
             if video_file_path.endswith(ext):
                 info_json_path = video_file_path.replace(ext, '.info.json')
                 break
@@ -373,8 +370,13 @@ class VideoDownloadService:
                 upload_date = info_data.get('upload_date')
 
                 if upload_date:
-                    logger.debug(f"Extracted upload_date from info.json: {upload_date}")
-                    return upload_date
+                    # Validate format: should be YYYYMMDD (8 digits)
+                    if len(str(upload_date)) == 8 and str(upload_date).isdigit():
+                        logger.debug(f"Extracted upload_date from info.json: {upload_date}")
+                        return str(upload_date)
+                    else:
+                        logger.warning(f"Invalid upload_date format in info.json: {upload_date} (expected YYYYMMDD)")
+                        return None
                 else:
                     logger.debug(f"No upload_date field in info.json")
                     return None
