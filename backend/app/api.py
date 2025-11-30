@@ -382,20 +382,43 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
                                 download.file_exists = True
                                 download.file_path = os.path.join(root, file)
                                 stats["found"] += 1
+
+                                # Try to backfill upload_date if missing
+                                if not download.upload_date or download.upload_date == '':
+                                    from app.video_download_service import video_download_service
+                                    video_file_path = os.path.join(root, file)
+                                    upload_date = video_download_service._extract_upload_date_from_info_json(video_file_path)
+                                    if upload_date:
+                                        download.upload_date = upload_date
+                                        logger.debug(f"Reindex: Backfilled upload_date={upload_date} for existing {video_id}")
                         else:
                             # Create new record for orphaned file
                             try:
+                                # Import video download service to extract upload_date from .info.json
+                                from app.video_download_service import video_download_service
+
+                                # Attempt to populate upload_date from .info.json file
+                                video_file_path = os.path.join(root, file)
+                                upload_date = video_download_service._extract_upload_date_from_info_json(video_file_path)
+
                                 download = Download(
                                     channel_id=channel_id,
                                     video_id=video_id,
                                     title=file.split('[')[0].strip() if '[' in file else "Found on disk",
+                                    upload_date=upload_date or '',  # Use extracted date or empty string
                                     status='completed',
                                     file_exists=True,
-                                    file_path=os.path.join(root, file),
+                                    file_path=video_file_path,
                                     completed_at=datetime.utcnow()
                                 )
                                 db.add(download)
                                 stats["added"] += 1
+
+                                # Log if upload_date was successfully populated
+                                if upload_date:
+                                    logger.debug(f"Reindex: Populated upload_date={upload_date} for {video_id}")
+                                else:
+                                    logger.debug(f"Reindex: Could not extract upload_date for {video_id}")
                             except Exception as e:
                                 stats["errors"].append(f"Failed to add record for {video_id}: {str(e)}")
         

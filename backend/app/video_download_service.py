@@ -352,7 +352,9 @@ class VideoDownloadService:
 
         for ext in self.VIDEO_EXTENSIONS:
             if video_file_path.endswith(ext):
-                info_json_path = video_file_path.replace(ext, '.info.json')
+                # Use string slicing instead of replace() to avoid issues when
+                # the extension appears earlier in the path (e.g., "My.mkv Collection")
+                info_json_path = video_file_path[:-len(ext)] + '.info.json'
                 break
 
         # Fallback: append .info.json if no extension matched
