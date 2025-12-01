@@ -271,9 +271,22 @@ class VideoDownloadService:
                 return False, download  # Skip - found on disk with metadata
             else:
                 # No valid metadata - treat as needs download
-                # This will re-download to regenerate .info.json
+                #
+                # Edge Case Behavior: Video file exists but both .info.json and embedded
+                # metadata are missing/corrupt. We choose to re-download because:
+                #
+                # 1. Without metadata, we can't properly organize or track the video
+                # 2. Re-download will regenerate .info.json with complete YouTube metadata
+                # 3. yt-dlp will skip actual download if file hash matches (saves bandwidth)
+                # 4. This ensures data quality - we never have incomplete records
+                #
+                # Trade-off: Might re-download large files if .info.json was manually deleted
+                # Alternative: Could implement metadata-repair mode (fetch info without download)
+                #
+                # Why this design: Favors data quality over avoiding re-downloads. In practice,
+                # missing .info.json is rare (only happens with manual file operations or corruption).
                 logger.warning(
-                    f"Video {video_id} exists but no valid metadata - will re-download"
+                    f"Video {video_id} exists but no valid metadata - will re-download to regenerate .info.json"
                 )
                 return True, None
 
@@ -406,7 +419,7 @@ class VideoDownloadService:
 
     def extract_upload_date_from_info_json(self, video_file_path: str) -> Optional[str]:
         """
-        Extract upload_date from the .info.json file created by yt-dlp.
+        Extract ONLY upload_date from the .info.json file created by yt-dlp.
 
         After yt-dlp downloads a video, it creates a .info.json file alongside
         the video file containing full metadata. We read this file to populate
@@ -414,6 +427,18 @@ class VideoDownloadService:
 
         This is a public method as it's used by both the download service and the
         reindex functionality in the API module.
+
+        NOTE: This method is NOT deprecated. It serves a different purpose than
+        extract_video_metadata():
+        - extract_upload_date_from_info_json(): Use when you ONLY need upload_date
+          (e.g., backfilling existing records, post-download date extraction)
+        - extract_video_metadata(): Use when you need COMPLETE metadata
+          (e.g., creating new records, reindex, video discovery)
+
+        Use cases for this method:
+        1. Backfilling upload_date for existing records that have titles
+        2. Extracting upload_date during/after video download
+        3. Any scenario where only the date is needed (more efficient than full extraction)
 
         Args:
             video_file_path: Full path to the video file (e.g., /path/video.mkv)

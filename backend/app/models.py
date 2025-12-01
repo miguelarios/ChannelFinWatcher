@@ -80,7 +80,7 @@ class Download(Base):
     file_exists = Column(Boolean, default=True, nullable=False)  # Track if downloaded file exists on disk
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
-    deleted_at = Column(DateTime, nullable=True, index=True)  # When video file was deleted (NULL = not deleted)
+    deleted_at = Column(DateTime, nullable=True)  # When video file was deleted (NULL = not deleted)
 
     # Relationships
     channel = relationship("Channel", back_populates="downloads")
