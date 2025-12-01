@@ -384,7 +384,7 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
                                 stats["found"] += 1
 
                                 # Try to backfill upload_date if missing
-                                if not download.upload_date or download.upload_date == '':
+                                if not download.upload_date:
                                     video_file_path = os.path.join(root, file)
                                     upload_date = video_download_service.extract_upload_date_from_info_json(video_file_path)
                                     if upload_date:
@@ -401,7 +401,7 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
                                     channel_id=channel_id,
                                     video_id=video_id,
                                     title=file.split('[')[0].strip() if '[' in file else "Found on disk",
-                                    upload_date=upload_date or '',  # Use extracted date or empty string
+                                    upload_date=upload_date,  # Use extracted date or NULL
                                     status='completed',
                                     file_exists=True,
                                     file_path=video_file_path,

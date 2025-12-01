@@ -672,13 +672,13 @@ class VideoDownloadService:
                 download.status = 'downloading'
                 download.error_message = None
             else:
-                # Note: upload_date from flat extraction is usually empty
+                # Note: upload_date from flat extraction is usually NULL/None
                 # We'll populate it from .info.json after download completes
                 download = Download(
                     channel_id=channel.id,
                     video_id=video_id,
                     title=video_title,
-                    upload_date=video_info.get('upload_date', ''),
+                    upload_date=video_info.get('upload_date'),  # Returns None if not found
                     duration=video_info.get('duration_string'),
                     status='downloading'
                 )
@@ -724,7 +724,7 @@ class VideoDownloadService:
                     # metadata is populated before marking the record as complete.
                     # ========================================================================
 
-                    if not download.upload_date or download.upload_date == '':
+                    if not download.upload_date:
                         # Wait for .info.json file to be fully written by yt-dlp
                         # This is more robust than a fixed sleep, especially on slow
                         # systems or network-mounted storage
