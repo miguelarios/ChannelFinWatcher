@@ -244,17 +244,32 @@ class VideoDownloadService:
         settings = get_settings()
         channel_dir = channel_dir_name(channel)  # Helper function for safe path construction
         media_path = os.path.join(settings.media_dir, channel_dir)
-        if self.check_video_on_disk(video_id, media_path):
+        video_file_path = self._find_video_file_path(video_id, media_path)
+
+        if video_file_path:
+            # Extract title from filename or .info.json
+            title = self._extract_title_from_file(video_file_path)
+
+            # Extract upload_date from .info.json if available
+            upload_date = self.extract_upload_date_from_info_json(video_file_path)
+
             # Create DB record for existing file
             download = Download(
                 channel_id=channel.id,
                 video_id=video_id,
-                title="Found on disk",
+                title=title,
+                upload_date=upload_date,
+                file_path=video_file_path,
                 status='completed',
                 file_exists=True
             )
             db.add(download)
             db.commit()
+
+            logger.debug(
+                f"Created DB record for existing file: {title} "
+                f"(video_id={video_id}, upload_date={upload_date})"
+            )
             return False, download  # Skip - found on disk
         
         return True, None  # Need to download
@@ -466,7 +481,206 @@ class VideoDownloadService:
         except Exception as e:
             logger.warning(f"Unexpected error reading {info_json_path}: {e}")
             return None
-    
+
+    def extract_video_metadata(self, video_file_path: str) -> Optional[Dict]:
+        """
+        Extract video metadata with fallback chain.
+
+        Priority order:
+        1. Try .info.json (YouTube metadata) - most complete
+        2. Fall back to embedded video metadata (ffprobe) - survives renames
+        3. Return None if neither available
+
+        This is a public method used by both reindex and should_skip_video.
+
+        Args:
+            video_file_path: Full path to the video file
+
+        Returns:
+            Dict with metadata (title, upload_date, description, etc.) or None
+
+        Example:
+            metadata = extract_video_metadata("/path/to/video.mp4")
+            if metadata:
+                title = metadata['title']
+                upload_date = metadata.get('upload_date')
+        """
+        # Try .info.json first
+        metadata = self._extract_from_info_json(video_file_path)
+        if metadata and metadata.get('title'):
+            logger.debug(f"Extracted metadata from .info.json for {os.path.basename(video_file_path)}")
+            return metadata
+
+        # Fallback to embedded video metadata
+        metadata = self._extract_from_video_file(video_file_path)
+        if metadata and metadata.get('title'):
+            logger.debug(f"Extracted metadata from video file for {os.path.basename(video_file_path)}")
+            return metadata
+
+        logger.warning(f"Could not extract metadata for {video_file_path}")
+        return None
+
+    def _extract_from_info_json(self, video_file_path: str) -> Optional[Dict]:
+        """
+        Extract ALL metadata from .info.json file.
+
+        This reads the complete metadata JSON created by yt-dlp and returns
+        relevant fields for database storage.
+
+        Args:
+            video_file_path: Full path to the video file
+
+        Returns:
+            Dict with extracted fields or None
+        """
+        if not video_file_path:
+            return None
+
+        # Derive .info.json path from video file path
+        info_json_path = None
+        for ext in self.VIDEO_EXTENSIONS:
+            if video_file_path.endswith(ext):
+                info_json_path = video_file_path[:-len(ext)] + '.info.json'
+                break
+
+        if not info_json_path:
+            info_json_path = f"{video_file_path}.info.json"
+
+        # Read and parse .info.json
+        try:
+            if not os.path.exists(info_json_path):
+                logger.debug(f"info.json not found at {info_json_path}")
+                return None
+
+            with open(info_json_path, 'r', encoding='utf-8') as f:
+                info_data = json.load(f)
+
+                # Extract all relevant metadata fields
+                metadata = {
+                    'title': info_data.get('title'),
+                    'upload_date': info_data.get('upload_date'),
+                    'description': info_data.get('description'),
+                    'duration': info_data.get('duration'),
+                    'view_count': info_data.get('view_count')
+                }
+
+                # Validate upload_date format if present
+                if metadata['upload_date']:
+                    upload_date_str = str(metadata['upload_date'])
+                    if len(upload_date_str) == 8 and upload_date_str.isdigit():
+                        try:
+                            datetime.strptime(upload_date_str, '%Y%m%d')
+                        except ValueError:
+                            logger.warning(f"Invalid upload_date in .info.json: {upload_date_str}")
+                            metadata['upload_date'] = None
+                    else:
+                        metadata['upload_date'] = None
+
+                return metadata if metadata.get('title') else None
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"JSON parse error reading {info_json_path}: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"Error reading {info_json_path}: {e}")
+            return None
+
+    def _extract_from_video_file(self, video_file_path: str) -> Optional[Dict]:
+        """
+        Extract metadata from video file itself using ffprobe.
+
+        This reads embedded metadata tags that are stored in the video container.
+        Works as a fallback when .info.json is missing or corrupted.
+
+        Args:
+            video_file_path: Full path to the video file
+
+        Returns:
+            Dict with extracted metadata or None
+        """
+        try:
+            import subprocess
+
+            result = subprocess.run(
+                ['ffprobe', '-v', 'quiet', '-print_format', 'json',
+                 '-show_format', video_file_path],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                format_tags = data.get('format', {}).get('tags', {})
+
+                # Extract metadata from common tag fields
+                # Different containers use different tag names
+                metadata = {
+                    'title': (format_tags.get('title') or
+                             format_tags.get('TITLE') or
+                             format_tags.get('Title')),
+                    'upload_date': self._parse_creation_time(
+                        format_tags.get('creation_time') or
+                        format_tags.get('CREATION_TIME') or
+                        format_tags.get('date') or
+                        format_tags.get('DATE')
+                    ),
+                    'description': (format_tags.get('comment') or
+                                   format_tags.get('COMMENT') or
+                                   format_tags.get('description') or
+                                   format_tags.get('DESCRIPTION'))
+                }
+
+                return metadata if metadata.get('title') else None
+
+        except subprocess.TimeoutExpired:
+            logger.warning(f"ffprobe timeout for {video_file_path}")
+            return None
+        except FileNotFoundError:
+            logger.warning("ffprobe not found - cannot extract embedded metadata")
+            return None
+        except Exception as e:
+            logger.debug(f"Could not extract metadata from video file: {e}")
+            return None
+
+    def _parse_creation_time(self, creation_time_str: Optional[str]) -> Optional[str]:
+        """
+        Parse creation_time from video metadata and convert to YYYYMMDD format.
+
+        Video files store creation times in various formats:
+        - ISO 8601: "2023-11-15T14:30:00Z"
+        - Simple date: "2023-11-15"
+        - Other formats
+
+        Args:
+            creation_time_str: Creation time string from video metadata
+
+        Returns:
+            Date in YYYYMMDD format or None
+        """
+        if not creation_time_str:
+            return None
+
+        try:
+            # Try parsing ISO 8601 format (most common)
+            if 'T' in creation_time_str:
+                dt = datetime.fromisoformat(creation_time_str.replace('Z', '+00:00'))
+                return dt.strftime('%Y%m%d')
+
+            # Try simple date format YYYY-MM-DD
+            if '-' in creation_time_str:
+                parts = creation_time_str.split('-')
+                if len(parts) >= 3:
+                    year, month, day = parts[0], parts[1], parts[2]
+                    # Remove any time portion from day
+                    day = day.split('T')[0].split(' ')[0]
+                    return f"{year}{month.zfill(2)}{day.zfill(2)}"
+
+        except Exception as e:
+            logger.debug(f"Could not parse creation_time '{creation_time_str}': {e}")
+
+        return None
+
     def get_recent_videos(self, channel_url: str, limit: int = 10, channel_id: str = None) -> Tuple[bool, List[Dict], Optional[str]]:
         """
         Query channel for recent videos using robust fallback approach.
