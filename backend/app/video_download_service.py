@@ -119,7 +119,10 @@ class VideoDownloadService:
         # Add cookie file if it exists for age-restricted content
         if os.path.exists(self.cookie_file):
             self.download_opts['cookiefile'] = self.cookie_file
-        
+            logger.info(f"[VideoDownloadService] Using cookies file for downloads: {self.cookie_file}")
+        else:
+            logger.warning(f"[VideoDownloadService] Cookies file not found at {self.cookie_file} - downloads may be blocked by YouTube bot detection")
+
         # Query-only configuration for getting recent videos
         # Using flat-playlist approach for fast, lightweight video ID extraction
         self.query_opts = {
@@ -142,6 +145,9 @@ class VideoDownloadService:
         # Add cookie file to query_opts for auth/region context
         if os.path.exists(self.cookie_file):
             self.query_opts['cookiefile'] = self.cookie_file
+            logger.info(f"[VideoDownloadService] Using cookies file for video discovery: {self.cookie_file}")
+        else:
+            logger.warning(f"[VideoDownloadService] Cookies file not found for video discovery at {self.cookie_file}")
 
     def _filter_shorts(self, info, *, incomplete):
         """
