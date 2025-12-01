@@ -71,7 +71,12 @@ class VideoDownloadService:
         # Based on exact parameters from TDD reference bash script
         # Added anti-bot detection headers
         # Multi-client fallback strategy to handle YouTube changes
+        #
+        # IMPORTANT: YouTube requires JavaScript execution to decode video tokens
+        # We enable Node.js as the JS runtime (requires Node.js 20+)
+        # See: https://github.com/yt-dlp/yt-dlp/wiki/EJS
         self.download_opts = {
+            'js_runtimes': 'node',  # Enable Node.js for EJS (External JavaScript)
             'paths': {
                 'temp': self.temp_path,
                 'home': self.media_path
@@ -126,6 +131,7 @@ class VideoDownloadService:
         # Query-only configuration for getting recent videos
         # Using flat-playlist approach for fast, lightweight video ID extraction
         self.query_opts = {
+            'js_runtimes': 'node',  # Enable Node.js for EJS (External JavaScript)
             'quiet': True,
             'no_warnings': True,
             'extract_flat': True,   # Flat playlist - only get IDs and titles (like --flat-playlist)
@@ -954,7 +960,25 @@ class VideoDownloadService:
             # Configure yt-dlp for this specific video
             opts = self.download_opts.copy()
             video_url = f"https://www.youtube.com/watch?v={video_id}"
-            
+
+            # DEBUG: Verify cookies are being passed to yt-dlp
+            cookie_in_opts = opts.get('cookiefile')
+            if cookie_in_opts:
+                if os.path.exists(cookie_in_opts):
+                    cookie_size = os.path.getsize(cookie_in_opts)
+                    # Check cookie file format (first line should be Netscape header or comment)
+                    try:
+                        with open(cookie_in_opts, 'r') as f:
+                            first_line = f.readline().strip()
+                        logger.info(f"[COOKIE DEBUG] Passing cookies to yt-dlp: {cookie_in_opts} ({cookie_size} bytes)")
+                        logger.info(f"[COOKIE DEBUG] Cookie file first line: {first_line[:80]}...")
+                    except Exception as e:
+                        logger.warning(f"[COOKIE DEBUG] Could not read cookie file: {e}")
+                else:
+                    logger.error(f"[COOKIE DEBUG] Cookie file in opts but NOT FOUND on disk: {cookie_in_opts}")
+            else:
+                logger.warning(f"[COOKIE DEBUG] NO cookiefile in download options! This is the bug.")
+
             logger.info(f"Starting download: {video_title} ({video_id})")
             
             with yt_dlp.YoutubeDL(opts) as ydl:

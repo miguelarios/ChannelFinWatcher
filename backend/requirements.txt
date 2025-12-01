@@ -7,8 +7,10 @@ pydantic-settings==2.1.0
 python-multipart==0.0.6
 pyyaml==6.0.1
 apscheduler==3.10.4
-yt-dlp>=2025.09.26
-websockets==12.0
+# yt-dlp with [default] extra includes yt-dlp-ejs for YouTube JavaScript decoding
+# See: https://github.com/yt-dlp/yt-dlp/wiki/EJS
+yt-dlp[default]>=2025.09.26
+websockets>=13.0
 apprise==1.6.0
 python-dotenv==1.0.0
 black==23.11.0
