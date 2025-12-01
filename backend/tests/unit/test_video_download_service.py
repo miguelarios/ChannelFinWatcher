@@ -526,6 +526,78 @@ class TestVideoDownloadService:
         upload_date = service.extract_upload_date_from_info_json("")
         assert upload_date is None
 
+    def test_extract_upload_date_invalid_semantic_dates(self, mock_settings):
+        """Test that semantic date validation rejects invalid calendar dates."""
+        service = VideoDownloadService()
+
+        test_cases = [
+            ("99999999", "Invalid year"),        # Year 9999
+            ("20251399", "Invalid month"),       # Month 13
+            ("20251132", "Invalid day"),         # Day 32
+            ("20250230", "Invalid Feb 30"),      # Feb 30th doesn't exist
+            ("20230431", "Invalid April 31"),    # April 31st doesn't exist
+        ]
+
+        for invalid_date, description in test_cases:
+            # Create test files
+            test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123]", "2023")
+            os.makedirs(test_dir, exist_ok=True)
+
+            video_path = os.path.join(test_dir, f"Test Video [{description.replace(' ', '_')}].mkv")
+            info_json_path = os.path.join(test_dir, f"Test Video [{description.replace(' ', '_')}].info.json")
+
+            with open(info_json_path, 'w', encoding='utf-8') as f:
+                json.dump({"upload_date": invalid_date}, f)
+
+            upload_date = service.extract_upload_date_from_info_json(video_path)
+
+            assert upload_date is None, f"Expected None for {description} ({invalid_date}), got {upload_date}"
+
+    def test_wait_for_info_json_ready_success(self, mock_settings):
+        """Test that _wait_for_info_json_ready successfully detects a ready file."""
+        service = VideoDownloadService()
+
+        # Create test directory and files
+        test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123]", "2023")
+        os.makedirs(test_dir, exist_ok=True)
+
+        video_path = os.path.join(test_dir, "Test Video [xyz789].mkv")
+        info_json_path = os.path.join(test_dir, "Test Video [xyz789].info.json")
+
+        # Write .info.json file (simulating yt-dlp finished writing)
+        with open(info_json_path, 'w', encoding='utf-8') as f:
+            json.dump({"upload_date": "20231115", "title": "Test"}, f)
+
+        # Should detect file is ready quickly
+        result = service._wait_for_info_json_ready(video_path, timeout=5)
+
+        assert result is True
+
+    def test_wait_for_info_json_ready_timeout(self, mock_settings):
+        """Test that _wait_for_info_json_ready times out when file doesn't exist."""
+        service = VideoDownloadService()
+
+        # Create test directory but NO .info.json file
+        test_dir = os.path.join(mock_settings.media_dir, "Test Channel [UC123]", "2023")
+        os.makedirs(test_dir, exist_ok=True)
+
+        video_path = os.path.join(test_dir, "Test Video [missing].mkv")
+
+        # Should timeout after specified duration
+        result = service._wait_for_info_json_ready(video_path, timeout=0.5)
+
+        assert result is False
+
+    def test_wait_for_info_json_ready_null_path(self, mock_settings):
+        """Test that _wait_for_info_json_ready handles null path gracefully."""
+        service = VideoDownloadService()
+
+        result = service._wait_for_info_json_ready(None)
+        assert result is False
+
+        result = service._wait_for_info_json_ready("")
+        assert result is False
+
     def test_global_service_instance(self):
         """Test that global service instance is properly configured."""
         # The global instance should be importable and configured
