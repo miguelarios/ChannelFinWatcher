@@ -22,7 +22,8 @@ from app.utils import (
     ensure_directories,
     get_directory_info,
     initialize_default_settings,
-    sync_all_settings_to_yaml
+    sync_all_settings_to_yaml,
+    validate_cookies_file_format
 )
 from app.api import router as api_router
 from app.scheduler_service import scheduler_service
@@ -91,6 +92,16 @@ async def lifespan(app: FastAPI):
         # Ensure directories exist
         ensure_directories()
         logger.info("Directory structure verified")
+
+        # Validate cookies file format if it exists
+        # This helps users identify misconfigured cookie files early
+        cookies_path = settings.cookies_file
+        is_valid, validation_msg = validate_cookies_file_format(cookies_path)
+        if is_valid:
+            logger.info(f"Cookies file validated: {cookies_path}")
+        else:
+            # Log warning but don't fail startup - cookies are optional
+            logger.warning(validation_msg)
 
         # Run pending database migrations automatically
         # This ensures schema changes from Alembic migrations are applied

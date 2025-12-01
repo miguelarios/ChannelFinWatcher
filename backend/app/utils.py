@@ -487,6 +487,82 @@ def initialize_default_settings(db_session) -> bool:
         return False
 
 
+def validate_cookies_file_format(cookies_path: str) -> tuple[bool, str]:
+    """
+    Validate that a cookies file is in the Netscape format expected by yt-dlp.
+
+    The Netscape cookie format is a tab-separated file with either:
+    - A header line starting with "# Netscape HTTP Cookie File" or "# HTTP Cookie File"
+    - Or data lines with 7 tab-separated fields: domain, tailmatch, path, secure, expires, name, value
+
+    This validation helps users identify misconfigured cookie files early,
+    before downloads fail with cryptic yt-dlp errors.
+
+    Args:
+        cookies_path: Path to the cookies file to validate
+
+    Returns:
+        Tuple of (is_valid, message):
+        - (True, "success message") if file is valid Netscape format
+        - (False, "error message") if file doesn't exist, is empty, or wrong format
+
+    Example:
+        is_valid, msg = validate_cookies_file_format("/app/data/cookies.txt")
+        if not is_valid:
+            logger.warning(msg)
+    """
+    # Check if file exists
+    if not os.path.exists(cookies_path):
+        return False, f"Cookies file not found at '{cookies_path}'"
+
+    try:
+        with open(cookies_path, 'r', encoding='utf-8', errors='replace') as f:
+            lines = f.readlines()
+    except IOError as e:
+        return False, f"Could not read cookies file '{cookies_path}': {e}"
+
+    # Empty file check
+    if not lines:
+        return False, f"'{cookies_path}' is empty"
+
+    # Check for Netscape format indicators
+    has_netscape_header = False
+    has_valid_data_line = False
+
+    for line in lines:
+        line = line.strip()
+
+        # Skip empty lines
+        if not line:
+            continue
+
+        # Check for Netscape header comment
+        if line.startswith('#'):
+            lower_line = line.lower()
+            if 'netscape' in lower_line and 'cookie' in lower_line:
+                has_netscape_header = True
+            elif 'http cookie file' in lower_line:
+                has_netscape_header = True
+            continue
+
+        # Check for valid data line (7 tab-separated fields)
+        # Format: domain, tailmatch, path, secure, expires, name, value
+        fields = line.split('\t')
+        if len(fields) >= 7:
+            # Basic validation: tailmatch should be TRUE/FALSE, secure should be TRUE/FALSE
+            tailmatch = fields[1].upper()
+            secure = fields[3].upper()
+            if tailmatch in ('TRUE', 'FALSE') and secure in ('TRUE', 'FALSE'):
+                has_valid_data_line = True
+                break  # Found at least one valid line
+
+    # Determine result
+    if has_netscape_header or has_valid_data_line:
+        return True, f"Cookies file '{cookies_path}' appears to be valid Netscape format"
+    else:
+        return False, f"'{cookies_path}' does not look like a Netscape format cookies file"
+
+
 def sync_all_settings_to_yaml(db_session) -> bool:
     """
     Sync all application settings from database to YAML configuration.
