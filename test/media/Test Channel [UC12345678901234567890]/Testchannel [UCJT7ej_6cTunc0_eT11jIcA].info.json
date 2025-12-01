@@ -1,0 +1,49 @@
+{
+  "id": "UCJT7ej_6cTunc0_eT11jIcA",
+  "channel": "Testchannel",
+  "channel_id": "UCJT7ej_6cTunc0_eT11jIcA",
+  "title": "Testchannel - Videos",
+  "availability": null,
+  "channel_follower_count": 213,
+  "description": "",
+  "tags": [],
+  "thumbnails": [
+    {
+      "url": "https://yt3.googleusercontent.com/ytc/AIdro_kc8GV47CIqDAfP-_qOHwhxEFVyEZyY2OtN8bee2gI=s900-c-k-c0x00ffffff-no-rj",
+      "height": 900,
+      "width": 900,
+      "id": "0",
+      "resolution": "900x900"
+    },
+    {
+      "url": "https://yt3.googleusercontent.com/ytc/AIdro_kc8GV47CIqDAfP-_qOHwhxEFVyEZyY2OtN8bee2gI=s0",
+      "id": "avatar_uncropped",
+      "preference": 1
+    }
+  ],
+  "uploader_id": "@Testchannel",
+  "uploader_url": "https://www.youtube.com/@Testchannel",
+  "modified_date": null,
+  "view_count": null,
+  "playlist_count": null,
+  "uploader": "Testchannel",
+  "channel_url": "https://www.youtube.com/channel/UCJT7ej_6cTunc0_eT11jIcA",
+  "_type": "playlist",
+  "extractor_key": "YoutubeTab",
+  "extractor": "youtube:tab",
+  "webpage_url": "https://www.youtube.com/@TestChannel/videos",
+  "original_url": "https://www.youtube.com/@TestChannel",
+  "webpage_url_basename": "videos",
+  "webpage_url_domain": "youtube.com",
+  "release_year": null,
+  "requested_entries": [
+    1
+  ],
+  "epoch": 1764596035,
+  "_version": {
+    "version": "2025.11.12",
+    "current_git_head": null,
+    "release_git_head": "335653be82d5ef999cfc2879d005397402eebec1",
+    "repository": "yt-dlp/yt-dlp"
+  }
+}

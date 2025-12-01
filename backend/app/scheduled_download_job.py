@@ -384,10 +384,14 @@ async def cleanup_old_videos(channel: Channel, db: Session) -> int:
     try:
         # Query all completed downloads with existing files, sorted to put NULLs first, then oldest to newest
         # This ensures videos without upload_date metadata are deleted first, followed by oldest videos
+        #
+        # IMPORTANT: Filter for deleted_at IS NULL to prevent edge case where a manually restored
+        # deleted video (file_exists=True but deleted_at NOT NULL) would be incorrectly counted
         downloads = db.query(Download).filter(
             Download.channel_id == channel.id,
             Download.status == "completed",
-            Download.file_exists == True
+            Download.file_exists == True,
+            Download.deleted_at.is_(None)  # Only count active videos, not manually restored deleted ones
         ).order_by(
             Download.upload_date.is_(None).desc(),  # NULLs first (they're old videos without metadata)
             Download.upload_date.asc()               # Then oldest to newest by actual date
