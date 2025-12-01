@@ -300,19 +300,23 @@ async def refresh_channel_metadata(channel_id: int, db: Session = Depends(get_db
 async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
     """
     Reindex a channel's media folder to sync database with disk state.
-    
+
+    NOTE: This endpoint is not protected against concurrent execution.
+    Running multiple reindex operations simultaneously may create duplicate records.
+    For production use, consider adding application-level locking similar to scheduler_lock.
+
     This will:
     - Find all video files on disk
     - Update/create Download records to match
     - Mark missing files as file_exists=False
-    
+
     Args:
         channel_id: Database ID of channel to reindex
         db: Database session
-        
+
     Returns:
         dict: Statistics about reindex operation
-        
+
     Raises:
         HTTPException 404: If channel not found
     """

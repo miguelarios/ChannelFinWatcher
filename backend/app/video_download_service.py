@@ -628,6 +628,21 @@ class VideoDownloadService:
         Returns:
             Dict with extracted metadata or None
         """
+        # Validate and normalize path before calling subprocess
+        # This prevents crashes from malformed paths or missing files
+        try:
+            video_file_path = str(Path(video_file_path).resolve())
+            if not os.path.exists(video_file_path):
+                logger.debug(f"Video file does not exist: {video_file_path}")
+                return None
+            if not os.path.isfile(video_file_path):
+                logger.debug(f"Path is not a file: {video_file_path}")
+                return None
+        except Exception as e:
+            logger.warning(f"Invalid video file path: {e}")
+            return None
+
+        # Extract metadata using ffprobe
         try:
             import subprocess
 
