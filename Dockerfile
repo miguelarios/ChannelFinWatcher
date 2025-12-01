@@ -5,7 +5,7 @@
 # =============================================================================
 # Stage 1: Build Frontend
 # =============================================================================
-FROM node:18-alpine AS frontend-builder
+FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
@@ -47,8 +47,10 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js for running frontend (minimal installation)
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+# Install Node.js 20+ for running frontend AND yt-dlp EJS (External JavaScript)
+# yt-dlp requires Node.js 20+ to decode YouTube's obfuscated video tokens
+# See: https://github.com/yt-dlp/yt-dlp/wiki/EJS
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
