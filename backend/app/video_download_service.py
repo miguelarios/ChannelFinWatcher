@@ -767,7 +767,7 @@ class VideoDownloadService:
             fallback_attempts.append({
                 'url': f"https://www.youtube.com/channel/{channel_id}/videos",
                 'description': 'channel videos tab',
-                'opts_override': {'extractor_args': {'youtube': {'tab': ['videos']}}}
+                'opts_override': {}  # Auto-detect from URL suffix
             })
 
         # 2. Uploads playlist (fallback - includes shorts and lives)
