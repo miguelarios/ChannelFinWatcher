@@ -63,8 +63,10 @@ class YouTubeService:
         # Add cookies file if it exists
         if os.path.exists(settings.cookies_file):
             self.base_ydl_opts['cookiefile'] = settings.cookies_file
-            logger.info(f"Using cookies file: {settings.cookies_file}")
-        
+            logger.info(f"[YouTubeService] Using cookies file: {settings.cookies_file}")
+        else:
+            logger.warning(f"[YouTubeService] Cookies file not found at {settings.cookies_file}")
+
         # Legacy ydl_opts for backward compatibility (basic extraction)
         self.ydl_opts = {**self.base_ydl_opts, 'extract_flat': True}
     
