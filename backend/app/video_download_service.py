@@ -247,31 +247,36 @@ class VideoDownloadService:
         video_file_path = self._find_video_file_path(video_id, media_path)
 
         if video_file_path:
-            # Extract title from filename or .info.json
-            title = self._extract_title_from_file(video_file_path)
+            # Extract metadata (.info.json + embedded fallback)
+            metadata = self.extract_video_metadata(video_file_path)
 
-            # Extract upload_date from .info.json if available
-            upload_date = self.extract_upload_date_from_info_json(video_file_path)
+            if metadata and metadata.get('title'):
+                # Create DB record for existing file with real metadata
+                download = Download(
+                    channel_id=channel.id,
+                    video_id=video_id,
+                    title=metadata['title'],
+                    upload_date=metadata.get('upload_date'),
+                    file_path=video_file_path,
+                    status='completed',
+                    file_exists=True
+                )
+                db.add(download)
+                db.commit()
 
-            # Create DB record for existing file
-            download = Download(
-                channel_id=channel.id,
-                video_id=video_id,
-                title=title,
-                upload_date=upload_date,
-                file_path=video_file_path,
-                status='completed',
-                file_exists=True
-            )
-            db.add(download)
-            db.commit()
+                logger.debug(
+                    f"Created DB record for existing file: {metadata['title']} "
+                    f"(video_id={video_id}, upload_date={metadata.get('upload_date')})"
+                )
+                return False, download  # Skip - found on disk with metadata
+            else:
+                # No valid metadata - treat as needs download
+                # This will re-download to regenerate .info.json
+                logger.warning(
+                    f"Video {video_id} exists but no valid metadata - will re-download"
+                )
+                return True, None
 
-            logger.debug(
-                f"Created DB record for existing file: {title} "
-                f"(video_id={video_id}, upload_date={upload_date})"
-            )
-            return False, download  # Skip - found on disk
-        
         return True, None  # Need to download
     
     def check_video_on_disk(self, video_id: str, media_path: str) -> bool:
