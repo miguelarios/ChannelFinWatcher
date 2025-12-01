@@ -1,4 +1,9 @@
-channels: []
+channels:
+- url: https://www.youtube.com/@TestChannel
+  name: Testchannel
+  limit: 10
+  enabled: true
+  quality_preset: best
 settings:
   default_video_limit: 10
   default_quality_preset: best
@@ -8,3 +13,5 @@ settings:
   scheduler_running: 'false'
   scheduler_last_run: null
   scheduler_next_run: null
+  nfo_enabled: 'true'
+  nfo_overwrite_existing: 'false'

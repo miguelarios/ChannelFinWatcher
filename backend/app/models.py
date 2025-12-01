@@ -80,6 +80,7 @@ class Download(Base):
     file_exists = Column(Boolean, default=True, nullable=False)  # Track if downloaded file exists on disk
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
+    deleted_at = Column(DateTime, nullable=True)  # When video file was deleted (NULL = not deleted)
 
     # Relationships
     channel = relationship("Channel", back_populates="downloads")
@@ -90,6 +91,7 @@ class Download(Base):
         Index('idx_download_video_id', 'video_id'),
         Index('idx_download_upload_date', 'upload_date'),
         Index('idx_download_file_exists', 'file_exists'),
+        Index('idx_download_deleted_at', 'deleted_at'),  # For cleanup and history queries
     )
 
 

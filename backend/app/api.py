@@ -300,19 +300,23 @@ async def refresh_channel_metadata(channel_id: int, db: Session = Depends(get_db
 async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
     """
     Reindex a channel's media folder to sync database with disk state.
-    
+
+    NOTE: This endpoint is not protected against concurrent execution.
+    Running multiple reindex operations simultaneously may create duplicate records.
+    For production use, consider adding application-level locking similar to scheduler_lock.
+
     This will:
     - Find all video files on disk
     - Update/create Download records to match
     - Mark missing files as file_exists=False
-    
+
     Args:
         channel_id: Database ID of channel to reindex
         db: Database session
-        
+
     Returns:
         dict: Statistics about reindex operation
-        
+
     Raises:
         HTTPException 404: If channel not found
     """
@@ -352,6 +356,7 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
         "found": 0,
         "missing": 0,
         "added": 0,
+        "skipped": 0,  # Videos without valid metadata
         "errors": []
     }
     
@@ -393,28 +398,29 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
                         else:
                             # Create new record for orphaned file
                             try:
-                                # Attempt to populate upload_date from .info.json file
+                                # Extract metadata (.info.json + embedded fallback)
                                 video_file_path = os.path.join(root, file)
-                                upload_date = video_download_service.extract_upload_date_from_info_json(video_file_path)
+                                metadata = video_download_service.extract_video_metadata(video_file_path)
 
-                                download = Download(
-                                    channel_id=channel_id,
-                                    video_id=video_id,
-                                    title=file.split('[')[0].strip() if '[' in file else "Found on disk",
-                                    upload_date=upload_date,  # Use extracted date or NULL
-                                    status='completed',
-                                    file_exists=True,
-                                    file_path=video_file_path,
-                                    completed_at=datetime.utcnow()
-                                )
-                                db.add(download)
-                                stats["added"] += 1
-
-                                # Log if upload_date was successfully populated
-                                if upload_date:
-                                    logger.debug(f"Reindex: Populated upload_date={upload_date} for {video_id}")
+                                if metadata and metadata.get('title'):
+                                    # Create DB record with real metadata
+                                    download = Download(
+                                        channel_id=channel_id,
+                                        video_id=video_id,
+                                        title=metadata['title'],
+                                        upload_date=metadata.get('upload_date'),
+                                        status='completed',
+                                        file_exists=True,
+                                        file_path=video_file_path,
+                                        completed_at=datetime.utcnow()
+                                    )
+                                    db.add(download)
+                                    stats["added"] += 1
+                                    logger.debug(f"Reindex: Added record with metadata for {video_id}: {metadata['title']}")
                                 else:
-                                    logger.debug(f"Reindex: Could not extract upload_date for {video_id}")
+                                    # Skip videos without valid metadata
+                                    stats["skipped"] += 1
+                                    logger.warning(f"Reindex: Skipping {video_id} - no valid metadata (.info.json or embedded)")
                             except Exception as e:
                                 stats["errors"].append(f"Failed to add record for {video_id}: {str(e)}")
         
