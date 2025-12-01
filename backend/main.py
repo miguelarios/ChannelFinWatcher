@@ -1,5 +1,17 @@
 """Main FastAPI application."""
 import logging
+
+# Configure logging FIRST, before any app imports
+# This ensures service initialization logging is captured
+# force=True is required because uvicorn configures logging before this module loads
+# Without force=True, basicConfig silently does nothing and logs are suppressed
+logging.basicConfig(level=logging.INFO, force=True)
+
+# Explicitly set INFO level for all app loggers to ensure they're not filtered
+# This is necessary because some loggers may inherit WARNING level from other configurations
+logging.getLogger('app').setLevel(logging.INFO)
+
+# Now import app modules (services will be instantiated with logging configured)
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
@@ -14,15 +26,6 @@ from app.utils import (
 )
 from app.api import router as api_router
 from app.scheduler_service import scheduler_service
-
-# Configure logging
-# force=True is required because uvicorn configures logging before this module loads
-# Without force=True, basicConfig silently does nothing and logs are suppressed
-logging.basicConfig(level=logging.INFO, force=True)
-
-# Explicitly set INFO level for all app loggers to ensure they're not filtered
-# This is necessary because some loggers may inherit WARNING level from other configurations
-logging.getLogger('app').setLevel(logging.INFO)
 
 
 class AccessLogFilter(logging.Filter):
