@@ -415,7 +415,7 @@ async def cleanup_old_videos(channel: Channel, db: Session) -> int:
         for download in videos_to_delete:
             try:
                 # Delete physical file/directory if it exists
-                if download.file_path:
+                if download.file_path and download.file_exists:
                     file_path = Path(download.file_path)
 
                     # Try to delete the parent directory (contains video + metadata + thumbnails)
@@ -427,13 +427,15 @@ async def cleanup_old_videos(channel: Channel, db: Session) -> int:
                     else:
                         logger.warning(f"Video directory not found (already deleted?): {video_dir}")
 
-                # Delete database record
-                db.delete(download)
+                # Mark database record as deleted (preserve history)
+                # Don't delete the record - just mark when it was removed from disk
+                download.file_exists = False
+                download.deleted_at = datetime.utcnow()
                 deleted_count += 1
                 deleted_video_names.append(download.title)  # Track for summary log
 
                 logger.debug(
-                    f"Deleted video '{download.title}' (ID: {download.video_id}, "
+                    f"Marked video as deleted '{download.title}' (ID: {download.video_id}, "
                     f"uploaded: {download.upload_date})"
                 )
 
@@ -442,13 +444,14 @@ async def cleanup_old_videos(channel: Channel, db: Session) -> int:
                 logger.error(
                     f"Failed to delete video '{download.title}' (ID: {download.video_id}): {e}"
                 )
-                # Still try to delete the DB record
+                # Still try to mark the DB record as deleted
                 try:
-                    db.delete(download)
+                    download.file_exists = False
+                    download.deleted_at = datetime.utcnow()
                     deleted_count += 1
                     deleted_video_names.append(download.title)  # Track even if file deletion failed
                 except Exception as db_error:
-                    logger.error(f"Failed to delete database record for video {download.video_id}: {db_error}")
+                    logger.error(f"Failed to mark database record as deleted for video {download.video_id}: {db_error}")
 
         # Commit all deletions
         db.commit()
