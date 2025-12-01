@@ -323,13 +323,16 @@ class VideoDownloadService:
         logger.warning(f"No video file found for video_id={video_id} in {channel_dir_path}")
         return None
 
-    def _extract_upload_date_from_info_json(self, video_file_path: str) -> Optional[str]:
+    def extract_upload_date_from_info_json(self, video_file_path: str) -> Optional[str]:
         """
         Extract upload_date from the .info.json file created by yt-dlp.
 
         After yt-dlp downloads a video, it creates a .info.json file alongside
         the video file containing full metadata. We read this file to populate
         the upload_date field in the database, which is needed for proper cleanup sorting.
+
+        This is a public method as it's used by both the download service and the
+        reindex functionality in the API module.
 
         Args:
             video_file_path: Full path to the video file (e.g., /path/video.mkv)
@@ -340,7 +343,7 @@ class VideoDownloadService:
         Example:
             video_path = "/media/Channel/2023/video [abc123].mkv"
             info_json_path = "/media/Channel/2023/video [abc123].info.json"
-            upload_date = _extract_upload_date_from_info_json(video_path)
+            upload_date = extract_upload_date_from_info_json(video_path)
             # Returns: "20231115"
         """
         if not video_file_path:
@@ -641,7 +644,6 @@ class VideoDownloadService:
                     download.file_exists = True
                     download.file_path = video_file_path
                     download.file_size = os.path.getsize(video_file_path)
-                    download.completed_at = datetime.utcnow()
 
                     # ========================================================================
                     # BACKFILL UPLOAD_DATE FROM .INFO.JSON
@@ -649,10 +651,13 @@ class VideoDownloadService:
                     # Why? Flat extraction doesn't provide upload_date, but yt-dlp writes
                     # it to .info.json during download. We read it back to populate the
                     # database for proper cleanup sorting by age.
+                    #
+                    # IMPORTANT: This happens BEFORE setting completed_at to ensure all
+                    # metadata is populated before marking the record as complete.
                     # ========================================================================
 
                     if not download.upload_date or download.upload_date == '':
-                        upload_date_from_json = self._extract_upload_date_from_info_json(video_file_path)
+                        upload_date_from_json = self.extract_upload_date_from_info_json(video_file_path)
                         if upload_date_from_json:
                             download.upload_date = upload_date_from_json
                             logger.debug(f"Populated upload_date={upload_date_from_json} from .info.json")
@@ -662,6 +667,8 @@ class VideoDownloadService:
                                 f"Cleanup logic will treat this as an old video."
                             )
 
+                    # Mark as completed AFTER all metadata is populated
+                    download.completed_at = datetime.utcnow()
                     db.commit()
 
                     # ========================================================================

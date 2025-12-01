@@ -409,7 +409,7 @@ class TestVideoDownloadService:
                 "id": "abc123"
             }, f)
 
-        upload_date = service._extract_upload_date_from_info_json(video_path)
+        upload_date = service.extract_upload_date_from_info_json(video_path)
 
         assert upload_date == "20231115"
 
@@ -420,7 +420,7 @@ class TestVideoDownloadService:
         # Path to non-existent video file
         video_path = "/nonexistent/path/video.mkv"
 
-        upload_date = service._extract_upload_date_from_info_json(video_path)
+        upload_date = service.extract_upload_date_from_info_json(video_path)
 
         assert upload_date is None
 
@@ -442,7 +442,7 @@ class TestVideoDownloadService:
                 "id": "xyz789"
             }, f)
 
-        upload_date = service._extract_upload_date_from_info_json(video_path)
+        upload_date = service.extract_upload_date_from_info_json(video_path)
 
         assert upload_date is None
 
@@ -469,7 +469,7 @@ class TestVideoDownloadService:
             with open(info_json_path, 'w', encoding='utf-8') as f:
                 json.dump({"upload_date": invalid_date}, f)
 
-            upload_date = service._extract_upload_date_from_info_json(video_path)
+            upload_date = service.extract_upload_date_from_info_json(video_path)
 
             assert upload_date is None, f"Expected None for {description}, got {upload_date}"
 
@@ -488,7 +488,7 @@ class TestVideoDownloadService:
         with open(info_json_path, 'w', encoding='utf-8') as f:
             f.write("{invalid json content")
 
-        upload_date = service._extract_upload_date_from_info_json(video_path)
+        upload_date = service.extract_upload_date_from_info_json(video_path)
 
         assert upload_date is None
 
@@ -510,7 +510,7 @@ class TestVideoDownloadService:
             with open(info_json_path, 'w', encoding='utf-8') as f:
                 json.dump({"upload_date": "20231120"}, f)
 
-            upload_date = service._extract_upload_date_from_info_json(video_path)
+            upload_date = service.extract_upload_date_from_info_json(video_path)
 
             assert upload_date == "20231120", f"Failed for extension {ext}"
 
@@ -519,11 +519,11 @@ class TestVideoDownloadService:
         service = VideoDownloadService()
 
         # Test None path
-        upload_date = service._extract_upload_date_from_info_json(None)
+        upload_date = service.extract_upload_date_from_info_json(None)
         assert upload_date is None
 
         # Test empty string path
-        upload_date = service._extract_upload_date_from_info_json("")
+        upload_date = service.extract_upload_date_from_info_json("")
         assert upload_date is None
 
     def test_global_service_instance(self):

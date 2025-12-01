@@ -385,21 +385,17 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
 
                                 # Try to backfill upload_date if missing
                                 if not download.upload_date or download.upload_date == '':
-                                    from app.video_download_service import video_download_service
                                     video_file_path = os.path.join(root, file)
-                                    upload_date = video_download_service._extract_upload_date_from_info_json(video_file_path)
+                                    upload_date = video_download_service.extract_upload_date_from_info_json(video_file_path)
                                     if upload_date:
                                         download.upload_date = upload_date
                                         logger.debug(f"Reindex: Backfilled upload_date={upload_date} for existing {video_id}")
                         else:
                             # Create new record for orphaned file
                             try:
-                                # Import video download service to extract upload_date from .info.json
-                                from app.video_download_service import video_download_service
-
                                 # Attempt to populate upload_date from .info.json file
                                 video_file_path = os.path.join(root, file)
-                                upload_date = video_download_service._extract_upload_date_from_info_json(video_file_path)
+                                upload_date = video_download_service.extract_upload_date_from_info_json(video_file_path)
 
                                 download = Download(
                                     channel_id=channel_id,
