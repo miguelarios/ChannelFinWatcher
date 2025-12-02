@@ -11,9 +11,9 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 20+ for yt-dlp JavaScript runtime requirement
+# Install Node.js 25 for yt-dlp JavaScript runtime requirement
 # yt-dlp now requires a JS runtime (Node/Deno/Bun) to execute YouTube player code
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+RUN curl -fsSL https://deb.nodesource.com/setup_25.x | bash - && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 

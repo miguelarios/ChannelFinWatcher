@@ -104,6 +104,7 @@ class VideoDownloadService:
             'quiet': not is_debug,           # Suppress output unless DEBUG
             'noprogress': not is_debug,      # Hide progress bars unless DEBUG
             'no_warnings': not is_debug,     # Hide warnings unless DEBUG
+            'js_runtimes': {'node': {}},  # Use Node.js runtime (fixes yt-dlp >=2025.09.26 validation error)
             # NOTE: Removed extractor_args player_client override
             # yt-dlp 2025.09.26+ has smart automatic client selection that works better
             # than manual overrides. Let yt-dlp choose the optimal client for each video.
@@ -137,6 +138,7 @@ class VideoDownloadService:
             'extract_flat': True,   # Flat playlist - only get IDs and titles (like --flat-playlist)
             'ignoreerrors': True,
             'match_filter': self._filter_shorts,  # Filter out YouTube Shorts at extraction time
+            'js_runtimes': {'node': {}},  # Use Node.js runtime (fixes yt-dlp >=2025.09.26 validation error)
             # NOTE: Removed extractor_args player_client override
             # yt-dlp 2025.09.26+ automatically selects optimal client
             # Minimal headers to avoid bot detection during light queries
