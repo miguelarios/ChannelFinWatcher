@@ -46,7 +46,7 @@ class YouTubeService:
             'quiet': True,
             'no_warnings': True,
             'ignoreerrors': True,
-            'js_runtimes': {},  # Disable JS runtime (fixes yt-dlp >=2025.09.26 validation error)
+            'js_runtimes': {'node': {}},  # Use Node.js runtime (fixes yt-dlp >=2025.09.26 validation error)
             # Anti-bot detection headers - crucial for avoiding 403 errors
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
