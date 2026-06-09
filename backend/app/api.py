@@ -340,7 +340,7 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
     except JobAlreadyRunningError:
         raise HTTPException(
             status_code=409,
-            detail="Another reindex operation is already running. Please wait for it to complete."
+            detail="A reindex is already in progress (possibly for another channel). Please wait and try again."
         )
 
 
@@ -953,9 +953,13 @@ async def list_all_downloads(
 
     downloads = []
     for download, channel_name in rows:
-        item = DownloadWithChannel.model_validate(download)
-        item.channel_name = channel_name
-        downloads.append(item)
+        # model_validate(download) populates all fields (including file_exists
+        # and deleted_at) from the ORM row; channel_name comes from the join
+        downloads.append(
+            DownloadWithChannel.model_validate(download).model_copy(
+                update={"channel_name": channel_name}
+            )
+        )
 
     return GlobalDownloadList(downloads=downloads, total=total)
 

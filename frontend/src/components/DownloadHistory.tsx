@@ -321,26 +321,24 @@ export function DownloadHistory() {
                   {downloads.map((download) => (
                     <tr key={download.id} className="hover:bg-gray-50">
                       <td className="px-3 py-3 max-w-md">
-                        <div className="flex items-start">
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-gray-900 truncate" title={download.title}>
-                              {download.title}
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate" title={download.title}>
+                            {download.title}
+                          </p>
+                          <a
+                            href={`https://www.youtube.com/watch?v=${download.video_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center text-xs text-gray-500 hover:text-red-600"
+                          >
+                            {download.video_id}
+                            <ExternalLinkIcon className="h-3 w-3 ml-1" />
+                          </a>
+                          {download.status === 'failed' && download.error_message && (
+                            <p className="text-xs text-red-600 mt-1 break-words line-clamp-2" title={download.error_message}>
+                              {download.error_message}
                             </p>
-                            <a
-                              href={`https://www.youtube.com/watch?v=${download.video_id}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center text-xs text-gray-500 hover:text-red-600"
-                            >
-                              {download.video_id}
-                              <ExternalLinkIcon className="h-3 w-3 ml-1" />
-                            </a>
-                            {download.status === 'failed' && download.error_message && (
-                              <p className="text-xs text-red-600 mt-1 break-words" title={download.error_message}>
-                                {download.error_message}
-                              </p>
-                            )}
-                          </div>
+                          )}
                         </div>
                       </td>
                       <td className="px-3 py-3 text-sm text-gray-700 whitespace-nowrap">

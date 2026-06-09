@@ -118,6 +118,37 @@ class TestGlobalDownloadsList:
         assert len(data["downloads"]) == 1
         assert data["downloads"][0]["video_id"] == "vid_a_done_1"
 
+    def test_file_state_fields_come_from_database(
+        self, test_client: TestClient, db_session: Session, two_channels_with_downloads
+    ):
+        """file_exists/deleted_at must reflect the ORM row, not schema defaults,
+        so the UI can show cleaned-up videos correctly."""
+        channel_a, _ = two_channels_with_downloads
+        cleanup_time = datetime.utcnow() - timedelta(minutes=30)
+        db_session.add(Download(
+            channel_id=channel_a.id,
+            video_id="vid_a_cleaned",
+            title="A Cleaned Up",
+            status="completed",
+            file_exists=False,
+            deleted_at=cleanup_time,
+            created_at=datetime.utcnow()
+        ))
+        db_session.commit()
+
+        response = test_client.get("/api/v1/downloads")
+
+        assert response.status_code == 200
+        by_video_id = {d["video_id"]: d for d in response.json()["downloads"]}
+
+        cleaned = by_video_id["vid_a_cleaned"]
+        assert cleaned["file_exists"] is False
+        assert cleaned["deleted_at"] is not None
+
+        intact = by_video_id["vid_a_done_1"]
+        assert intact["file_exists"] is True
+        assert intact["deleted_at"] is None
+
     def test_empty_database(self, test_client: TestClient):
         response = test_client.get("/api/v1/downloads")
 
@@ -142,7 +173,7 @@ class TestReindexLocking:
         response = test_client.post(f"/api/v1/channels/{channel_a.id}/reindex")
 
         assert response.status_code == 409
-        assert "already running" in response.json()["detail"]
+        assert "already in progress" in response.json()["detail"]
 
     def test_reindex_releases_lock_after_run(
         self, test_client: TestClient, db_session: Session, two_channels_with_downloads

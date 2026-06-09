@@ -90,6 +90,24 @@ describe('DownloadHistory Component', () => {
     expect(getAllByText('Failed').length).toBe(1)
   })
 
+  it('shows "Cleaned up" badge for completed downloads whose file was removed', async () => {
+    const cleanedUpDownload = {
+      ...mockDownloads[0],
+      id: 3,
+      video_id: 'ghi12345678',
+      title: 'Cleaned Up Video',
+      file_exists: false,
+      deleted_at: '2026-06-03T09:00:00',
+    }
+    global.fetch = jest.fn(mockFetchImplementation([cleanedUpDownload], 1)) as jest.Mock
+
+    render(<DownloadHistory />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Cleaned up')).toBeInTheDocument()
+    })
+  })
+
   it('shows error message for failed downloads', async () => {
     render(<DownloadHistory />)
 
