@@ -155,6 +155,19 @@ class DownloadList(BaseModel):
     total: int = Field(..., description="Total number of downloads")
 
 
+class DownloadWithChannel(Download):
+    """Download record enriched with channel info for the global history view."""
+    channel_name: Optional[str] = Field(None, description="Display name of the channel")
+    file_exists: bool = Field(default=True, description="Whether the downloaded file still exists on disk")
+    deleted_at: Optional[datetime] = Field(None, description="When the file was deleted by cleanup (null = not deleted)")
+
+
+class GlobalDownloadList(BaseModel):
+    """Schema for the global (cross-channel) download history view."""
+    downloads: List[DownloadWithChannel]
+    total: int = Field(..., description="Total number of downloads matching the filters")
+
+
 class DownloadTriggerResponse(BaseModel):
     """
     Schema for download trigger responses.
@@ -244,6 +257,18 @@ class DefaultVideoLimitResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# NFO settings schemas (Story 008)
+class NfoSettingsUpdate(BaseModel):
+    """
+    Schema for updating NFO generation settings.
+
+    Both fields are optional so callers can update them independently,
+    but at least one must be provided (enforced by the endpoint).
+    """
+    enabled: Optional[bool] = Field(None, description="Enable/disable NFO file generation for new downloads")
+    overwrite_existing: Optional[bool] = Field(None, description="Overwrite existing NFO files during regeneration")
 
 
 # Error response schemas
