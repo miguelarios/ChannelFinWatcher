@@ -158,6 +158,8 @@ class DownloadList(BaseModel):
 class DownloadWithChannel(Download):
     """Download record enriched with channel info for the global history view."""
     channel_name: Optional[str] = Field(None, description="Display name of the channel")
+    # file_exists/deleted_at exist on the ORM model but not on the parent Download
+    # schema; they're exposed here (only) so the history view can show cleaned-up videos
     file_exists: bool = Field(default=True, description="Whether the downloaded file still exists on disk")
     deleted_at: Optional[datetime] = Field(None, description="When the file was deleted by cleanup (null = not deleted)")
 

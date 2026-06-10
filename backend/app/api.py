@@ -1,6 +1,7 @@
 """API endpoints for the application."""
 import os
 import re
+import glob
 import logging
 from datetime import datetime
 from typing import List, Optional
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Channel, Download, DownloadHistory, ApplicationSettings
+from app.overlap_prevention import scheduler_lock, JobAlreadyRunningError
 from app.youtube_service import youtube_service
 from app.metadata_service import metadata_service
 from app.video_download_service import video_download_service
@@ -325,7 +327,6 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
         HTTPException 409: If another reindex operation is already running
     """
     from app.config import get_settings
-    from app.overlap_prevention import scheduler_lock, JobAlreadyRunningError
 
     channel = db.query(Channel).filter(Channel.id == channel_id).first()
     if not channel:
@@ -335,7 +336,7 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
 
     try:
         with scheduler_lock(db, "reindex"):
-            return _reindex_channel_media(channel, channel_id, settings, db)
+            return _reindex_channel_media(channel, settings, db)
     except JobAlreadyRunningError:
         raise HTTPException(
             status_code=409,
@@ -343,7 +344,7 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
         )
 
 
-def _reindex_channel_media(channel: Channel, channel_id: int, settings, db: Session) -> dict:
+def _reindex_channel_media(channel: Channel, settings, db: Session) -> dict:
     """Scan a channel's media directory and sync Download records with disk state."""
     # Find channel media directory - first try stored path, then directory search
     media_path = None
@@ -354,7 +355,6 @@ def _reindex_channel_media(channel: Channel, channel_id: int, settings, db: Sess
         logger.info(f"Using stored directory path for reindex: {media_path}")
     else:
         # Method 2: Fallback directory search
-        import glob
         all_dirs = glob.glob(os.path.join(settings.media_dir, '*/'))
         for directory in all_dirs:
             if channel.channel_id in os.path.basename(directory.rstrip('/')):
@@ -394,7 +394,7 @@ def _reindex_channel_media(channel: Channel, channel_id: int, settings, db: Sess
                         # Check if we have a record
                         download = db.query(Download).filter(
                             Download.video_id == video_id,
-                            Download.channel_id == channel_id
+                            Download.channel_id == channel.id
                         ).first()
                         
                         if download:
@@ -420,7 +420,7 @@ def _reindex_channel_media(channel: Channel, channel_id: int, settings, db: Sess
                                 if metadata and metadata.get('title'):
                                     # Create DB record with real metadata
                                     download = Download(
-                                        channel_id=channel_id,
+                                        channel_id=channel.id,
                                         video_id=video_id,
                                         title=metadata['title'],
                                         upload_date=metadata.get('upload_date'),
@@ -441,7 +441,7 @@ def _reindex_channel_media(channel: Channel, channel_id: int, settings, db: Sess
         
         # Mark missing files in database
         db_downloads = db.query(Download).filter(
-            Download.channel_id == channel_id,
+            Download.channel_id == channel.id,
             Download.status == 'completed'
         ).all()
         
@@ -459,7 +459,7 @@ def _reindex_channel_media(channel: Channel, channel_id: int, settings, db: Sess
         
     except Exception as e:
         db.rollback()
-        logger.error(f"Error during reindex of channel {channel_id}: {e}")
+        logger.error(f"Error during reindex of channel {channel.id}: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Reindex failed: {str(e)}"
@@ -504,7 +504,6 @@ async def delete_channel(
         logger.info(f"Using stored directory path: {media_path}")
     else:
         # Method 2: Fallback directory search
-        import glob
         all_dirs = glob.glob(os.path.join(settings.media_dir, '*/')) 
         for directory in all_dirs:
             if channel.channel_id in os.path.basename(directory.rstrip('/')):

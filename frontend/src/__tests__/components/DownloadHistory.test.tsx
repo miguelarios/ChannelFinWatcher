@@ -194,6 +194,8 @@ describe('DownloadHistory Component', () => {
   })
 
   it('enables Next and paginates when there are more results', async () => {
+    // total=75 with only 2 mock rows is intentional: pagination is driven by
+    // the API's total, not the row count, so we don't need 50 fixture rows
     global.fetch = jest.fn(mockFetchImplementation(mockDownloads, 75)) as jest.Mock
 
     render(<DownloadHistory />)
