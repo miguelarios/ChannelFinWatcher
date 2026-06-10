@@ -273,6 +273,51 @@ class NfoSettingsUpdate(BaseModel):
     overwrite_existing: Optional[bool] = Field(None, description="Overwrite existing NFO files during regeneration")
 
 
+# Dashboard schemas (US-009/US-012: status dashboard + storage monitoring)
+class DiskUsage(BaseModel):
+    """Disk capacity for the volume backing the media directory."""
+    total_bytes: int = Field(..., description="Total size of the volume")
+    used_bytes: int = Field(..., description="Bytes currently used on the volume")
+    free_bytes: int = Field(..., description="Bytes still available on the volume")
+    usage_percent: float = Field(..., description="Used percentage of the volume (0-100)")
+    warning: bool = Field(..., description="True when usage is at or above the warning threshold (80%)")
+
+
+class ChannelDashboardItem(BaseModel):
+    """Per-channel health and storage summary for the dashboard."""
+    id: int
+    name: str
+    url: str
+    enabled: bool
+    limit: int
+    metadata_status: str
+    video_count: int = Field(0, description="Number of downloaded videos currently on disk")
+    storage_bytes: int = Field(0, description="Total bytes used by this channel's videos")
+    last_check: Optional[datetime] = Field(None, description="Last time the channel was checked (null = never)")
+    last_run_status: Optional[str] = Field(None, description="Status of the most recent download run")
+    last_run_date: Optional[datetime] = Field(None, description="When the most recent download run started")
+    last_run_error: Optional[str] = Field(None, description="Error message from the most recent run, if failed")
+
+    class Config:
+        from_attributes = True
+
+
+class DashboardTotals(BaseModel):
+    """System-wide aggregates for the dashboard header."""
+    channels: int
+    enabled_channels: int
+    videos: int
+    storage_bytes: int
+
+
+class DashboardResponse(BaseModel):
+    """Aggregated payload for the channel status dashboard."""
+    disk: Optional[DiskUsage] = Field(None, description="Volume capacity info (null if media dir unavailable)")
+    totals: DashboardTotals
+    channels: List[ChannelDashboardItem]
+    generated_at: datetime
+
+
 # Error response schemas
 class ErrorDetail(BaseModel):
     """Error detail schema."""

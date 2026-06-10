@@ -2,10 +2,12 @@
 import os
 import re
 import glob
+import shutil
 import logging
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -30,6 +32,10 @@ from app.schemas import (
     GlobalDownloadList,
     DownloadHistory as DownloadHistorySchema,
     NfoSettingsUpdate,
+    DiskUsage,
+    ChannelDashboardItem,
+    DashboardTotals,
+    DashboardResponse,
     DownloadTriggerResponse,
     SchedulerStatusResponse,
     UpdateScheduleRequest,
@@ -894,6 +900,115 @@ async def get_channel_downloads(
     return DownloadList(
         downloads=downloads,
         total=total_downloads
+    )
+
+
+STORAGE_WARNING_THRESHOLD_PERCENT = 80.0
+
+
+@router.get("/dashboard", response_model=DashboardResponse)
+async def get_dashboard(db: Session = Depends(get_db)):
+    """
+    Get aggregated channel health and storage data for the status dashboard
+    (US-009: Channel Status Dashboard, US-012: Storage Usage Monitoring).
+
+    Returns, in a single round-trip:
+    - Disk capacity for the volume backing the media directory, with a
+      warning flag at >= 80% usage
+    - System-wide totals (channels, enabled channels, videos, storage)
+    - Per-channel summaries: video count vs limit, storage used, last check
+      time, and the status/error of the most recent download run
+
+    Storage per channel is aggregated from the database (sum of file_size for
+    completed downloads still on disk) rather than walking the filesystem, so
+    the endpoint stays fast regardless of library size.
+
+    Example:
+        GET /api/v1/dashboard
+    """
+    from app.config import get_settings
+    settings = get_settings()
+
+    channels = db.query(Channel).all()
+
+    # Per-channel video count and storage in one aggregate query
+    aggregates = db.query(
+        Download.channel_id,
+        func.count(Download.id).label("video_count"),
+        func.coalesce(func.sum(Download.file_size), 0).label("storage_bytes"),
+    ).filter(
+        Download.status == "completed",
+        Download.file_exists == True  # noqa: E712 (SQLAlchemy expression, not a bool comparison)
+    ).group_by(Download.channel_id).all()
+    stats_by_channel = {row.channel_id: row for row in aggregates}
+
+    # Most recent download run per channel (greatest run_date via self-join)
+    latest_run_subquery = db.query(
+        DownloadHistory.channel_id,
+        func.max(DownloadHistory.run_date).label("max_run_date"),
+    ).group_by(DownloadHistory.channel_id).subquery()
+
+    latest_runs = db.query(DownloadHistory).join(
+        latest_run_subquery,
+        (DownloadHistory.channel_id == latest_run_subquery.c.channel_id)
+        & (DownloadHistory.run_date == latest_run_subquery.c.max_run_date),
+    ).all()
+    run_by_channel = {run.channel_id: run for run in latest_runs}
+
+    items = []
+    total_videos = 0
+    total_storage = 0
+    for channel in channels:
+        stats = stats_by_channel.get(channel.id)
+        video_count = stats.video_count if stats else 0
+        storage_bytes = int(stats.storage_bytes) if stats else 0
+        total_videos += video_count
+        total_storage += storage_bytes
+
+        last_run = run_by_channel.get(channel.id)
+        items.append(ChannelDashboardItem(
+            id=channel.id,
+            name=channel.name,
+            url=channel.url,
+            enabled=channel.enabled,
+            limit=channel.limit,
+            metadata_status=channel.metadata_status,
+            video_count=video_count,
+            storage_bytes=storage_bytes,
+            last_check=channel.last_check,
+            last_run_status=last_run.status if last_run else None,
+            last_run_date=last_run.run_date if last_run else None,
+            last_run_error=last_run.error_message if last_run else None,
+        ))
+
+    # Most recently checked first; never-checked channels last
+    items.sort(key=lambda i: (i.last_check is None, -(i.last_check.timestamp() if i.last_check else 0)))
+
+    # Volume capacity (null rather than 500 if the media dir isn't mounted)
+    disk = None
+    try:
+        usage = shutil.disk_usage(settings.media_dir)
+        usage_percent = (usage.used / usage.total * 100) if usage.total > 0 else 0.0
+        disk = DiskUsage(
+            total_bytes=usage.total,
+            used_bytes=usage.used,
+            free_bytes=usage.free,
+            usage_percent=round(usage_percent, 1),
+            warning=usage_percent >= STORAGE_WARNING_THRESHOLD_PERCENT,
+        )
+    except OSError as e:
+        logger.warning(f"Could not read disk usage for {settings.media_dir}: {e}")
+
+    return DashboardResponse(
+        disk=disk,
+        totals=DashboardTotals(
+            channels=len(channels),
+            enabled_channels=sum(1 for c in channels if c.enabled),
+            videos=total_videos,
+            storage_bytes=total_storage,
+        ),
+        channels=items,
+        generated_at=datetime.utcnow(),
     )
 
 
