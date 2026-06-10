@@ -47,7 +47,7 @@ const mockChannels = [
   { id: 2, name: 'Channel B' },
 ]
 
-function mockFetchImplementation(downloads = mockDownloads, total = downloads.length) {
+function mockFetchImplementation(downloads: object[] = mockDownloads, total = downloads.length) {
   return (url: string) => {
     if (url.startsWith('/api/v1/channels')) {
       return Promise.resolve({

@@ -1,7 +1,7 @@
 import React from 'react'
-import { YoutubeIcon, Settings as SettingsIcon, HistoryIcon } from 'lucide-react'
+import { YoutubeIcon, Settings as SettingsIcon, HistoryIcon, ListIcon } from 'lucide-react'
 
-type ViewType = 'dashboard' | 'history' | 'settings'
+type ViewType = 'dashboard' | 'channels' | 'history' | 'settings'
 
 interface HeaderProps {
   currentView: ViewType
@@ -28,6 +28,17 @@ export function Header({ currentView, onViewChange }: HeaderProps) {
             }`}
           >
             Dashboard
+          </button>
+          <button
+            onClick={() => onViewChange('channels')}
+            className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+              currentView === 'channels'
+                ? 'bg-red-700 text-white'
+                : 'text-red-100 hover:text-white hover:bg-red-700'
+            }`}
+          >
+            <ListIcon className="h-4 w-4 mr-2" />
+            Channels
           </button>
           <button
             onClick={() => onViewChange('history')}

@@ -44,8 +44,23 @@ describe('Header Component', () => {
 
     // Verify all navigation options are available
     expect(screen.getByRole('button', { name: /dashboard/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /channels/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /history/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /settings/i })).toBeInTheDocument()
+  })
+
+  it('calls onViewChange with "channels" when channels button is clicked', () => {
+    render(
+      <Header
+        currentView="dashboard"
+        onViewChange={mockOnViewChange}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /channels/i }))
+
+    expect(mockOnViewChange).toHaveBeenCalledWith('channels')
+    expect(mockOnViewChange).toHaveBeenCalledTimes(1)
   })
 
   it('shows dashboard as active when currentView is dashboard', () => {

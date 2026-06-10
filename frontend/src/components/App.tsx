@@ -1,10 +1,11 @@
 import React, { useState } from 'react'
 import { Header } from './Header'
+import { ChannelStatusDashboard } from './ChannelStatusDashboard'
 import { YouTubeDownloader } from './YouTubeDownloader'
 import { DownloadHistory } from './DownloadHistory'
 import { Settings } from './Settings'
 
-type ViewType = 'dashboard' | 'history' | 'settings'
+type ViewType = 'dashboard' | 'channels' | 'history' | 'settings'
 
 export function App() {
   const [currentView, setCurrentView] = useState<ViewType>('dashboard')
@@ -21,6 +22,12 @@ export function App() {
       />
       <main className="container mx-auto px-4 py-8">
         {currentView === 'dashboard' && (
+          <ChannelStatusDashboard
+            onNavigateToChannels={() => handleViewChange('channels')}
+            onNavigateToSettings={() => handleViewChange('settings')}
+          />
+        )}
+        {currentView === 'channels' && (
           <YouTubeDownloader onNavigateToSettings={() => handleViewChange('settings')} />
         )}
         {currentView === 'history' && <DownloadHistory />}
