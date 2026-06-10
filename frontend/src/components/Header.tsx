@@ -1,9 +1,11 @@
 import React from 'react'
-import { YoutubeIcon, Settings as SettingsIcon } from 'lucide-react'
+import { YoutubeIcon, Settings as SettingsIcon, HistoryIcon } from 'lucide-react'
+
+type ViewType = 'dashboard' | 'history' | 'settings'
 
 interface HeaderProps {
-  currentView: 'dashboard' | 'settings'
-  onViewChange: (view: 'dashboard' | 'settings') => void
+  currentView: ViewType
+  onViewChange: (view: ViewType) => void
 }
 
 export function Header({ currentView, onViewChange }: HeaderProps) {
@@ -14,7 +16,7 @@ export function Header({ currentView, onViewChange }: HeaderProps) {
           <YoutubeIcon className="h-8 w-8 mr-3" />
           <h1 className="text-2xl font-bold">ChannelFinWatcher</h1>
         </div>
-        
+
         {/* Navigation */}
         <nav className="flex items-center space-x-4">
           <button
@@ -26,6 +28,17 @@ export function Header({ currentView, onViewChange }: HeaderProps) {
             }`}
           >
             Dashboard
+          </button>
+          <button
+            onClick={() => onViewChange('history')}
+            className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+              currentView === 'history'
+                ? 'bg-red-700 text-white'
+                : 'text-red-100 hover:text-white hover:bg-red-700'
+            }`}
+          >
+            <HistoryIcon className="h-4 w-4 mr-2" />
+            History
           </button>
           <button
             onClick={() => onViewChange('settings')}

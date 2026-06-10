@@ -1,13 +1,16 @@
 """API endpoints for the application."""
 import os
+import re
+import glob
 import logging
 from datetime import datetime
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Channel, Download, DownloadHistory, ApplicationSettings
+from app.overlap_prevention import scheduler_lock, JobAlreadyRunningError
 from app.youtube_service import youtube_service
 from app.metadata_service import metadata_service
 from app.video_download_service import video_download_service
@@ -23,7 +26,10 @@ from app.schemas import (
     DefaultVideoLimitResponse,
     Download as DownloadSchema,
     DownloadList,
+    DownloadWithChannel,
+    GlobalDownloadList,
     DownloadHistory as DownloadHistorySchema,
+    NfoSettingsUpdate,
     DownloadTriggerResponse,
     SchedulerStatusResponse,
     UpdateScheduleRequest,
@@ -301,9 +307,8 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
     """
     Reindex a channel's media folder to sync database with disk state.
 
-    NOTE: This endpoint is not protected against concurrent execution.
-    Running multiple reindex operations simultaneously may create duplicate records.
-    For production use, consider adding application-level locking similar to scheduler_lock.
+    Protected by an application-level lock (same mechanism as the scheduler)
+    so concurrent reindex operations cannot create duplicate records.
 
     This will:
     - Find all video files on disk
@@ -319,28 +324,38 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
 
     Raises:
         HTTPException 404: If channel not found
+        HTTPException 409: If another reindex operation is already running
     """
     from app.config import get_settings
-    from datetime import datetime
-    import re
-    
+
     channel = db.query(Channel).filter(Channel.id == channel_id).first()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    
+
     settings = get_settings()
-    
+
+    try:
+        with scheduler_lock(db, "reindex"):
+            return _reindex_channel_media(channel, settings, db)
+    except JobAlreadyRunningError:
+        raise HTTPException(
+            status_code=409,
+            detail="A reindex is already in progress (possibly for another channel). Please wait and try again."
+        )
+
+
+def _reindex_channel_media(channel: Channel, settings, db: Session) -> dict:
+    """Scan a channel's media directory and sync Download records with disk state."""
     # Find channel media directory - first try stored path, then directory search
     media_path = None
-    
+
     # Method 1: Try database-stored directory path
     if channel.directory_path and os.path.exists(channel.directory_path):
         media_path = channel.directory_path
         logger.info(f"Using stored directory path for reindex: {media_path}")
     else:
         # Method 2: Fallback directory search
-        import glob
-        all_dirs = glob.glob(os.path.join(settings.media_dir, '*/')) 
+        all_dirs = glob.glob(os.path.join(settings.media_dir, '*/'))
         for directory in all_dirs:
             if channel.channel_id in os.path.basename(directory.rstrip('/')):
                 media_path = directory.rstrip('/')
@@ -350,7 +365,7 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
                 db.commit()
                 logger.info(f"Found and saved media directory for reindex: {media_path}")
                 break
-    
+
     stats = {
         "channel": channel.name,
         "found": 0,
@@ -359,7 +374,7 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
         "skipped": 0,  # Videos without valid metadata
         "errors": []
     }
-    
+
     try:
         # Find all video files on disk
         video_ids_on_disk = set()
@@ -379,7 +394,7 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
                         # Check if we have a record
                         download = db.query(Download).filter(
                             Download.video_id == video_id,
-                            Download.channel_id == channel_id
+                            Download.channel_id == channel.id
                         ).first()
                         
                         if download:
@@ -405,7 +420,7 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
                                 if metadata and metadata.get('title'):
                                     # Create DB record with real metadata
                                     download = Download(
-                                        channel_id=channel_id,
+                                        channel_id=channel.id,
                                         video_id=video_id,
                                         title=metadata['title'],
                                         upload_date=metadata.get('upload_date'),
@@ -426,7 +441,7 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
         
         # Mark missing files in database
         db_downloads = db.query(Download).filter(
-            Download.channel_id == channel_id,
+            Download.channel_id == channel.id,
             Download.status == 'completed'
         ).all()
         
@@ -444,7 +459,7 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
         
     except Exception as e:
         db.rollback()
-        logger.error(f"Error during reindex of channel {channel_id}: {e}")
+        logger.error(f"Error during reindex of channel {channel.id}: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Reindex failed: {str(e)}"
@@ -489,7 +504,6 @@ async def delete_channel(
         logger.info(f"Using stored directory path: {media_path}")
     else:
         # Method 2: Fallback directory search
-        import glob
         all_dirs = glob.glob(os.path.join(settings.media_dir, '*/')) 
         for directory in all_dirs:
             if channel.channel_id in os.path.basename(directory.rstrip('/')):
@@ -881,6 +895,68 @@ async def get_channel_downloads(
         downloads=downloads,
         total=total_downloads
     )
+
+
+@router.get("/downloads", response_model=GlobalDownloadList)
+async def list_all_downloads(
+    channel_id: Optional[int] = Query(None, description="Filter by channel database ID"),
+    status: Optional[str] = Query(None, description="Filter by status (pending, downloading, completed, failed)"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of downloads to return"),
+    offset: int = Query(0, ge=0, description="Number of downloads to skip for pagination"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get download history across all channels (US-011: Download History View).
+
+    Returns a paginated list of individual video downloads across every channel,
+    ordered by creation date (most recent first). Each record includes the
+    channel name so the UI can display history without extra lookups.
+
+    Args:
+        channel_id: Optional channel filter
+        status: Optional status filter (pending, downloading, completed, failed)
+        limit: Maximum number of downloads to return (default: 50, max: 200)
+        offset: Number of downloads to skip for pagination (default: 0)
+        db: Database session dependency
+
+    Returns:
+        GlobalDownloadList: Paginated, filterable list of downloads
+
+    Example:
+        GET /api/v1/downloads?status=failed&limit=50&offset=0
+    """
+    valid_statuses = {"pending", "downloading", "completed", "failed"}
+    if status is not None and status not in valid_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status '{status}'. Must be one of: {', '.join(sorted(valid_statuses))}"
+        )
+
+    query = db.query(Download, Channel.name).join(
+        Channel, Download.channel_id == Channel.id
+    )
+
+    if channel_id is not None:
+        query = query.filter(Download.channel_id == channel_id)
+    if status is not None:
+        query = query.filter(Download.status == status)
+
+    query = query.order_by(Download.created_at.desc())
+
+    total = query.count()
+    rows = query.offset(offset).limit(limit).all()
+
+    downloads = []
+    for download, channel_name in rows:
+        # model_validate(download) populates all fields (including file_exists
+        # and deleted_at) from the ORM row; channel_name comes from the join
+        downloads.append(
+            DownloadWithChannel.model_validate(download).model_copy(
+                update={"channel_name": channel_name}
+            )
+        )
+
+    return GlobalDownloadList(downloads=downloads, total=total)
 
 
 @router.get("/downloads/{download_id}", response_model=DownloadSchema)
@@ -1378,7 +1454,7 @@ async def get_nfo_settings(db: Session = Depends(get_db)):
 
 @router.put("/settings/nfo", tags=["Settings"])
 async def update_nfo_settings(
-    settings: dict,
+    settings: NfoSettingsUpdate,
     db: Session = Depends(get_db)
 ):
     """
@@ -1409,15 +1485,15 @@ async def update_nfo_settings(
         from datetime import datetime
 
         # Validate input
-        if 'enabled' not in settings and 'overwrite_existing' not in settings:
+        if settings.enabled is None and settings.overwrite_existing is None:
             raise HTTPException(
                 status_code=400,
                 detail="At least one setting (enabled or overwrite_existing) must be provided"
             )
 
         # Update enabled setting if provided
-        if 'enabled' in settings:
-            enabled_value = "true" if settings['enabled'] else "false"
+        if settings.enabled is not None:
+            enabled_value = "true" if settings.enabled else "false"
             enabled_setting = db.query(ApplicationSettings).filter(
                 ApplicationSettings.key == 'nfo_enabled'
             ).first()
@@ -1436,11 +1512,11 @@ async def update_nfo_settings(
                 )
                 db.add(enabled_setting)
 
-            logger.info(f"NFO generation {'enabled' if settings['enabled'] else 'disabled'}")
+            logger.info(f"NFO generation {'enabled' if settings.enabled else 'disabled'}")
 
         # Update overwrite setting if provided
-        if 'overwrite_existing' in settings:
-            overwrite_value = "true" if settings['overwrite_existing'] else "false"
+        if settings.overwrite_existing is not None:
+            overwrite_value = "true" if settings.overwrite_existing else "false"
             overwrite_setting = db.query(ApplicationSettings).filter(
                 ApplicationSettings.key == 'nfo_overwrite_existing'
             ).first()
@@ -1459,25 +1535,32 @@ async def update_nfo_settings(
                 )
                 db.add(overwrite_setting)
 
-            logger.info(f"NFO overwrite existing set to {settings['overwrite_existing']}")
+            logger.info(f"NFO overwrite existing set to {settings.overwrite_existing}")
 
         # Commit changes
         db.commit()
 
         # Sync to YAML configuration
         try:
-            if 'enabled' in settings:
-                sync_setting_to_yaml('nfo_enabled', "true" if settings['enabled'] else "false")
-            if 'overwrite_existing' in settings:
-                sync_setting_to_yaml('nfo_overwrite_existing', "true" if settings['overwrite_existing'] else "false")
+            if settings.enabled is not None:
+                sync_setting_to_yaml('nfo_enabled', "true" if settings.enabled else "false")
+            if settings.overwrite_existing is not None:
+                sync_setting_to_yaml('nfo_overwrite_existing', "true" if settings.overwrite_existing else "false")
         except Exception as e:
             logger.warning(f"Failed to sync NFO settings to YAML: {e}")
             # Don't fail the request - database update succeeded
 
-        # Return updated settings
+        # Return updated settings (query current values so unchanged fields are accurate)
+        enabled_row = db.query(ApplicationSettings).filter(
+            ApplicationSettings.key == 'nfo_enabled'
+        ).first()
+        overwrite_row = db.query(ApplicationSettings).filter(
+            ApplicationSettings.key == 'nfo_overwrite_existing'
+        ).first()
+
         return {
-            "enabled": settings.get('enabled', enabled_setting.value == "true" if 'enabled_setting' in locals() else True),
-            "overwrite_existing": settings.get('overwrite_existing', overwrite_setting.value == "true" if 'overwrite_setting' in locals() else False),
+            "enabled": enabled_row.value == "true" if enabled_row else True,
+            "overwrite_existing": overwrite_row.value == "true" if overwrite_row else False,
             "message": "NFO settings updated successfully"
         }
 

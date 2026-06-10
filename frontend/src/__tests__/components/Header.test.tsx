@@ -34,16 +34,17 @@ describe('Header Component', () => {
     expect(screen.getByRole('banner')).toBeInTheDocument() // header has role="banner"
   })
 
-  it('renders both navigation buttons', () => {
+  it('renders all navigation buttons', () => {
     render(
-      <Header 
-        currentView="dashboard" 
-        onViewChange={mockOnViewChange} 
+      <Header
+        currentView="dashboard"
+        onViewChange={mockOnViewChange}
       />
     )
-    
-    // Verify both navigation options are available
+
+    // Verify all navigation options are available
     expect(screen.getByRole('button', { name: /dashboard/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /history/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /settings/i })).toBeInTheDocument()
   })
 
@@ -92,6 +93,36 @@ describe('Header Component', () => {
     
     // Verify the callback was called with correct parameter
     expect(mockOnViewChange).toHaveBeenCalledWith('dashboard')
+    expect(mockOnViewChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows history as active when currentView is history', () => {
+    render(
+      <Header
+        currentView="history"
+        onViewChange={mockOnViewChange}
+      />
+    )
+
+    const historyButton = screen.getByRole('button', { name: /history/i })
+    const dashboardButton = screen.getByRole('button', { name: /dashboard/i })
+
+    expect(historyButton).toHaveClass('bg-red-700')
+    expect(dashboardButton).not.toHaveClass('bg-red-700')
+  })
+
+  it('calls onViewChange with "history" when history button is clicked', () => {
+    render(
+      <Header
+        currentView="dashboard"
+        onViewChange={mockOnViewChange}
+      />
+    )
+
+    const historyButton = screen.getByRole('button', { name: /history/i })
+    fireEvent.click(historyButton)
+
+    expect(mockOnViewChange).toHaveBeenCalledWith('history')
     expect(mockOnViewChange).toHaveBeenCalledTimes(1)
   })
 
