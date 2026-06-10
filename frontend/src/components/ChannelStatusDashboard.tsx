@@ -295,6 +295,7 @@ export function ChannelStatusDashboard({
             <button
               onClick={() => fetchDashboard(true)}
               disabled={isLoading}
+              aria-label="Refresh dashboard"
               className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 transition-colors"
             >
               <RefreshCwIcon className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />

@@ -100,7 +100,8 @@ describe('ChannelStatusDashboard Component', () => {
   })
 
   afterEach(() => {
-    jest.restoreAllMocks()
+    // global.fetch is directly assigned (not spied), so restoreAllMocks() won't touch it
+    ;(global.fetch as jest.Mock).mockReset()
   })
 
   it('renders channel cards with video counts and storage', async () => {

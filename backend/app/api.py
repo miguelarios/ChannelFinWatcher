@@ -11,6 +11,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.config import get_settings
 from app.models import Channel, Download, DownloadHistory, ApplicationSettings
 from app.overlap_prevention import scheduler_lock, JobAlreadyRunningError
 from app.youtube_service import youtube_service
@@ -332,8 +333,6 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
         HTTPException 404: If channel not found
         HTTPException 409: If another reindex operation is already running
     """
-    from app.config import get_settings
-
     channel = db.query(Channel).filter(Channel.id == channel_id).first()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -489,8 +488,6 @@ async def delete_channel(
     Returns:
         dict: Deletion status with media deletion summary
     """
-    from app.config import get_settings
-    
     channel = db.query(Channel).filter(Channel.id == channel_id).first()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -926,7 +923,6 @@ async def get_dashboard(db: Session = Depends(get_db)):
     Example:
         GET /api/v1/dashboard
     """
-    from app.config import get_settings
     settings = get_settings()
 
     channels = db.query(Channel).all()
@@ -953,7 +949,12 @@ async def get_dashboard(db: Session = Depends(get_db)):
         (DownloadHistory.channel_id == latest_run_subquery.c.channel_id)
         & (DownloadHistory.run_date == latest_run_subquery.c.max_run_date),
     ).all()
-    run_by_channel = {run.channel_id: run for run in latest_runs}
+    # Tie-break identical run_dates by highest id so the result is deterministic
+    run_by_channel = {}
+    for run in latest_runs:
+        existing = run_by_channel.get(run.channel_id)
+        if existing is None or run.id > existing.id:
+            run_by_channel[run.channel_id] = run
 
     items = []
     total_videos = 0

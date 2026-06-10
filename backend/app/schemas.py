@@ -298,9 +298,6 @@ class ChannelDashboardItem(BaseModel):
     last_run_date: Optional[datetime] = Field(None, description="When the most recent download run started")
     last_run_error: Optional[str] = Field(None, description="Error message from the most recent run, if failed")
 
-    class Config:
-        from_attributes = True
-
 
 class DashboardTotals(BaseModel):
     """System-wide aggregates for the dashboard header."""
