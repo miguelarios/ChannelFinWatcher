@@ -1,5 +1,6 @@
 """API endpoints for the application."""
 import os
+import re
 import logging
 from datetime import datetime
 from typing import List, Optional
@@ -325,8 +326,6 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
     """
     from app.config import get_settings
     from app.overlap_prevention import scheduler_lock, JobAlreadyRunningError
-    from datetime import datetime
-    import re
 
     channel = db.query(Channel).filter(Channel.id == channel_id).first()
     if not channel:
@@ -346,9 +345,6 @@ async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
 
 def _reindex_channel_media(channel: Channel, channel_id: int, settings, db: Session) -> dict:
     """Scan a channel's media directory and sync Download records with disk state."""
-    from datetime import datetime
-    import re
-
     # Find channel media directory - first try stored path, then directory search
     media_path = None
 

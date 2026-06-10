@@ -149,6 +149,18 @@ class TestGlobalDownloadsList:
         assert intact["file_exists"] is True
         assert intact["deleted_at"] is None
 
+    def test_nonexistent_channel_filter_returns_empty_list(
+        self, test_client: TestClient, two_channels_with_downloads
+    ):
+        """Filtering by an unknown channel is a filter miss, not a lookup:
+        the endpoint intentionally returns an empty list rather than 404."""
+        response = test_client.get("/api/v1/downloads?channel_id=9999")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 0
+        assert data["downloads"] == []
+
     def test_empty_database(self, test_client: TestClient):
         response = test_client.get("/api/v1/downloads")
 
