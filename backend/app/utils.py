@@ -543,3 +543,34 @@ def sync_all_settings_to_yaml(db_session) -> bool:
     except Exception as e:
         logger.error(f"Failed to sync all settings to YAML: {e}")
         return False
+
+
+def is_retryable_error(error_message: str) -> bool:
+    """
+    Determine if a download error is transient and worth retrying.
+
+    Shared by channel-level retry (scheduled_download_job) and per-video
+    retry (video_download_service) so both layers agree on what counts
+    as transient.
+
+    Retryable: network timeouts, connection issues, rate limiting,
+    temporary service unavailability.
+    Non-retryable: deleted/private videos, invalid URLs, auth failures.
+
+    Args:
+        error_message: Error message string from a failed operation
+
+    Returns:
+        True if the error should be retried, False otherwise
+    """
+    if not error_message:
+        return False
+
+    retryable_keywords = [
+        "network", "timeout", "connection", "temporary",
+        "rate limit", "quota", "503", "502", "504",
+        "429"  # Too Many Requests
+    ]
+
+    error_lower = error_message.lower()
+    return any(keyword in error_lower for keyword in retryable_keywords)

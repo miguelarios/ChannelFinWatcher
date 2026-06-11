@@ -11,7 +11,7 @@ import yt_dlp
 
 from app.models import Channel, Download, DownloadHistory
 from app.config import get_settings
-from app.utils import channel_dir_name
+from app.utils import channel_dir_name, is_retryable_error
 from app.nfo_service import get_nfo_service
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,16 @@ class VideoDownloadService:
     # Recognized video file extensions
     # Used for file detection, verification, and .info.json path derivation
     VIDEO_EXTENSIONS = ('.mkv', '.mp4', '.webm', '.avi', '.mov', '.flv', '.m4v', '.3gp')
+
+    # Per-video retry policy:
+    # - Within a run: retry transient failures up to WITHIN_RUN_RETRIES extra
+    #   times with a short backoff (handles brief network hiccups)
+    # - Across runs: stop auto-attempting a failed video once retry_count
+    #   reaches MAX_AUTO_RETRIES (prevents hammering permanently broken videos
+    #   on every run; a manual retry resets the counter)
+    WITHIN_RUN_RETRIES = 2
+    RETRY_BACKOFF_SECONDS = 10
+    MAX_AUTO_RETRIES = 5
 
     def __init__(self):
         """
@@ -251,6 +261,14 @@ class VideoDownloadService:
         if download:
             if download.status == 'completed' and download.file_exists:
                 return False, download  # Skip - already have it
+            elif download.status == 'failed' and (download.retry_count or 0) >= self.MAX_AUTO_RETRIES:
+                # Permanently failing video - stop auto-retrying it every run.
+                # A manual retry (which resets retry_count) can revive it.
+                logger.debug(
+                    f"Skipping video {video_id}: failed {download.retry_count} times "
+                    f"(max auto-retries: {self.MAX_AUTO_RETRIES})"
+                )
+                return False, download
             elif not download.file_exists:
                 return True, download   # Re-download missing file
         
@@ -910,6 +928,55 @@ class VideoDownloadService:
         logger.error("All extraction attempts failed")
         return False, [], "Could not extract videos using any method"
     
+    def download_video_with_retry(self, video_info: Dict, channel: Channel, db: Session) -> Tuple[bool, Optional[str]]:
+        """
+        Download a single video, retrying transient failures within the run.
+
+        Wraps download_video with the per-video retry policy:
+        - Up to WITHIN_RUN_RETRIES extra attempts for retryable errors
+          (network/timeout/rate-limit), with a short backoff between attempts
+        - On success: resets the record's retry_count so future failures
+          start a fresh budget
+        - On final failure: increments retry_count (once per run, not per
+          attempt) so should_download_video can stop auto-retrying the video
+          after MAX_AUTO_RETRIES failed runs
+
+        Args:
+            video_info: Dictionary containing video metadata
+            channel: Channel database model
+            db: Database session
+
+        Returns:
+            Tuple of (success, error_message)
+        """
+        video_id = video_info['id']
+        attempts = 1 + self.WITHIN_RUN_RETRIES
+
+        success, error = False, None
+        for attempt in range(1, attempts + 1):
+            success, error = self.download_video(video_info, channel, db)
+
+            if success or not is_retryable_error(error):
+                break
+
+            if attempt < attempts:
+                logger.warning(
+                    f"Transient failure for video {video_id} "
+                    f"(attempt {attempt}/{attempts}), retrying in {self.RETRY_BACKOFF_SECONDS}s: {error}"
+                )
+                time.sleep(self.RETRY_BACKOFF_SECONDS)
+
+        # Update the retry budget on the download record
+        download = db.query(Download).filter(
+            Download.video_id == video_id,
+            Download.channel_id == channel.id
+        ).first()
+        if download:
+            download.retry_count = 0 if success else (download.retry_count or 0) + 1
+            db.commit()
+
+        return success, error
+
     def download_video(self, video_info: Dict, channel: Channel, db: Session) -> Tuple[bool, Optional[str]]:
         """
         Download a single video with status tracking.
@@ -1205,9 +1272,9 @@ class VideoDownloadService:
             for idx, video_info in enumerate(new_videos, 1):
                 video_title_short = video_info['title'][:50] + '...' if len(video_info['title']) > 50 else video_info['title']
 
-                # Download the video
+                # Download the video (with within-run retry for transient errors)
                 logger.info(f"  ⬇️  Video {idx}/{len(new_videos)}: DOWNLOADING - {video_title_short}")
-                download_success, download_error = self.download_video(video_info, channel, db)
+                download_success, download_error = self.download_video_with_retry(video_info, channel, db)
 
                 if download_success:
                     downloaded_count += 1

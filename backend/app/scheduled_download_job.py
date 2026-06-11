@@ -35,8 +35,29 @@ from app.database import SessionLocal
 from app.models import Channel, ApplicationSettings, DownloadHistory, Download
 from app.video_download_service import video_download_service
 from app.overlap_prevention import scheduler_lock, JobAlreadyRunningError
+from app.utils import is_retryable_error
 
 logger = logging.getLogger(__name__)
+
+
+def get_channels_for_global_run(db: Session):
+    """
+    Select the channels the global scheduled job should process.
+
+    Channels with a custom schedule_override are excluded — they are
+    processed by their own per-channel jobs (US-016) instead of the
+    global cron schedule.
+
+    Args:
+        db: Database session
+
+    Returns:
+        List of enabled channels without a custom schedule
+    """
+    return db.query(Channel).filter(
+        Channel.enabled == True,  # noqa: E712 (SQLAlchemy expression)
+        (Channel.schedule_override.is_(None)) | (Channel.schedule_override == '')
+    ).all()
 
 
 async def scheduled_download_job():
@@ -75,8 +96,9 @@ async def scheduled_download_job():
         # Job-level overlap prevention
         with scheduler_lock(db, "scheduled_downloads"):
 
-            # Get all enabled channels
-            channels = db.query(Channel).filter(Channel.enabled == True).all()
+            # Get enabled channels on the global schedule (channels with a
+            # custom schedule_override run via their own per-channel jobs)
+            channels = get_channels_for_global_run(db)
             downloaded_summary["total_channels"] = len(channels)
 
             if not channels:
@@ -175,6 +197,61 @@ async def scheduled_download_job():
         db.close()
 
 
+async def channel_download_job(channel_id: int):
+    """
+    Scheduled job for a single channel with a custom schedule (US-016).
+
+    Created by SchedulerService for each channel whose schedule_override is
+    set. Shares the "scheduled_downloads" lock with the global job, so a
+    per-channel run never overlaps a global run (or another per-channel run)
+    — if the lock is held, this execution is skipped and the channel is
+    picked up at its next scheduled time.
+
+    Args:
+        channel_id: Database ID of the channel to process
+    """
+    db = SessionLocal()
+    try:
+        channel = db.query(Channel).filter(Channel.id == channel_id).first()
+        if not channel:
+            logger.warning(f"Per-channel job: channel {channel_id} no longer exists, skipping")
+            return
+        if not channel.enabled:
+            logger.info(f"Per-channel job: channel '{channel.name}' is disabled, skipping")
+            return
+
+        logger.info(f"Starting per-channel scheduled download for '{channel.name}' (ID: {channel_id})")
+
+        with scheduler_lock(db, "scheduled_downloads"):
+            success, videos_downloaded, error_message = await _process_channel_with_recovery(channel, db)
+
+            if success:
+                try:
+                    deleted_count = await cleanup_old_videos(channel, db)
+                    if deleted_count > 0:
+                        logger.info(
+                            f"Cleaned up {deleted_count} old video(s) for channel '{channel.name}' "
+                            f"(limit: {channel.limit})"
+                        )
+                except Exception as e:
+                    logger.error(f"Cleanup failed for channel '{channel.name}': {e}")
+
+                logger.info(
+                    f"Per-channel job for '{channel.name}' completed: {videos_downloaded} videos downloaded"
+                )
+            else:
+                logger.error(f"Per-channel job for '{channel.name}' failed: {error_message}")
+
+    except JobAlreadyRunningError:
+        logger.info(
+            f"Per-channel job for channel {channel_id} skipped - another download job is running"
+        )
+    except Exception as e:
+        logger.error(f"Critical error in per-channel job for channel {channel_id}: {e}")
+    finally:
+        db.close()
+
+
 async def _process_channel_with_recovery(channel: Channel, db: Session) -> Tuple[bool, int, str]:
     """
     Process single channel with comprehensive error recovery.
@@ -254,18 +331,9 @@ def _is_retryable_error(error_message: str) -> bool:
     Returns:
         True if error should be retried, False otherwise
     """
-    if not error_message:
-        return False
-
-    # Network-related errors are retryable
-    retryable_keywords = [
-        "network", "timeout", "connection", "temporary",
-        "rate limit", "quota", "503", "502", "504",
-        "429"  # Too Many Requests
-    ]
-
-    error_lower = error_message.lower()
-    return any(keyword in error_lower for keyword in retryable_keywords)
+    # Delegates to the shared classifier so channel-level and per-video
+    # retry logic agree on what counts as transient
+    return is_retryable_error(error_message)
 
 
 def _create_failed_history_record(channel_id: int, error_message: str, db: Session):

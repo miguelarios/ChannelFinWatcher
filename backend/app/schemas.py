@@ -80,6 +80,7 @@ class Download(DownloadBase):
     file_size: Optional[int] = Field(None, description="File size in bytes")
     status: str = Field(..., description="Download status")
     error_message: Optional[str] = Field(None, description="Error message if failed")
+    retry_count: int = Field(0, description="Number of failed run attempts for this video")
     created_at: datetime = Field(..., description="When download was created")
     completed_at: Optional[datetime] = Field(None, description="When download completed")
 
@@ -168,6 +169,13 @@ class GlobalDownloadList(BaseModel):
     """Schema for the global (cross-channel) download history view."""
     downloads: List[DownloadWithChannel]
     total: int = Field(..., description="Total number of downloads matching the filters")
+
+
+class RetryDownloadResponse(BaseModel):
+    """Response for manually retrying a failed download."""
+    success: bool = Field(..., description="Whether the retry succeeded")
+    error_message: Optional[str] = Field(None, description="Error message if the retry failed")
+    download: Download = Field(..., description="The download record after the retry attempt")
 
 
 class DownloadTriggerResponse(BaseModel):
@@ -291,6 +299,7 @@ class ChannelDashboardItem(BaseModel):
     enabled: bool
     limit: int
     metadata_status: str
+    schedule_override: Optional[str] = Field(None, description="Custom cron schedule (null = global schedule)")
     video_count: int = Field(0, description="Number of downloaded videos currently on disk")
     storage_bytes: int = Field(0, description="Total bytes used by this channel's videos")
     last_check: Optional[datetime] = Field(None, description="Last time the channel was checked (null = never)")
