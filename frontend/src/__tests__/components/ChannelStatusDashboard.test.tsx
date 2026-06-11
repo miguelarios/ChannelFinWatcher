@@ -129,6 +129,23 @@ describe('ChannelStatusDashboard Component', () => {
     expect(screen.getByText('Network error during run')).toBeInTheDocument()
   })
 
+  it('shows custom schedule indicator for channels with an override', async () => {
+    const withOverride = {
+      ...baseDashboard,
+      channels: [
+        { ...baseDashboard.channels[0], schedule_override: '0 */2 * * *' },
+        ...baseDashboard.channels.slice(1),
+      ],
+    }
+    global.fetch = jest.fn(mockFetchImplementation(withOverride)) as jest.Mock
+
+    render(<ChannelStatusDashboard />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Custom schedule: 0 */2 * * *')).toBeInTheDocument()
+    })
+  })
+
   it('renders the storage overview with capacity', async () => {
     render(<ChannelStatusDashboard />)
 

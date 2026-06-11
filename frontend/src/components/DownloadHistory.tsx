@@ -10,6 +10,8 @@ import {
   ChevronRightIcon,
   ExternalLinkIcon,
   AlertCircleIcon,
+  RotateCcwIcon,
+  XIcon,
 } from 'lucide-react'
 
 /**
@@ -43,6 +45,7 @@ interface DownloadRecord {
   file_size?: number
   status: string
   error_message?: string
+  retry_count?: number
   file_exists: boolean
   deleted_at?: string
   created_at: string
@@ -143,6 +146,8 @@ export function DownloadHistory() {
   const [channelFilter, setChannelFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [page, setPage] = useState(0)
+  const [retryingId, setRetryingId] = useState<number | null>(null)
+  const [retryError, setRetryError] = useState('')
 
   const fetchDownloads = useCallback(async () => {
     setIsLoading(true)
@@ -196,14 +201,40 @@ export function DownloadHistory() {
     fetchChannels()
   }, [])
 
+  const handleRetry = async (download: DownloadRecord) => {
+    setRetryingId(download.id)
+    setRetryError('')
+    try {
+      const response = await fetch(`/api/v1/downloads/${download.id}/retry`, { method: 'POST' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.detail || data.error || 'Retry failed')
+      }
+      if (!data.success) {
+        throw new Error(data.error_message || 'Download failed again')
+      }
+      await fetchDownloads()
+    } catch (err) {
+      setRetryError(
+        `Retry of "${download.title}" failed: ${err instanceof Error ? err.message : 'unknown error'}`
+      )
+      // Refresh anyway so retry_count/status reflect the attempt
+      await fetchDownloads()
+    } finally {
+      setRetryingId(null)
+    }
+  }
+
   const handleChannelFilterChange = (value: string) => {
     setChannelFilter(value)
     setPage(0)
+    setRetryError('')
   }
 
   const handleStatusFilterChange = (value: string) => {
     setStatusFilter(value)
     setPage(0)
+    setRetryError('')
   }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
@@ -276,6 +307,21 @@ export function DownloadHistory() {
           </div>
         )}
 
+        {/* Retry outcome (dismissible; also cleared when filters change) */}
+        {retryError && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md flex items-start">
+            <AlertCircleIcon className="h-5 w-5 text-red-500 mr-2 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-red-700 flex-1">{retryError}</p>
+            <button
+              onClick={() => setRetryError('')}
+              aria-label="Dismiss retry error"
+              className="ml-2 text-red-400 hover:text-red-600 flex-shrink-0"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
         {/* Loading state */}
         {isLoading ? (
           <div className="py-12 text-center text-gray-500">
@@ -334,10 +380,22 @@ export function DownloadHistory() {
                             {download.video_id}
                             <ExternalLinkIcon className="h-3 w-3 ml-1" />
                           </a>
-                          {download.status === 'failed' && download.error_message && (
-                            <p className="text-xs text-red-600 mt-1 break-words line-clamp-2" title={download.error_message}>
-                              {download.error_message}
-                            </p>
+                          {download.status === 'failed' && (
+                            <>
+                              {download.error_message && (
+                                <p className="text-xs text-red-600 mt-1 break-words line-clamp-2" title={download.error_message}>
+                                  {download.error_message}
+                                </p>
+                              )}
+                              <button
+                                onClick={() => handleRetry(download)}
+                                disabled={retryingId !== null}
+                                className="mt-1.5 inline-flex items-center px-2 py-1 rounded text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 disabled:opacity-50 transition-colors"
+                              >
+                                <RotateCcwIcon className={`h-3 w-3 mr-1 ${retryingId === download.id ? 'animate-spin' : ''}`} />
+                                {retryingId === download.id ? 'Retrying...' : 'Retry'}
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>

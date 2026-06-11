@@ -135,6 +135,9 @@ class SchedulerService:
             # Load and configure cron schedule from database
             await self._load_cron_schedule()
 
+            # Reconcile per-channel schedule overrides (US-016)
+            self.sync_all_channel_schedules()
+
             # Log recovered jobs
             jobs = self.scheduler.get_jobs()
             if jobs:
@@ -232,6 +235,86 @@ class SchedulerService:
         except Exception as e:
             logger.error(f"Failed to update download schedule: {e}")
             raise
+
+    CHANNEL_JOB_PREFIX = 'channel_download_job_'
+
+    def sync_channel_schedule(self, channel_id: int, cron_expression: Optional[str], enabled: bool):
+        """Create, update, or remove the per-channel download job (US-016).
+
+        Channels with a schedule_override run on their own cron job instead
+        of the global schedule. This method keeps the APScheduler job in sync
+        with the channel's current configuration.
+
+        Args:
+            channel_id: Database ID of the channel
+            cron_expression: The channel's schedule_override (None/empty removes the job)
+            enabled: Whether the channel is enabled (disabled channels get no job)
+
+        Raises:
+            ValueError: If cron_expression is invalid (callers should validate first)
+        """
+        from app.scheduled_download_job import channel_download_job
+
+        job_id = f"{self.CHANNEL_JOB_PREFIX}{channel_id}"
+
+        if not cron_expression or not enabled:
+            if self.scheduler.get_job(job_id):
+                self.scheduler.remove_job(job_id)
+                logger.info(f"Removed per-channel schedule job for channel {channel_id}")
+            return
+
+        trigger = CronTrigger.from_crontab(cron_expression, timezone=settings.scheduler_timezone)
+        self.scheduler.add_job(
+            func=channel_download_job,
+            trigger=trigger,
+            args=[channel_id],
+            id=job_id,
+            name=f'Channel {channel_id} Downloads',
+            replace_existing=True
+        )
+        logger.info(f"Scheduled per-channel downloads for channel {channel_id}: {cron_expression}")
+
+    def sync_all_channel_schedules(self):
+        """Reconcile all per-channel jobs with the database on startup.
+
+        Ensures every enabled channel with a valid schedule_override has a
+        job, and removes persisted jobs for channels that were deleted,
+        disabled, or reverted to the global schedule while the app was down.
+        """
+        from app.models import Channel
+
+        db = SessionLocal()
+        try:
+            channels = db.query(Channel).all()
+            expected_jobs = {}
+            for channel in channels:
+                if channel.enabled and channel.schedule_override:
+                    expected_jobs[f"{self.CHANNEL_JOB_PREFIX}{channel.id}"] = channel
+
+            # Remove stale per-channel jobs (channel deleted/disabled/reverted)
+            for job in self.scheduler.get_jobs():
+                if job.id.startswith(self.CHANNEL_JOB_PREFIX) and job.id not in expected_jobs:
+                    self.scheduler.remove_job(job.id)
+                    logger.info(f"Removed stale per-channel job: {job.id}")
+
+            # Create/update jobs for current overrides
+            for job_id, channel in expected_jobs.items():
+                try:
+                    self.sync_channel_schedule(channel.id, channel.schedule_override, channel.enabled)
+                except Exception as e:
+                    # An invalid persisted override shouldn't block startup
+                    logger.error(
+                        f"Skipping invalid schedule_override for channel '{channel.name}' "
+                        f"({channel.schedule_override!r}): {e}"
+                    )
+
+            if expected_jobs:
+                logger.info(f"Synced {len(expected_jobs)} per-channel schedule(s)")
+
+        except Exception as e:
+            logger.error(f"Failed to sync per-channel schedules: {e}")
+        finally:
+            db.close()
 
     def get_schedule_status(self) -> Dict:
         """Get current schedule status for monitoring.

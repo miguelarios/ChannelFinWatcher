@@ -77,6 +77,7 @@ class Download(Base):
     file_size = Column(Integer, nullable=True)
     status = Column(String, default="pending", index=True)  # pending, downloading, completed, failed
     error_message = Column(Text, nullable=True)
+    retry_count = Column(Integer, default=0, nullable=False)  # Failed run attempts; bounds automatic retries
     file_exists = Column(Boolean, default=True, nullable=False)  # Track if downloaded file exists on disk
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)

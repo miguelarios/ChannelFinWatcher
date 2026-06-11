@@ -12,6 +12,7 @@ import {
   ClockIcon,
   VideoIcon,
   PlusIcon,
+  CalendarClockIcon,
 } from 'lucide-react'
 import { SchedulerStatusWidget } from './SchedulerStatusWidget'
 
@@ -47,6 +48,7 @@ interface ChannelSummary {
   enabled: boolean
   limit: number
   metadata_status: string
+  schedule_override?: string
   video_count: number
   storage_bytes: number
   last_check?: string
@@ -382,6 +384,12 @@ export function ChannelStatusDashboard({
                       <ClockIcon className="h-4 w-4 mr-1.5 text-gray-400" />
                       Checked {formatRelativeTime(channel.last_check)}
                     </p>
+                    {channel.schedule_override && (
+                      <p className="flex items-center text-xs text-gray-500" title={`Custom cron schedule: ${channel.schedule_override}`}>
+                        <CalendarClockIcon className="h-4 w-4 mr-1.5 text-gray-400" />
+                        Custom schedule: {channel.schedule_override}
+                      </p>
+                    )}
                   </div>
 
                   {channel.last_run_status === 'failed' && channel.last_run_error && (

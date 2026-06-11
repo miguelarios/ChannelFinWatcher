@@ -48,11 +48,17 @@ const mockChannels = [
 ]
 
 function mockFetchImplementation(downloads: object[] = mockDownloads, total = downloads.length) {
-  return (url: string) => {
+  return (url: string, options?: RequestInit) => {
     if (url.startsWith('/api/v1/channels')) {
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({ channels: mockChannels, total: 2, enabled: 2 }),
+      })
+    }
+    if (url.includes('/retry') && options?.method === 'POST') {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ success: true, error_message: null, download: {} }),
       })
     }
     return Promise.resolve({
@@ -113,6 +119,62 @@ describe('DownloadHistory Component', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Network error during download')).toBeInTheDocument()
+    })
+  })
+
+  it('shows a Retry button only on failed downloads and triggers the retry', async () => {
+    render(<DownloadHistory />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Second Video')).toBeInTheDocument()
+    })
+
+    // Only the failed download (id=2) gets a Retry button
+    const retryButtons = screen.getAllByRole('button', { name: /retry/i })
+    expect(retryButtons).toHaveLength(1)
+
+    fireEvent.click(retryButtons[0])
+
+    await waitFor(() => {
+      const retryCall = (global.fetch as jest.Mock).mock.calls.find(
+        (call) => String(call[0]).includes('/retry')
+      )
+      expect(retryCall).toBeDefined()
+      expect(retryCall[0]).toBe('/api/v1/downloads/2/retry')
+      expect(retryCall[1]?.method).toBe('POST')
+    })
+  })
+
+  it('surfaces an error when the retry fails again', async () => {
+    global.fetch = jest.fn((url: string, options?: RequestInit) => {
+      if (url.startsWith('/api/v1/channels')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ channels: mockChannels, total: 2, enabled: 2 }),
+        })
+      }
+      if (url.includes('/retry') && options?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: false, error_message: 'Still unavailable', download: {} }),
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ downloads: mockDownloads, total: 2 }),
+      })
+    }) as jest.Mock
+
+    render(<DownloadHistory />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Second Video')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Retry of "Second Video" failed: Still unavailable/)).toBeInTheDocument()
     })
   })
 

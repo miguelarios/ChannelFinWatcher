@@ -31,6 +31,7 @@ from app.schemas import (
     DownloadList,
     DownloadWithChannel,
     GlobalDownloadList,
+    RetryDownloadResponse,
     DownloadHistory as DownloadHistorySchema,
     NfoSettingsUpdate,
     DiskUsage,
@@ -49,6 +50,60 @@ logger = logging.getLogger(__name__)
 
 # Create API router
 router = APIRouter()
+
+
+def _normalize_schedule_override(value: Optional[str]) -> Optional[str]:
+    """Validate a channel schedule_override, normalizing blank values to None.
+
+    Raises:
+        HTTPException 400: If the cron expression is invalid
+    """
+    # Deferred import: cron_validation resolves the configured timezone at
+    # import time; keeping it lazy avoids ordering surprises at module load
+    from app.cron_validation import validate_cron_expression
+
+    if value is None or not value.strip():
+        return None
+
+    value = value.strip()
+    is_valid, error, _ = validate_cron_expression(value)
+    if not is_valid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid schedule_override: {error}"
+        )
+    return value
+
+
+def _sync_channel_schedule_safe(channel: Channel):
+    """Sync a channel's per-channel scheduler job, never failing the request.
+
+    Scheduler updates are supplementary to the database change — if the
+    scheduler is unavailable (e.g., during tests), log and continue. Jobs
+    are also reconciled from the database on every startup.
+    """
+    # Deferred import: importing scheduler_service instantiates the global
+    # APScheduler; keep it lazy so importing the API module stays side-effect free
+    from app.scheduler_service import scheduler_service
+
+    try:
+        scheduler_service.sync_channel_schedule(
+            channel.id, channel.schedule_override, channel.enabled
+        )
+    except Exception as e:
+        logger.warning(f"Failed to sync scheduler job for channel {channel.id}: {e}")
+
+
+def _remove_channel_schedule_safe(channel_id: int):
+    """Remove a deleted channel's per-channel scheduler job, never failing the request."""
+    # Deferred import: importing scheduler_service instantiates the global
+    # APScheduler; keep it lazy so importing the API module stays side-effect free
+    from app.scheduler_service import scheduler_service
+
+    try:
+        scheduler_service.sync_channel_schedule(channel_id, None, False)
+    except Exception as e:
+        logger.warning(f"Failed to remove scheduler job for channel {channel_id}: {e}")
 
 
 @router.get("/channels", response_model=ChannelList)
@@ -95,6 +150,9 @@ async def create_channel(channel: ChannelCreate, db: Session = Depends(get_db)):
             "quality_preset": "best"
         }
     """
+    # Validate custom schedule before doing any expensive work
+    channel.schedule_override = _normalize_schedule_override(channel.schedule_override)
+
     # Normalize URL to consistent format (handles www, mobile URLs, etc.)
     # This prevents duplicates when users enter different URL formats for same channel
     normalized_url = youtube_service.normalize_channel_url(str(channel.url))
@@ -181,7 +239,11 @@ async def create_channel(channel: ChannelCreate, db: Session = Depends(get_db)):
     except Exception as e:
         logger.warning(f"Failed to sync new channel to YAML: {e}")
         # Don't fail the API call if YAML sync fails
-    
+
+    # Register per-channel scheduler job if a custom schedule was provided (US-016)
+    if db_channel.schedule_override:
+        _sync_channel_schedule_safe(db_channel)
+
     return db_channel
 
 
@@ -239,14 +301,21 @@ async def update_channel(
     channel = db.query(Channel).filter(Channel.id == channel_id).first()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    
+
     # Update only provided fields
     update_data = channel_update.model_dump(exclude_unset=True)
+    if 'schedule_override' in update_data:
+        update_data['schedule_override'] = _normalize_schedule_override(update_data['schedule_override'])
     for field, value in update_data.items():
         setattr(channel, field, value)
-    
+
     db.commit()
     db.refresh(channel)
+
+    # Keep the per-channel scheduler job in sync when the schedule or
+    # enabled state changes (US-016)
+    if 'schedule_override' in update_data or 'enabled' in update_data:
+        _sync_channel_schedule_safe(channel)
     
     # === YAML CONFIGURATION SYNC ===
     # Keep YAML config file in sync with database changes for User Story 2
@@ -539,13 +608,16 @@ async def delete_channel(
     # Delete from database AFTER filesystem operations (cascade deletes Download records)
     db.delete(channel)
     db.commit()
-    
+
     # Remove from YAML config
     try:
         remove_channel_from_yaml(channel_url)
     except Exception as e:
         logger.warning(f"Failed to remove channel from YAML: {e}")
-    
+
+    # Remove any per-channel scheduler job (US-016)
+    _remove_channel_schedule_safe(channel_id)
+
     return {
         "message": f"Channel '{channel_name}' deleted successfully",
         "channel_id": channel_id,
@@ -974,6 +1046,7 @@ async def get_dashboard(db: Session = Depends(get_db)):
             enabled=channel.enabled,
             limit=channel.limit,
             metadata_status=channel.metadata_status,
+            schedule_override=channel.schedule_override,
             video_count=video_count,
             storage_bytes=storage_bytes,
             last_check=channel.last_check,
@@ -1073,6 +1146,81 @@ async def list_all_downloads(
         )
 
     return GlobalDownloadList(downloads=downloads, total=total)
+
+
+@router.post("/downloads/{download_id}/retry", response_model=RetryDownloadResponse)
+def retry_download(download_id: int, db: Session = Depends(get_db)):
+    """
+    Manually retry a failed download.
+
+    Declared sync (not async) on purpose: the download work is blocking
+    (yt-dlp plus retry backoff sleeps), so FastAPI runs this handler in its
+    threadpool instead of stalling the event loop.
+
+    Resets the video's retry budget (so a video that exhausted its automatic
+    retries becomes eligible again) and immediately attempts the download,
+    including within-run retries for transient errors.
+
+    Args:
+        download_id: Database ID of the failed download
+        db: Database session dependency
+
+    Returns:
+        RetryDownloadResponse: Outcome plus the updated download record
+
+    Raises:
+        HTTPException 404: If download not found
+        HTTPException 400: If download is not in failed state or channel is disabled
+        HTTPException 409: If a scheduled download job is currently running
+
+    Example:
+        POST /api/v1/downloads/789/retry
+    """
+    download = db.query(Download).filter(Download.id == download_id).first()
+    if not download:
+        raise HTTPException(status_code=404, detail="Download not found")
+
+    if download.status != 'failed':
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only failed downloads can be retried (current status: {download.status})"
+        )
+
+    channel = db.query(Channel).filter(Channel.id == download.channel_id).first()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel for this download no longer exists")
+    if not channel.enabled:
+        raise HTTPException(status_code=400, detail="Channel is disabled")
+
+    # Don't compete with a running scheduled job for the same channel/files
+    running_flag = db.query(ApplicationSettings).filter(
+        ApplicationSettings.key == "scheduled_downloads_running"
+    ).first()
+    if running_flag and running_flag.value == "true":
+        raise HTTPException(
+            status_code=409,
+            detail="A scheduled download job is currently running. Try again when it completes."
+        )
+
+    logger.info(f"Manual retry triggered for download {download_id} ({download.video_id})")
+
+    # Reset the retry budget so the manual attempt (and future automatic
+    # attempts) start fresh
+    download.retry_count = 0
+    db.commit()
+
+    # Minimum video_info shape: download_video requires 'id' and 'title';
+    # upload_date/duration_string are read via .get() and backfilled from
+    # .info.json after download
+    video_info = {'id': download.video_id, 'title': download.title}
+    success, error_message = video_download_service.download_video_with_retry(video_info, channel, db)
+
+    db.refresh(download)
+    return RetryDownloadResponse(
+        success=success,
+        error_message=error_message,
+        download=download,
+    )
 
 
 @router.get("/downloads/{download_id}", response_model=DownloadSchema)
