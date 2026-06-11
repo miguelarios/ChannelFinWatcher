@@ -11,6 +11,7 @@ import {
   ExternalLinkIcon,
   AlertCircleIcon,
   RotateCcwIcon,
+  XIcon,
 } from 'lucide-react'
 
 /**
@@ -227,11 +228,13 @@ export function DownloadHistory() {
   const handleChannelFilterChange = (value: string) => {
     setChannelFilter(value)
     setPage(0)
+    setRetryError('')
   }
 
   const handleStatusFilterChange = (value: string) => {
     setStatusFilter(value)
     setPage(0)
+    setRetryError('')
   }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
@@ -304,11 +307,18 @@ export function DownloadHistory() {
           </div>
         )}
 
-        {/* Retry outcome */}
+        {/* Retry outcome (dismissible; also cleared when filters change) */}
         {retryError && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md flex items-start">
             <AlertCircleIcon className="h-5 w-5 text-red-500 mr-2 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-red-700">{retryError}</p>
+            <p className="text-sm text-red-700 flex-1">{retryError}</p>
+            <button
+              onClick={() => setRetryError('')}
+              aria-label="Dismiss retry error"
+              className="ml-2 text-red-400 hover:text-red-600 flex-shrink-0"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
           </div>
         )}
 

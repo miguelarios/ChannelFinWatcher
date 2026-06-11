@@ -248,6 +248,9 @@ async def channel_download_job(channel_id: int):
         )
     except Exception as e:
         logger.error(f"Critical error in per-channel job for channel {channel_id}: {e}")
+        # Record the failure so it's visible in the Download History view,
+        # matching the global job's behavior for unexpected errors
+        _create_failed_history_record(channel_id, str(e), db)
     finally:
         db.close()
 

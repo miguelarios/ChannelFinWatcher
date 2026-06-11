@@ -58,6 +58,8 @@ def _normalize_schedule_override(value: Optional[str]) -> Optional[str]:
     Raises:
         HTTPException 400: If the cron expression is invalid
     """
+    # Deferred import: cron_validation resolves the configured timezone at
+    # import time; keeping it lazy avoids ordering surprises at module load
     from app.cron_validation import validate_cron_expression
 
     if value is None or not value.strip():
@@ -80,6 +82,8 @@ def _sync_channel_schedule_safe(channel: Channel):
     scheduler is unavailable (e.g., during tests), log and continue. Jobs
     are also reconciled from the database on every startup.
     """
+    # Deferred import: importing scheduler_service instantiates the global
+    # APScheduler; keep it lazy so importing the API module stays side-effect free
     from app.scheduler_service import scheduler_service
 
     try:
@@ -92,6 +96,8 @@ def _sync_channel_schedule_safe(channel: Channel):
 
 def _remove_channel_schedule_safe(channel_id: int):
     """Remove a deleted channel's per-channel scheduler job, never failing the request."""
+    # Deferred import: importing scheduler_service instantiates the global
+    # APScheduler; keep it lazy so importing the API module stays side-effect free
     from app.scheduler_service import scheduler_service
 
     try:
@@ -1143,9 +1149,13 @@ async def list_all_downloads(
 
 
 @router.post("/downloads/{download_id}/retry", response_model=RetryDownloadResponse)
-async def retry_download(download_id: int, db: Session = Depends(get_db)):
+def retry_download(download_id: int, db: Session = Depends(get_db)):
     """
     Manually retry a failed download.
+
+    Declared sync (not async) on purpose: the download work is blocking
+    (yt-dlp plus retry backoff sleeps), so FastAPI runs this handler in its
+    threadpool instead of stalling the event loop.
 
     Resets the video's retry budget (so a video that exhausted its automatic
     retries becomes eligible again) and immediately attempts the download,
@@ -1199,6 +1209,9 @@ async def retry_download(download_id: int, db: Session = Depends(get_db)):
     download.retry_count = 0
     db.commit()
 
+    # Minimum video_info shape: download_video requires 'id' and 'title';
+    # upload_date/duration_string are read via .get() and backfilled from
+    # .info.json after download
     video_info = {'id': download.video_id, 'title': download.title}
     success, error_message = video_download_service.download_video_with_retry(video_info, channel, db)
 

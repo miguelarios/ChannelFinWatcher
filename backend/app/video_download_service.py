@@ -261,7 +261,7 @@ class VideoDownloadService:
         if download:
             if download.status == 'completed' and download.file_exists:
                 return False, download  # Skip - already have it
-            elif download.status == 'failed' and (download.retry_count or 0) >= self.MAX_AUTO_RETRIES:
+            elif download.status == 'failed' and download.retry_count >= self.MAX_AUTO_RETRIES:
                 # Permanently failing video - stop auto-retrying it every run.
                 # A manual retry (which resets retry_count) can revive it.
                 logger.debug(
@@ -972,7 +972,7 @@ class VideoDownloadService:
             Download.channel_id == channel.id
         ).first()
         if download:
-            download.retry_count = 0 if success else (download.retry_count or 0) + 1
+            download.retry_count = 0 if success else download.retry_count + 1
             db.commit()
 
         return success, error
