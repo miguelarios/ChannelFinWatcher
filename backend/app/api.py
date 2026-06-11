@@ -1192,7 +1192,12 @@ def retry_download(download_id: int, db: Session = Depends(get_db)):
     if not channel.enabled:
         raise HTTPException(status_code=400, detail="Channel is disabled")
 
-    # Don't compete with a running scheduled job for the same channel/files
+    # Don't compete with a running scheduled job for the same channel/files.
+    # Note: this is a best-effort check, not a lock — a scheduled job could
+    # acquire the scheduled_downloads lock between this check and the download
+    # below. Worst case both attempt the same video and one becomes a no-op
+    # (download_video skips already-completed videos), so we accept the small
+    # window instead of holding the scheduler lock from a threadpool handler.
     running_flag = db.query(ApplicationSettings).filter(
         ApplicationSettings.key == "scheduled_downloads_running"
     ).first()

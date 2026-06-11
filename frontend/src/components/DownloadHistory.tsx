@@ -428,7 +428,10 @@ export function DownloadHistory() {
               </p>
               <div className="flex items-center space-x-2">
                 <button
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  onClick={() => {
+                    setPage((p) => Math.max(0, p - 1))
+                    setRetryError('')
+                  }}
                   disabled={page === 0 || isLoading}
                   className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 transition-colors"
                 >
@@ -439,7 +442,10 @@ export function DownloadHistory() {
                   Page {page + 1} of {totalPages}
                 </span>
                 <button
-                  onClick={() => setPage((p) => p + 1)}
+                  onClick={() => {
+                    setPage((p) => p + 1)
+                    setRetryError('')
+                  }}
                   disabled={page + 1 >= totalPages || isLoading}
                   className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 transition-colors"
                 >
