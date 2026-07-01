@@ -3,6 +3,7 @@ import os
 import re
 import glob
 import shutil
+import asyncio
 import logging
 from datetime import datetime
 from typing import List, Optional
@@ -18,7 +19,7 @@ from app.youtube_service import youtube_service
 from app.metadata_service import metadata_service
 from app.video_download_service import video_download_service
 from app.scheduled_download_job import cleanup_old_videos
-from app.utils import update_channel_in_yaml, remove_channel_from_yaml, sync_setting_to_yaml, get_default_video_limit as get_default_limit_setting, channel_dir_name
+from app.utils import update_channel_in_yaml, remove_channel_from_yaml, sync_setting_to_yaml, get_default_video_limit as get_default_limit_setting, get_default_quality_preset, channel_dir_name
 from app.schemas import (
     Channel as ChannelSchema,
     ChannelCreate,
@@ -27,6 +28,8 @@ from app.schemas import (
     SystemHealth,
     DefaultVideoLimitUpdate,
     DefaultVideoLimitResponse,
+    DefaultQualityUpdate,
+    DefaultQualityResponse,
     Download as DownloadSchema,
     DownloadList,
     DownloadWithChannel,
@@ -158,7 +161,11 @@ async def create_channel(channel: ChannelCreate, db: Session = Depends(get_db)):
     normalized_url = youtube_service.normalize_channel_url(str(channel.url))
     
     # Extract channel metadata using yt-dlp (Story 1: metadata only, no video downloads)
-    success, channel_info, error = youtube_service.extract_channel_info(normalized_url)
+    # Runs in a worker thread: yt-dlp network I/O is blocking and must not
+    # stall the event loop for other requests
+    success, channel_info, error = await asyncio.to_thread(
+        youtube_service.extract_channel_info, normalized_url
+    )
     if not success:
         raise HTTPException(status_code=400, detail=f"Failed to extract channel information: {error}")
     
@@ -179,7 +186,14 @@ async def create_channel(channel: ChannelCreate, db: Session = Depends(get_db)):
     if channel_limit is None:
         channel_limit = get_default_limit_setting(db)
         logger.info(f"Applied default video limit {channel_limit} to new channel: {channel_info['name']}")
-    
+
+    # === APPLY DEFAULT QUALITY PRESET (US-015) ===
+    # If no quality specified, use the global default setting
+    channel_quality = channel.quality_preset
+    if channel_quality is None:
+        channel_quality = get_default_quality_preset(db)
+        logger.info(f"Applied default quality preset '{channel_quality}' to new channel: {channel_info['name']}")
+
     # Create new channel record with extracted YouTube metadata
     db_channel = Channel(
         url=normalized_url,                              # Normalized URL for consistency
@@ -188,7 +202,7 @@ async def create_channel(channel: ChannelCreate, db: Session = Depends(get_db)):
         limit=channel_limit,                             # User-specified or default video limit
         enabled=channel.enabled,                         # Monitoring enabled/disabled
         schedule_override=channel.schedule_override,     # Custom schedule (if any)
-        quality_preset=channel.quality_preset,          # Video quality preference
+        quality_preset=channel_quality,                  # User-specified or default quality
         metadata_status="pending",                       # Initial metadata status
     )
     
@@ -198,8 +212,11 @@ async def create_channel(channel: ChannelCreate, db: Session = Depends(get_db)):
     db.refresh(db_channel)  # Refresh to get auto-generated fields (id, timestamps)
     
     # === METADATA PROCESSING (Story 004) ===
-    # Process complete channel metadata including directory creation and image downloads
-    metadata_success, metadata_errors = metadata_service.process_channel_metadata(db, db_channel, normalized_url)
+    # Process complete channel metadata including directory creation and image
+    # downloads (blocking network/disk I/O → worker thread)
+    metadata_success, metadata_errors = await asyncio.to_thread(
+        metadata_service.process_channel_metadata, db, db_channel, normalized_url
+    )
     
     if not metadata_success:
         logger.warning(f"Metadata processing failed for channel {db_channel.id}: {metadata_errors}")
@@ -212,7 +229,10 @@ async def create_channel(channel: ChannelCreate, db: Session = Depends(get_db)):
         logger.info(f"📝 API: Channel details - ID: {db_channel.id}, URL: {db_channel.url}, channel_id: {db_channel.channel_id}, limit: {db_channel.limit}")
         try:
             logger.info(f"🔄 API: Calling video_download_service.process_channel_downloads()...")
-            download_success, videos_downloaded, download_error = video_download_service.process_channel_downloads(db_channel, db)
+            # Worker thread: initial downloads can take minutes of blocking yt-dlp work
+            download_success, videos_downloaded, download_error = await asyncio.to_thread(
+                video_download_service.process_channel_downloads, db_channel, db
+            )
             logger.info(f"✅ API: process_channel_downloads() returned - success: {download_success}, count: {videos_downloaded}, error: {download_error}")
             if download_success:
                 logger.info(f"✅ API: Initial download completed for {db_channel.name}: {videos_downloaded} videos downloaded")
@@ -340,14 +360,18 @@ async def update_channel(
 
 
 @router.post("/channels/{channel_id}/refresh-metadata")
-async def refresh_channel_metadata(channel_id: int, db: Session = Depends(get_db)):
+def refresh_channel_metadata(channel_id: int, db: Session = Depends(get_db)):
     """
     Refresh channel metadata including directory structure and images.
-    
+
     This endpoint implements metadata refresh functionality for Story 004.
     It extracts fresh metadata from YouTube, updates the JSON file,
     and redownloads cover/backdrop images.
-    
+
+    Declared sync (not async) on purpose: the refresh is blocking
+    network/disk I/O, so FastAPI runs it in the threadpool instead of
+    stalling the event loop.
+
     Args:
         channel_id: Database ID of channel to refresh
         
@@ -379,12 +403,16 @@ async def refresh_channel_metadata(channel_id: int, db: Session = Depends(get_db
 
 
 @router.post("/channels/{channel_id}/reindex")
-async def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
+def reindex_channel(channel_id: int, db: Session = Depends(get_db)):
     """
     Reindex a channel's media folder to sync database with disk state.
 
     Protected by an application-level lock (same mechanism as the scheduler)
     so concurrent reindex operations cannot create duplicate records.
+
+    Declared sync (not async) on purpose: the reindex walks the media tree
+    and probes files (blocking disk I/O), so FastAPI runs it in the
+    threadpool instead of stalling the event loop.
 
     This will:
     - Find all video files on disk
@@ -787,6 +815,88 @@ async def update_default_video_limit(
         )
 
 
+@router.get("/settings/default-quality", response_model=DefaultQualityResponse, tags=["Settings"])
+async def get_default_quality(db: Session = Depends(get_db)):
+    """
+    Get the default video quality preset for new channels (US-015).
+
+    Applied automatically when channels are created without an explicit
+    quality_preset. Existing channels are unaffected by changes.
+
+    Example:
+        GET /api/v1/settings/default-quality
+        Response: {"quality": "best", "description": "...", "updated_at": "..."}
+    """
+    setting = db.query(ApplicationSettings).filter(
+        ApplicationSettings.key == 'default_quality_preset'
+    ).first()
+
+    return DefaultQualityResponse(
+        quality=setting.value if setting and setting.value else 'best',
+        description=(setting.description if setting else None) or "Default video quality preset for new channels",
+        updated_at=setting.updated_at if setting else None,
+    )
+
+
+@router.put("/settings/default-quality", response_model=DefaultQualityResponse, tags=["Settings"])
+async def update_default_quality(
+    setting_update: DefaultQualityUpdate,
+    db: Session = Depends(get_db)
+):
+    """
+    Update the default video quality preset for new channels (US-015).
+
+    Applies to channels created after this change; existing channels keep
+    their current quality_preset. Value is validated against the supported
+    presets by the request schema (422 on unknown values).
+
+    Example:
+        PUT /api/v1/settings/default-quality
+        Body: {"quality": "1080p"}
+    """
+    try:
+        setting = db.query(ApplicationSettings).filter(
+            ApplicationSettings.key == 'default_quality_preset'
+        ).first()
+
+        if setting:
+            setting.value = setting_update.quality
+            setting.updated_at = datetime.utcnow()
+        else:
+            setting = ApplicationSettings(
+                key='default_quality_preset',
+                value=setting_update.quality,
+                description='Default video quality preset for new channels',
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            db.add(setting)
+
+        db.commit()
+        db.refresh(setting)
+        logger.info(f"Default quality preset updated to '{setting_update.quality}'")
+
+        # Sync to YAML configuration (supplementary; DB is source of truth)
+        try:
+            sync_setting_to_yaml('default_quality_preset', setting_update.quality)
+        except Exception as e:
+            logger.warning(f"YAML sync failed for default quality preset: {e}")
+
+        return DefaultQualityResponse(
+            quality=setting.value,
+            description=setting.description or "Default video quality preset for new channels",
+            updated_at=setting.updated_at,
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to update default quality preset: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error while updating default quality preset"
+        )
+
+
 # === DOWNLOAD ENDPOINTS (User Story 5) ===
 
 @router.post("/channels/{channel_id}/download", response_model=DownloadTriggerResponse)
@@ -884,8 +994,11 @@ async def trigger_channel_download(channel_id: int, db: Session = Depends(get_db
 
     # === IMMEDIATE EXECUTION (Scheduler not running) ===
     try:
-        # Process channel downloads using the video download service
-        success, videos_downloaded, error_message = video_download_service.process_channel_downloads(channel, db)
+        # Process channel downloads in a worker thread — this is minutes of
+        # blocking yt-dlp work that must not stall the event loop
+        success, videos_downloaded, error_message = await asyncio.to_thread(
+            video_download_service.process_channel_downloads, channel, db
+        )
 
         # === AUTOMATIC VIDEO CLEANUP ===
         # Clean up old videos if channel exceeds configured limit

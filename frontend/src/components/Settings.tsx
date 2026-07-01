@@ -81,6 +81,11 @@ export function Settings() {
   const [success, setSuccess] = useState<string>('')
   const [lastUpdated, setLastUpdated] = useState<string>('')
 
+  // Default quality preset state (US-015)
+  const [defaultQuality, setDefaultQuality] = useState<string>('best')
+  const [originalQuality, setOriginalQuality] = useState<string>('best')
+  const [qualitySaving, setQualitySaving] = useState<boolean>(false)
+
   // Scheduler state (Story 007)
   const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null)
   const [cronExpression, setCronExpression] = useState<string>('0 0 * * *')
@@ -151,6 +156,56 @@ export function Settings() {
       setError(errorMessage)
     } finally {
       setLoading(false)
+    }
+  }
+
+  /**
+   * Fetch the default video quality preset (US-015).
+   * Non-critical: failures leave the select at 'best' without blocking the page.
+   */
+  const fetchDefaultQuality = async () => {
+    try {
+      const response = await fetch('/api/v1/settings/default-quality')
+      if (response.ok) {
+        const data = await response.json()
+        setDefaultQuality(data.quality)
+        setOriginalQuality(data.quality)
+      }
+    } catch (err) {
+      console.error('Error fetching default quality:', err)
+    }
+  }
+
+  /**
+   * Save the default video quality preset (US-015).
+   * Applies to new channels only; existing channels keep their setting.
+   */
+  const saveDefaultQuality = async () => {
+    try {
+      setQualitySaving(true)
+      setError('')
+      setSuccess('')
+
+      const response = await fetch('/api/v1/settings/default-quality', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quality: defaultQuality }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.detail || 'Failed to update default quality')
+      }
+
+      const data = await response.json()
+      setOriginalQuality(data.quality)
+      setSuccess(`Default video quality updated to ${data.quality}`)
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err) {
+      console.error('Error saving default quality:', err)
+      setError(err instanceof Error ? err.message : 'Failed to save default quality')
+    } finally {
+      setQualitySaving(false)
     }
   }
 
@@ -522,6 +577,7 @@ export function Settings() {
   useEffect(() => {
     Promise.all([
       fetchDefaultLimit(),
+      fetchDefaultQuality(),
       fetchSchedulerStatus(),
       checkChannelsExist(),
       fetchNfoSettings()
@@ -629,6 +685,51 @@ export function Settings() {
               className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {saving ? (
+                <>
+                  <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2"></div>
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Save
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Default Video Quality Setting (US-015) */}
+        <div>
+          <label htmlFor="defaultQuality" className="block text-sm font-medium text-gray-700 mb-2">
+            Default Video Quality
+          </label>
+          <div className="flex items-start space-x-4">
+            <div className="flex-1">
+              <select
+                id="defaultQuality"
+                value={defaultQuality}
+                onChange={(e) => setDefaultQuality(e.target.value)}
+                disabled={qualitySaving}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="best">Best available</option>
+                <option value="2160p">2160p (4K)</option>
+                <option value="1080p">1080p</option>
+                <option value="720p">720p</option>
+                <option value="480p">480p</option>
+              </select>
+              <p className="mt-1 text-sm text-gray-500">
+                Quality preset applied to new channels. Downloads fall back to the best
+                available quality when the preferred one doesn&apos;t exist.
+              </p>
+            </div>
+            <button
+              onClick={saveDefaultQuality}
+              disabled={defaultQuality === originalQuality || qualitySaving}
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {qualitySaving ? (
                 <>
                   <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2"></div>
                   Saving...
