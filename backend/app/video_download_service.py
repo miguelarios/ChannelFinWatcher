@@ -13,6 +13,8 @@ from app.models import Channel, Download, DownloadHistory
 from app.config import get_settings
 from app.utils import channel_dir_name, is_retryable_error
 from app.nfo_service import get_nfo_service
+from app.progress_store import download_progress_store
+from app.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -1062,6 +1064,10 @@ class VideoDownloadService:
             # Apply the channel's quality preset (US-015); unknown presets
             # fall back to 'best' with a warning rather than failing
             opts['format'] = self.format_for_quality(channel.quality_preset)
+            # Real-time progress reporting (US-010): register with the
+            # progress store and stream yt-dlp progress into it
+            download_progress_store.start(video_id, channel.id, channel.name, video_title)
+            opts['progress_hooks'] = [download_progress_store.make_progress_hook(video_id)]
             video_url = f"https://www.youtube.com/watch?v={video_id}"
 
             # Verify the cookie file referenced in options is still present on disk
@@ -1127,7 +1133,7 @@ class VideoDownloadService:
                             )
 
                     # Mark as completed AFTER all metadata is populated
-                    download.completed_at = datetime.utcnow()
+                    download.completed_at = utc_now()
                     db.commit()
 
                     # ========================================================================
@@ -1195,14 +1201,18 @@ class VideoDownloadService:
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Unexpected error downloading {video_title} ({video_id}): {error_msg}")
-            
+
             # Update download record with error
             if 'download' in locals():
                 download.status = 'failed'
                 download.error_message = error_msg[:500]
                 db.commit()
-            
+
             return False, f"Unexpected error: {error_msg}"
+        finally:
+            # Always clear from the active-progress display, on every exit
+            # path (no-op when the download never registered)
+            download_progress_store.finish(video_id)
     
     def process_channel_downloads(self, channel: Channel, db: Session) -> Tuple[bool, int, Optional[str]]:
         """
@@ -1230,7 +1240,7 @@ class VideoDownloadService:
         # Create download history record
         history = DownloadHistory(
             channel_id=channel.id,
-            run_date=datetime.utcnow(),
+            run_date=utc_now(),
             videos_found=0,
             videos_downloaded=0,
             videos_skipped=0,
@@ -1246,7 +1256,7 @@ class VideoDownloadService:
             if not success:
                 history.status = 'failed'
                 history.error_message = error
-                history.completed_at = datetime.utcnow()
+                history.completed_at = utc_now()
                 db.commit()
                 return False, 0, error
 
@@ -1258,8 +1268,8 @@ class VideoDownloadService:
             if not videos:
                 # No videos found, but not an error
                 history.status = 'completed'
-                history.completed_at = datetime.utcnow()
-                channel.last_check = datetime.utcnow()
+                history.completed_at = utc_now()
+                channel.last_check = utc_now()
                 db.commit()
                 logger.info(f"⚠️  No videos found for channel: {channel.name}")
                 return True, 0, None
@@ -1291,8 +1301,8 @@ class VideoDownloadService:
                 logger.info(f"✓ All {len(existing_videos)} videos already downloaded, nothing new to download")
                 history.status = 'completed'
                 history.videos_skipped = len(existing_videos)
-                history.completed_at = datetime.utcnow()
-                channel.last_check = datetime.utcnow()
+                history.completed_at = utc_now()
+                channel.last_check = utc_now()
                 db.commit()
                 return True, 0, None
 
@@ -1321,9 +1331,9 @@ class VideoDownloadService:
             history.videos_downloaded = downloaded_count
             history.videos_skipped = skipped_count
             history.status = 'completed'
-            history.completed_at = datetime.utcnow()
+            history.completed_at = utc_now()
 
-            channel.last_check = datetime.utcnow()
+            channel.last_check = utc_now()
 
             db.commit()
 
@@ -1337,8 +1347,8 @@ class VideoDownloadService:
             
             history.status = 'failed'
             history.error_message = error_msg[:500]
-            history.completed_at = datetime.utcnow()
-            channel.last_check = datetime.utcnow()
+            history.completed_at = utc_now()
+            channel.last_check = utc_now()
             db.commit()
             
             return False, 0, error_msg

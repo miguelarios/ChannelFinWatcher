@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Dict, Any, List
 from app.config import get_settings
+from app.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -425,7 +426,6 @@ def initialize_default_settings(db_session) -> bool:
     """
     try:
         from app.models import ApplicationSettings
-        from datetime import datetime
         
         # Define default settings
         default_settings = [
@@ -467,8 +467,8 @@ def initialize_default_settings(db_session) -> bool:
                     key=setting_data['key'],
                     value=setting_data['value'],
                     description=setting_data['description'],
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+                    created_at=utc_now(),
+                    updated_at=utc_now()
                 )
                 db_session.add(setting)
                 logger.info(f"Initialized default setting: {setting_data['key']} = {setting_data['value']}")

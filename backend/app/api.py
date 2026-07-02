@@ -5,9 +5,9 @@ import glob
 import shutil
 import asyncio
 import logging
-from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -21,6 +21,7 @@ from app.metadata_service import metadata_service
 from app.video_download_service import video_download_service
 from app.scheduled_download_job import cleanup_old_videos
 from app.utils import update_channel_in_yaml, remove_channel_from_yaml, sync_setting_to_yaml, get_default_video_limit as get_default_limit_setting, get_default_quality_preset, channel_dir_name
+from app.time_utils import utc_now, utc_from_timestamp
 from app.schemas import (
     Channel as ChannelSchema,
     ChannelCreate,
@@ -38,6 +39,7 @@ from app.schemas import (
     RetryDownloadResponse,
     DownloadHistory as DownloadHistorySchema,
     NfoSettingsUpdate,
+    NotificationSettingsUpdate,
     DiskUsage,
     ChannelDashboardItem,
     DashboardTotals,
@@ -541,7 +543,7 @@ def _reindex_channel_media(channel: Channel, settings, db: Session) -> dict:
                                         status='completed',
                                         file_exists=True,
                                         file_path=video_file_path,
-                                        completed_at=datetime.utcnow()
+                                        completed_at=utc_now()
                                     )
                                     db.add(download)
                                     stats["added"] += 1
@@ -786,9 +788,8 @@ async def update_default_video_limit(
             )
         
         # Update the setting value and timestamp
-        from datetime import datetime
         setting.value = str(setting_update.limit)
-        setting.updated_at = datetime.utcnow()
+        setting.updated_at = utc_now()
         
         # Commit to database
         db.commit()
@@ -873,14 +874,14 @@ async def update_default_quality(
 
         if setting:
             setting.value = setting_update.quality
-            setting.updated_at = datetime.utcnow()
+            setting.updated_at = utc_now()
         else:
             setting = ApplicationSettings(
                 key='default_quality_preset',
                 value=setting_update.quality,
                 description='Default video quality preset for new channels',
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=utc_now(),
+                updated_at=utc_now(),
             )
             db.add(setting)
 
@@ -907,6 +908,146 @@ async def update_default_quality(
             status_code=500,
             detail="Internal server error while updating default quality preset"
         )
+
+
+@router.get("/settings/cookies-status", tags=["Settings"])
+async def get_cookies_status():
+    """
+    Report the state of the YouTube cookies file (operational hardening).
+
+    Cookies are the #1 operational breakage source (they expire silently and
+    downloads start failing with auth-shaped errors). Surfacing presence and
+    age lets the UI warn before that happens.
+
+    Example:
+        GET /api/v1/settings/cookies-status
+        Response: {"present": true, "size_bytes": 4096,
+                   "modified_at": "...", "age_days": 12, "stale": false}
+    """
+    settings = get_settings()
+    path = settings.cookies_file
+
+    if not os.path.exists(path):
+        return {"present": False, "path": path, "size_bytes": None,
+                "modified_at": None, "age_days": None, "stale": False}
+
+    stat = os.stat(path)
+    modified = utc_from_timestamp(stat.st_mtime)
+    age_days = (utc_now() - modified).days
+    return {
+        "present": True,
+        "path": path,
+        "size_bytes": stat.st_size,
+        "modified_at": modified.isoformat(),
+        "age_days": age_days,
+        # YouTube session cookies commonly rot within weeks
+        "stale": age_days >= 30,
+    }
+
+
+@router.get("/settings/notifications", tags=["Settings"])
+async def get_notification_settings(db: Session = Depends(get_db)):
+    """
+    Get the configured Apprise notification URL (blank = disabled).
+
+    The URL may embed credentials (tokens/webhooks), so it is returned
+    as-is only to this trusted single-user API — consistent with the
+    app's no-auth, trusted-LAN deployment model.
+    """
+    from app.notification_service import get_notification_url
+
+    url = get_notification_url(db)
+    return {"url": url or "", "enabled": bool(url)}
+
+
+@router.put("/settings/notifications", tags=["Settings"])
+async def update_notification_settings(
+    payload: NotificationSettingsUpdate,
+    db: Session = Depends(get_db)
+):
+    """
+    Set or clear the Apprise notification URL.
+
+    Blank URL disables notifications. Non-blank URLs are validated against
+    Apprise's URL parser (400 on unrecognized formats).
+
+    Example:
+        PUT /api/v1/settings/notifications
+        Body: {"url": "ntfy://ntfy.sh/my-topic"}
+    """
+    from app.notification_service import validate_notification_url, NOTIFICATION_URL_KEY
+
+    url = (payload.url or "").strip()
+    if url:
+        is_valid, error = validate_notification_url(url)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error)
+
+    setting = db.query(ApplicationSettings).filter(
+        ApplicationSettings.key == NOTIFICATION_URL_KEY
+    ).first()
+    if setting:
+        setting.value = url
+        setting.updated_at = utc_now()
+    else:
+        setting = ApplicationSettings(
+            key=NOTIFICATION_URL_KEY,
+            value=url,
+            description="Apprise URL for failure notifications (blank = disabled)",
+            created_at=utc_now(),
+            updated_at=utc_now(),
+        )
+        db.add(setting)
+    db.commit()
+
+    logger.info(f"Notifications {'configured' if url else 'disabled'}")
+    return {"url": url, "enabled": bool(url)}
+
+
+@router.post("/settings/notifications/test", tags=["Settings"])
+def send_test_notification(db: Session = Depends(get_db)):
+    """
+    Send a test notification to the configured URL.
+
+    Sync handler on purpose: Apprise performs blocking network I/O, so
+    FastAPI runs this in the threadpool.
+    """
+    from app.notification_service import get_notification_url, send_notification
+
+    if not get_notification_url(db):
+        raise HTTPException(status_code=400, detail="No notification URL configured")
+
+    sent = send_notification(db, "ChannelFinWatcher test",
+                             "Notifications are working correctly.")
+    if not sent:
+        raise HTTPException(
+            status_code=502,
+            detail="Notification dispatch failed - check the URL and service logs"
+        )
+    return {"message": "Test notification sent"}
+
+
+@router.get("/logs/recent", tags=["System"])
+async def get_recent_logs(
+    limit: int = Query(100, ge=1, le=500, description="Maximum records to return"),
+    level: Optional[str] = Query(None, description="Minimum level (INFO, WARNING, ERROR)"),
+):
+    """
+    Get recent application log records from the in-memory buffer (US-014).
+
+    Complements (does not replace) docker logs: gives the web UI and API
+    consumers quick access to the last 500 records without host shell access.
+
+    Example:
+        GET /api/v1/logs/recent?limit=50&level=WARNING
+    """
+    from app.log_buffer import log_buffer_handler
+
+    if level and level.upper() not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+        raise HTTPException(status_code=400, detail=f"Unknown log level: {level}")
+
+    records = log_buffer_handler.recent(limit=limit, level=level)
+    return {"logs": records, "count": len(records)}
 
 
 # === DOWNLOAD ENDPOINTS (User Story 5) ===
@@ -1207,7 +1348,65 @@ async def get_dashboard(db: Session = Depends(get_db)):
             storage_bytes=total_storage,
         ),
         channels=items,
-        generated_at=datetime.utcnow(),
+        generated_at=utc_now(),
+    )
+
+
+@router.get("/downloads/active")
+async def get_active_downloads():
+    """
+    Get all currently-active downloads with real-time progress (US-010).
+
+    Snapshot of the in-memory progress store fed by yt-dlp progress hooks.
+    Designed for lightweight polling from the UI; for push-based consumption
+    use /downloads/progress/stream (SSE).
+
+    Example:
+        GET /api/v1/downloads/active
+        Response: {"active": [{"video_id": "...", "percent": 42.3, ...}], "count": 1}
+    """
+    from app.progress_store import download_progress_store
+
+    active = download_progress_store.snapshot()
+    return {"active": active, "count": len(active)}
+
+
+async def _progress_event_stream(request: Request):
+    """SSE event generator: one JSON snapshot per second until disconnect.
+
+    Module-level (not a closure) so tests can drive it directly with a fake
+    request — TestClient cannot cleanly disconnect an infinite stream.
+    """
+    import json
+    from app.progress_store import download_progress_store
+
+    while True:
+        if await request.is_disconnected():
+            break
+        active = download_progress_store.snapshot()
+        payload = json.dumps({"active": active, "count": len(active)})
+        yield f"data: {payload}\n\n"
+        await asyncio.sleep(1)
+
+
+@router.get("/downloads/progress/stream")
+async def stream_download_progress(request: Request):
+    """
+    Server-Sent Events stream of active download progress (US-010).
+
+    Emits a JSON snapshot of active downloads every second while the client
+    stays connected. Intended for direct API consumers; the bundled web UI
+    polls /downloads/active instead because the Next.js pages-router proxy
+    buffers streaming responses.
+
+    Example:
+        GET /api/v1/downloads/progress/stream
+        data: {"active": [...], "count": 1}
+    """
+    return StreamingResponse(
+        _progress_event_stream(request),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
@@ -1511,14 +1710,14 @@ async def update_scheduler_schedule(
 
     if cron_setting:
         cron_setting.value = cron_expr
-        cron_setting.updated_at = datetime.utcnow()
+        cron_setting.updated_at = utc_now()
     else:
         cron_setting = ApplicationSettings(
             key="cron_schedule",
             value=cron_expr,
             description="Cron expression for automatic downloads",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=utc_now(),
+            updated_at=utc_now()
         )
         db.add(cron_setting)
 
@@ -1573,14 +1772,14 @@ async def toggle_scheduler(
 
     if enabled_setting:
         enabled_setting.value = new_value
-        enabled_setting.updated_at = datetime.utcnow()
+        enabled_setting.updated_at = utc_now()
     else:
         enabled_setting = ApplicationSettings(
             key="scheduler_enabled",
             value=new_value,
             description="Enable/disable automatic scheduled downloads",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=utc_now(),
+            updated_at=utc_now()
         )
         db.add(enabled_setting)
 
@@ -1876,7 +2075,6 @@ async def update_nfo_settings(
         }
     """
     try:
-        from datetime import datetime
 
         # Validate input
         if settings.enabled is None and settings.overwrite_existing is None:
@@ -1894,15 +2092,15 @@ async def update_nfo_settings(
 
             if enabled_setting:
                 enabled_setting.value = enabled_value
-                enabled_setting.updated_at = datetime.utcnow()
+                enabled_setting.updated_at = utc_now()
             else:
                 # Create if doesn't exist
                 enabled_setting = ApplicationSettings(
                     key='nfo_enabled',
                     value=enabled_value,
                     description='Enable/disable NFO file generation for new video downloads.',
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+                    created_at=utc_now(),
+                    updated_at=utc_now()
                 )
                 db.add(enabled_setting)
 
@@ -1917,15 +2115,15 @@ async def update_nfo_settings(
 
             if overwrite_setting:
                 overwrite_setting.value = overwrite_value
-                overwrite_setting.updated_at = datetime.utcnow()
+                overwrite_setting.updated_at = utc_now()
             else:
                 # Create if doesn't exist
                 overwrite_setting = ApplicationSettings(
                     key='nfo_overwrite_existing',
                     value=overwrite_value,
                     description='Overwrite existing NFO files during regeneration.',
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+                    created_at=utc_now(),
+                    updated_at=utc_now()
                 )
                 db.add(overwrite_setting)
 

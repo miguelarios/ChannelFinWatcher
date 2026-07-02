@@ -3,7 +3,6 @@ import os
 import re
 import logging
 import shutil
-from datetime import datetime
 from typing import Dict, Optional, Tuple, List
 from pathlib import Path
 from sqlalchemy.orm import Session
@@ -12,6 +11,7 @@ from app.youtube_service import youtube_service
 from app.image_service import image_service
 from app.models import Channel
 from app.config import get_settings
+from app.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -263,7 +263,7 @@ class MetadataService:
             
             # Status and timestamp
             channel.metadata_status = "completed"
-            channel.last_metadata_update = datetime.utcnow()
+            channel.last_metadata_update = utc_now()
             
             db.commit()
             

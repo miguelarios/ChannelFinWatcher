@@ -17,6 +17,7 @@ from app.overlap_prevention import (
     clear_stale_locks
 )
 from app.models import ApplicationSettings
+from app.time_utils import utc_now
 
 
 class TestSchedulerLock:
@@ -57,8 +58,8 @@ class TestSchedulerLock:
             key="test_job_running",
             value="true",
             description="Test lock flag",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=utc_now(),
+            updated_at=utc_now()
         )
         db_session.add(flag)
         db_session.commit()
@@ -111,7 +112,7 @@ class TestSchedulerLock:
 
     def test_lock_updates_last_run_timestamp(self, db_session):
         """Test that last_run timestamp is updated on lock acquisition."""
-        before_time = datetime.utcnow()
+        before_time = utc_now()
 
         with scheduler_lock(db_session, "test_job"):
             # Check last_run timestamp
@@ -188,13 +189,13 @@ class TestUpdateLastRunTimestamp:
     def test_updates_existing_timestamp(self, db_session):
         """Test that existing timestamp is updated."""
         # Create initial timestamp
-        old_time = (datetime.utcnow() - timedelta(hours=1)).isoformat()
+        old_time = (utc_now() - timedelta(hours=1)).isoformat()
         initial_setting = ApplicationSettings(
             key="test_job_last_run",
             value=old_time,
             description="Last run timestamp",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=utc_now(),
+            updated_at=utc_now()
         )
         db_session.add(initial_setting)
         db_session.commit()
@@ -212,9 +213,9 @@ class TestUpdateLastRunTimestamp:
 
     def test_timestamp_is_recent(self, db_session):
         """Test that timestamp is within reasonable time."""
-        before = datetime.utcnow()
+        before = utc_now()
         _update_last_run_timestamp(db_session, "test_job")
-        after = datetime.utcnow()
+        after = utc_now()
 
         timestamp_setting = db_session.query(ApplicationSettings).filter(
             ApplicationSettings.key == "test_job_last_run"
@@ -231,7 +232,7 @@ class TestClearStaleLocks:
     def test_clears_stale_lock(self, db_session):
         """Test that stale locks are cleared."""
         # Create a stale lock (3 hours old)
-        stale_time = datetime.utcnow() - timedelta(hours=3)
+        stale_time = utc_now() - timedelta(hours=3)
 
         stale_flag = ApplicationSettings(
             key="stale_job_running",
@@ -268,7 +269,7 @@ class TestClearStaleLocks:
     def test_does_not_clear_fresh_lock(self, db_session):
         """Test that fresh locks are not cleared."""
         # Create a fresh lock (30 minutes old)
-        fresh_time = datetime.utcnow() - timedelta(minutes=30)
+        fresh_time = utc_now() - timedelta(minutes=30)
 
         fresh_flag = ApplicationSettings(
             key="fresh_job_running",
@@ -304,7 +305,7 @@ class TestClearStaleLocks:
 
     def test_clears_multiple_stale_locks(self, db_session):
         """Test that multiple stale locks are cleared."""
-        stale_time = datetime.utcnow() - timedelta(hours=3)
+        stale_time = utc_now() - timedelta(hours=3)
 
         # Create 3 stale locks
         for i in range(1, 4):
@@ -336,7 +337,7 @@ class TestClearStaleLocks:
 
     def test_handles_missing_last_run(self, db_session):
         """Test that locks without last_run timestamp are cleared based on updated_at."""
-        stale_time = datetime.utcnow() - timedelta(hours=3)
+        stale_time = utc_now() - timedelta(hours=3)
 
         # Create lock without last_run timestamp
         flag = ApplicationSettings(
@@ -371,7 +372,7 @@ class TestClearStaleLocks:
     def test_custom_max_age(self, db_session):
         """Test clear_stale_locks with custom max_age_hours."""
         # Create lock that is 1.5 hours old
-        old_time = datetime.utcnow() - timedelta(hours=1, minutes=30)
+        old_time = utc_now() - timedelta(hours=1, minutes=30)
 
         flag = ApplicationSettings(
             key="custom_age_job_running",

@@ -61,6 +61,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models import Channel, ApplicationSettings
 from app.nfo_service import get_nfo_service
+from app.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +145,7 @@ class NFOBackfillService:
         self.files_created = 0
         self.files_skipped = 0
         self.files_failed = 0
-        self.started_at = datetime.utcnow()
+        self.started_at = utc_now()
 
         # Get database session
         db = SessionLocal()
@@ -189,7 +190,7 @@ class NFOBackfillService:
                 await self._process_channel(channel, db)
 
             # Job completed
-            elapsed = (datetime.utcnow() - self.started_at).total_seconds()
+            elapsed = (utc_now() - self.started_at).total_seconds()
             logger.info(
                 f"NFO backfill completed in {elapsed:.1f}s: "
                 f"{self.channels_processed}/{self.total_channels} channels processed, "
@@ -461,7 +462,7 @@ class NFOBackfillService:
                     files_skipped += 1
 
             # Update timestamp to mark as regenerated
-            channel.nfo_last_generated = datetime.utcnow()
+            channel.nfo_last_generated = utc_now()
             db.commit()
 
             # Enhanced logging: Show summary and details of failures
@@ -610,7 +611,7 @@ class NFOBackfillService:
             # Mark channel as completed (set timestamp)
             # Why update here? Only after all NFO files generated successfully
             # (or with minimal failures - we still mark as done to avoid re-processing)
-            channel.nfo_last_generated = datetime.utcnow()
+            channel.nfo_last_generated = utc_now()
             db.commit()
 
             logger.info(

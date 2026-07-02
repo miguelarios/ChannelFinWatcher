@@ -12,13 +12,26 @@ ChannelFinWatcher periodically monitors YouTube channels and downloads only the 
 
 - **Recent Videos Only**: Downloads last X videos per channel, not entire history
 - **Smart Content Filtering**: Automatically excludes YouTube Shorts and live streams, downloading only regular uploaded videos
-- **Real-time Updates**: Live progress tracking via WebSocket connections
+- **Live Download Progress**: Real-time progress bars on the dashboard (polling), plus a Server-Sent Events stream for API consumers
 - **Auto-cleanup**: Removes older videos when limits are exceeded
+- **Automatic Retry**: Transient download failures retry with backoff; permanently failing videos stop after 5 attempts and can be retried manually from the History view
+- **Quality Presets**: Per-channel video quality (best/2160p/1080p/720p/480p) with graceful fallback, plus a global default for new channels
+- **Flexible Scheduling**: Global cron schedule plus optional per-channel schedule overrides with live cron validation
+- **Status Dashboard**: Channel health cards, storage capacity gauge with 80% warnings, and library totals
+- **Download History**: Cross-channel history with filtering, pagination, and one-click retry of failures
+- **Failure Notifications**: Optional [Apprise](https://github.com/caronc/apprise) notifications (Discord, ntfy, Telegram, email, ...) when scheduled runs fail
+- **Deep Health Checks**: `/health` verifies database, yt-dlp, ffmpeg, disk capacity, and scheduler liveness
 - **Dual Configuration**: Manage channels via YAML config or web interface
 - **Channel Control**: Enable/disable channels without removal
-- **Storage Monitoring**: Track disk usage and system health
-- **Jellyfin Compatible**: Maintains proper file organization and metadata
+- **Jellyfin Compatible**: Maintains proper file organization and NFO metadata
 - **Docker Development**: 100% containerized development environment
+
+## Web Interface
+
+- **Dashboard** — channel status cards (health, video count vs limit, storage, last check), live download progress, storage overview, scheduler status
+- **Channels** — add channels, edit limits inline, set per-channel quality and custom cron schedules, refresh metadata, reindex media, regenerate NFO files
+- **History** — every download across all channels with status/channel filters and retry buttons on failures
+- **Settings** — default video limit and quality, global schedule with cron validation, NFO options, cookie file health, and failure notifications
 
 ## Quick Start (Docker Development)
 

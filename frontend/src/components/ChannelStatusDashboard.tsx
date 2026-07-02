@@ -15,6 +15,7 @@ import {
   CalendarClockIcon,
 } from 'lucide-react'
 import { SchedulerStatusWidget } from './SchedulerStatusWidget'
+import { ActiveDownloads } from './ActiveDownloads'
 
 /**
  * ChannelStatusDashboard Component - Landing page with channel health + storage
@@ -193,6 +194,9 @@ export function ChannelStatusDashboard({
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       <SchedulerStatusWidget onNavigateToSettings={onNavigateToSettings} />
+
+      {/* Live download progress (US-010) - renders nothing when idle */}
+      <ActiveDownloads />
 
       {/* Storage warning banner (US-012: warn at >= 80% capacity) */}
       {data?.disk?.warning && (

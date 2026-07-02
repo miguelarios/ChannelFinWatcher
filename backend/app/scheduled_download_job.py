@@ -26,7 +26,6 @@ import logging
 import asyncio
 import shutil
 import os
-from datetime import datetime
 from typing import Tuple
 from pathlib import Path
 from sqlalchemy.orm import Session
@@ -36,6 +35,7 @@ from app.models import Channel, ApplicationSettings, DownloadHistory, Download
 from app.video_download_service import video_download_service
 from app.overlap_prevention import scheduler_lock, JobAlreadyRunningError
 from app.utils import is_retryable_error
+from app.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ async def scheduled_download_job():
         "failed_channels": 0,
         "total_videos": 0,
         "total_videos_deleted": 0,
-        "start_time": datetime.utcnow()
+        "start_time": utc_now()
     }
 
     try:
@@ -109,7 +109,7 @@ async def scheduled_download_job():
 
             # Process each channel with individual error handling
             for channel in channels:
-                channel_start_time = datetime.utcnow()
+                channel_start_time = utc_now()
 
                 try:
                     logger.info(f"Processing channel: {channel.name} (ID: {channel.id})")
@@ -138,7 +138,7 @@ async def scheduled_download_job():
                             # Cleanup errors shouldn't stop the job
                             logger.error(f"Cleanup failed for channel '{channel.name}': {e}")
 
-                        processing_time = (datetime.utcnow() - channel_start_time).total_seconds()
+                        processing_time = (utc_now() - channel_start_time).total_seconds()
                         logger.info(
                             f"Channel '{channel.name}' completed successfully: "
                             f"{videos_downloaded} videos in {processing_time:.1f}s"
@@ -158,7 +158,7 @@ async def scheduled_download_job():
                     continue  # Continue with next channel
 
             # Log final summary
-            total_time = (datetime.utcnow() - downloaded_summary["start_time"]).total_seconds()
+            total_time = (utc_now() - downloaded_summary["start_time"]).total_seconds()
             logger.info(
                 f"Scheduled download job completed in {total_time:.1f}s: "
                 f"{downloaded_summary['successful_channels']}/{downloaded_summary['total_channels']} channels successful, "
@@ -186,6 +186,21 @@ async def scheduled_download_job():
 
             # Update global job statistics
             _update_job_statistics(downloaded_summary, db)
+
+            # Best-effort failure notification (no-op unless configured)
+            if downloaded_summary["failed_channels"] > 0:
+                from app.notification_service import send_notification
+                # Worker thread: Apprise performs blocking network I/O and a
+                # slow endpoint must not stall the shared event loop
+                await asyncio.to_thread(
+                    send_notification,
+                    db,
+                    "ChannelFinWatcher: scheduled run had failures",
+                    f"{downloaded_summary['failed_channels']} of "
+                    f"{downloaded_summary['total_channels']} channels failed. "
+                    f"{downloaded_summary['total_videos']} videos downloaded. "
+                    f"Check the dashboard for per-channel errors."
+                )
 
     except JobAlreadyRunningError:
         logger.warning("Scheduled download job skipped - another instance already running")
@@ -244,6 +259,15 @@ async def channel_download_job(channel_id: int):
                 )
             else:
                 logger.error(f"Per-channel job for '{channel.name}' failed: {error_message}")
+                # Best-effort failure notification (no-op unless configured;
+                # worker thread keeps blocking network I/O off the event loop)
+                from app.notification_service import send_notification
+                await asyncio.to_thread(
+                    send_notification,
+                    db,
+                    f"ChannelFinWatcher: '{channel.name}' download failed",
+                    f"Scheduled download for '{channel.name}' failed: {error_message}"
+                )
 
     except JobAlreadyRunningError:
         logger.info(
@@ -283,10 +307,11 @@ async def _process_channel_with_recovery(channel: Channel, db: Session) -> Tuple
 
     while retry_count < max_retries:
         try:
-            # Use existing video download service
-            # This returns (success, videos_downloaded, error_message)
-            success, videos_downloaded, error_message = video_download_service.process_channel_downloads(
-                channel, db
+            # Use existing video download service (worker thread: this is
+            # minutes of blocking yt-dlp work and the scheduler shares the
+            # event loop with the API)
+            success, videos_downloaded, error_message = await asyncio.to_thread(
+                video_download_service.process_channel_downloads, channel, db
             )
 
             # If successful or non-retryable error, return immediately
@@ -357,13 +382,13 @@ def _create_failed_history_record(channel_id: int, error_message: str, db: Sessi
     try:
         history = DownloadHistory(
             channel_id=channel_id,
-            run_date=datetime.utcnow(),
+            run_date=utc_now(),
             videos_found=0,
             videos_downloaded=0,
             videos_skipped=0,
             status='failed',
             error_message=error_message[:500],  # Truncate long errors
-            completed_at=datetime.utcnow()
+            completed_at=utc_now()
         )
         db.add(history)
         db.commit()
@@ -406,14 +431,14 @@ def _update_job_statistics(summary: dict, db: Session):
 
             if setting:
                 setting.value = value
-                setting.updated_at = datetime.utcnow()
+                setting.updated_at = utc_now()
             else:
                 setting = ApplicationSettings(
                     key=key,
                     value=value,
                     description=f"Scheduler statistic: {key}",
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+                    created_at=utc_now(),
+                    updated_at=utc_now()
                 )
                 db.add(setting)
 
@@ -508,7 +533,7 @@ async def cleanup_old_videos(channel: Channel, db: Session) -> int:
                 # Mark database record as deleted (preserve history)
                 # Don't delete the record - just mark when it was removed from disk
                 download.file_exists = False
-                download.deleted_at = datetime.utcnow()
+                download.deleted_at = utc_now()
                 deleted_count += 1
                 deleted_video_names.append(download.title)  # Track for summary log
 
@@ -525,7 +550,7 @@ async def cleanup_old_videos(channel: Channel, db: Session) -> int:
                 # Still try to mark the DB record as deleted
                 try:
                     download.file_exists = False
-                    download.deleted_at = datetime.utcnow()
+                    download.deleted_at = utc_now()
                     deleted_count += 1
                     deleted_video_names.append(download.title)  # Track even if file deletion failed
                 except Exception as db_error:

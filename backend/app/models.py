@@ -1,8 +1,8 @@
 """SQLAlchemy database models."""
-from datetime import datetime
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.time_utils import utc_now
 
 
 class Channel(Base):
@@ -49,8 +49,8 @@ class Channel(Base):
     nfo_last_generated = Column(DateTime, nullable=True, index=True)      # Last NFO generation timestamp (NULL = needs backfill)
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)                 # When channel was added
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)  # Last modified
+    created_at = Column(DateTime, default=utc_now)                 # When channel was added
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)  # Last modified
     last_check = Column(DateTime, nullable=True)                           # Last time videos were checked
 
     # Relationships
@@ -79,7 +79,7 @@ class Download(Base):
     error_message = Column(Text, nullable=True)
     retry_count = Column(Integer, default=0, nullable=False)  # Failed run attempts; bounds automatic retries
     file_exists = Column(Boolean, default=True, nullable=False)  # Track if downloaded file exists on disk
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     completed_at = Column(DateTime, nullable=True)
     deleted_at = Column(DateTime, nullable=True)  # When video file was deleted (NULL = not deleted)
 
@@ -102,7 +102,7 @@ class DownloadHistory(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False, index=True)
-    run_date = Column(DateTime, default=datetime.utcnow, index=True)
+    run_date = Column(DateTime, default=utc_now, index=True)
     videos_found = Column(Integer, default=0)
     videos_downloaded = Column(Integer, default=0)
     videos_skipped = Column(Integer, default=0)
@@ -126,8 +126,8 @@ class ApplicationSettings(Base):
     key = Column(String, unique=True, index=True, nullable=False)
     value = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Indexes
     __table_args__ = (

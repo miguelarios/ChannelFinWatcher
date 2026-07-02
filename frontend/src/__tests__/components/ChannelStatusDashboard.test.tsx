@@ -87,6 +87,9 @@ function mockFetchImplementation(dashboard = baseDashboard) {
     if (url.startsWith('/api/v1/scheduler/status')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(schedulerStatus) })
     }
+    if (url.startsWith('/api/v1/downloads/active')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ active: [], count: 0 }) })
+    }
     if (url.startsWith('/api/v1/channels/') && options?.method === 'PUT') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
     }

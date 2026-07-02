@@ -11,6 +11,11 @@ logging.basicConfig(level=logging.INFO, force=True)
 # This is necessary because some loggers may inherit WARNING level from other configurations
 logging.getLogger('app').setLevel(logging.INFO)
 
+# Capture recent log records in memory for the /api/v1/logs/recent endpoint
+# (US-014). Attached to the root logger so all module logs are captured.
+from app.log_buffer import log_buffer_handler  # noqa: E402 (needs logging configured first)
+logging.getLogger().addHandler(log_buffer_handler)
+
 # Now import app modules (services will be instantiated with logging configured)
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
@@ -26,6 +31,7 @@ from app.utils import (
 )
 from app.api import router as api_router
 from app.scheduler_service import scheduler_service
+from app.time_utils import utc_now
 
 
 class AccessLogFilter(logging.Filter):
@@ -242,10 +248,16 @@ async def root():
 async def health_check(db: Session = Depends(get_db)):
     """
     System health check endpoint.
-    
-    Verifies database connectivity and directory structure.
-    Returns comprehensive system status information.
+
+    Verifies database connectivity, directory structure, external tool
+    availability (yt-dlp, ffmpeg/ffprobe), disk capacity, and scheduler
+    liveness. Status is 'healthy' or 'degraded' (with reasons listed) —
+    the endpoint always returns 200 so container healthchecks measure
+    reachability, while the payload carries the diagnosis.
     """
+    import shutil as _shutil
+    problems = []
+
     try:
         # Test database connection
         from sqlalchemy import text
@@ -254,16 +266,74 @@ async def health_check(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Database health check failed: {e}")
         db_status = f"error: {str(e)}"
-    
+        problems.append("database unreachable")
+
     # Get directory information
     directories = get_directory_info()
-    
+
+    # External tools the download pipeline depends on
+    try:
+        import yt_dlp
+        ytdlp_version = getattr(yt_dlp.version, "__version__", "unknown")
+    except Exception:
+        ytdlp_version = None
+        problems.append("yt-dlp not importable")
+    tools = {
+        "yt_dlp_version": ytdlp_version,
+        "ffmpeg": _shutil.which("ffmpeg") is not None,
+        "ffprobe": _shutil.which("ffprobe") is not None,
+    }
+    if not tools["ffmpeg"]:
+        problems.append("ffmpeg not found (merging/embedding will fail)")
+
+    # Disk capacity for the media volume
+    disk = None
+    try:
+        usage = _shutil.disk_usage(settings.media_dir)
+        percent = round(usage.used / usage.total * 100, 1) if usage.total else 0.0
+        disk = {
+            "total_bytes": usage.total,
+            "free_bytes": usage.free,
+            "usage_percent": percent,
+        }
+        # Deliberately stricter than the dashboard's 80% heads-up banner
+        # (US-012): 80% is a UI nudge to lower limits, 90% is an operational
+        # problem worth flagging in healthchecks/monitors.
+        if percent >= 90:
+            problems.append(f"disk {percent}% full")
+    except OSError as e:
+        problems.append(f"media volume unreadable: {e}")
+
+    # Scheduler liveness: enabled but silent for over 48h means something is
+    # wrong regardless of the configured cadence (default schedules are daily)
+    scheduler = {"enabled": None, "last_run": None, "stale": False}
+    try:
+        from app.models import ApplicationSettings
+        from datetime import datetime, timedelta
+        enabled_row = db.query(ApplicationSettings).filter(
+            ApplicationSettings.key == "scheduler_enabled").first()
+        last_run_row = db.query(ApplicationSettings).filter(
+            ApplicationSettings.key == "scheduled_downloads_last_run").first()
+        scheduler["enabled"] = bool(enabled_row and enabled_row.value == "true")
+        if last_run_row and last_run_row.value:
+            scheduler["last_run"] = last_run_row.value
+            last_run = datetime.fromisoformat(last_run_row.value.replace("Z", "+00:00"))
+            if scheduler["enabled"] and utc_now() - last_run > timedelta(hours=48):
+                scheduler["stale"] = True
+                problems.append("scheduler enabled but has not run in over 48h")
+    except Exception as e:
+        logger.warning(f"Scheduler health probe failed: {e}")
+
     return {
-        "status": "healthy",
+        "status": "degraded" if problems else "healthy",
+        "problems": problems,
         "service": settings.app_name,
         "version": settings.app_version,
         "database": db_status,
-        "directories": directories
+        "directories": directories,
+        "tools": tools,
+        "disk": disk,
+        "scheduler": scheduler,
     }
 
 

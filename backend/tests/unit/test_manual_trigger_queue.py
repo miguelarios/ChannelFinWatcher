@@ -21,6 +21,7 @@ from app.manual_trigger_queue import (
     TIMEOUT_MINUTES
 )
 from app.models import ApplicationSettings, Channel
+from app.time_utils import utc_now
 
 
 class TestAddToQueue:
@@ -46,13 +47,13 @@ class TestAddToQueue:
     def test_adds_entry_to_existing_queue(self, db_session):
         """Test adding entry to existing queue."""
         # Create initial queue
-        initial_queue = [{"channel_id": 111, "user": "manual", "timestamp": datetime.utcnow().isoformat()}]
+        initial_queue = [{"channel_id": 111, "user": "manual", "timestamp": utc_now().isoformat()}]
         queue_setting = ApplicationSettings(
             key=QUEUE_KEY,
             value=json.dumps(initial_queue),
             description="Queue",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=utc_now(),
+            updated_at=utc_now()
         )
         db_session.add(queue_setting)
         db_session.commit()
@@ -84,16 +85,16 @@ class TestGetQueue:
     def test_returns_queue_entries(self, db_session):
         """Test returns queue entries."""
         entries = [
-            {"channel_id": 111, "user": "manual", "timestamp": datetime.utcnow().isoformat()},
-            {"channel_id": 222, "user": "manual", "timestamp": datetime.utcnow().isoformat()}
+            {"channel_id": 111, "user": "manual", "timestamp": utc_now().isoformat()},
+            {"channel_id": 222, "user": "manual", "timestamp": utc_now().isoformat()}
         ]
 
         queue_setting = ApplicationSettings(
             key=QUEUE_KEY,
             value=json.dumps(entries),
             description="Queue",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=utc_now(),
+            updated_at=utc_now()
         )
         db_session.add(queue_setting)
         db_session.commit()
@@ -111,13 +112,13 @@ class TestClearQueue:
     def test_clears_existing_queue(self, db_session):
         """Test clears existing queue."""
         # Create queue
-        entries = [{"channel_id": 111, "user": "manual", "timestamp": datetime.utcnow().isoformat()}]
+        entries = [{"channel_id": 111, "user": "manual", "timestamp": utc_now().isoformat()}]
         queue_setting = ApplicationSettings(
             key=QUEUE_KEY,
             value=json.dumps(entries),
             description="Queue",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=utc_now(),
+            updated_at=utc_now()
         )
         db_session.add(queue_setting)
         db_session.commit()
@@ -138,8 +139,8 @@ class TestRemoveStaleEntries:
 
     def test_removes_stale_entries(self, db_session):
         """Test removes entries older than timeout."""
-        stale_time = (datetime.utcnow() - timedelta(minutes=TIMEOUT_MINUTES + 1)).isoformat()
-        fresh_time = datetime.utcnow().isoformat()
+        stale_time = (utc_now() - timedelta(minutes=TIMEOUT_MINUTES + 1)).isoformat()
+        fresh_time = utc_now().isoformat()
 
         entries = [
             {"channel_id": 111, "user": "manual", "timestamp": stale_time},
@@ -150,8 +151,8 @@ class TestRemoveStaleEntries:
             key=QUEUE_KEY,
             value=json.dumps(entries),
             description="Queue",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=utc_now(),
+            updated_at=utc_now()
         )
         db_session.add(queue_setting)
         db_session.commit()
@@ -171,7 +172,7 @@ class TestRemoveStaleEntries:
 
     def test_keeps_fresh_entries(self, db_session):
         """Test keeps entries within timeout."""
-        fresh_time = datetime.utcnow().isoformat()
+        fresh_time = utc_now().isoformat()
 
         entries = [
             {"channel_id": 111, "user": "manual", "timestamp": fresh_time},
@@ -182,8 +183,8 @@ class TestRemoveStaleEntries:
             key=QUEUE_KEY,
             value=json.dumps(entries),
             description="Queue",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=utc_now(),
+            updated_at=utc_now()
         )
         db_session.add(queue_setting)
         db_session.commit()
@@ -225,16 +226,16 @@ class TestProcessQueue:
 
         # Create queue
         entries = [
-            {"channel_id": channel1.id, "user": "manual", "timestamp": datetime.utcnow().isoformat()},
-            {"channel_id": channel2.id, "user": "manual", "timestamp": datetime.utcnow().isoformat()}
+            {"channel_id": channel1.id, "user": "manual", "timestamp": utc_now().isoformat()},
+            {"channel_id": channel2.id, "user": "manual", "timestamp": utc_now().isoformat()}
         ]
 
         queue_setting = ApplicationSettings(
             key=QUEUE_KEY,
             value=json.dumps(entries),
             description="Queue",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=utc_now(),
+            updated_at=utc_now()
         )
         db_session.add(queue_setting)
         db_session.commit()
@@ -284,16 +285,16 @@ class TestProcessQueue:
 
         # Create queue
         entries = [
-            {"channel_id": channel1.id, "user": "manual", "timestamp": datetime.utcnow().isoformat()},
-            {"channel_id": channel2.id, "user": "manual", "timestamp": datetime.utcnow().isoformat()}
+            {"channel_id": channel1.id, "user": "manual", "timestamp": utc_now().isoformat()},
+            {"channel_id": channel2.id, "user": "manual", "timestamp": utc_now().isoformat()}
         ]
 
         queue_setting = ApplicationSettings(
             key=QUEUE_KEY,
             value=json.dumps(entries),
             description="Queue",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=utc_now(),
+            updated_at=utc_now()
         )
         db_session.add(queue_setting)
         db_session.commit()
@@ -313,7 +314,7 @@ class TestProcessQueue:
     @patch('app.manual_trigger_queue.video_download_service')
     async def test_removes_stale_entries_before_processing(self, mock_service, db_session):
         """Test removes stale entries before processing."""
-        stale_time = (datetime.utcnow() - timedelta(minutes=TIMEOUT_MINUTES + 1)).isoformat()
+        stale_time = (utc_now() - timedelta(minutes=TIMEOUT_MINUTES + 1)).isoformat()
 
         # Create channel
         channel = Channel(
@@ -329,15 +330,15 @@ class TestProcessQueue:
         # Create queue with stale entry
         entries = [
             {"channel_id": 999, "user": "manual", "timestamp": stale_time},  # Stale, non-existent channel
-            {"channel_id": channel.id, "user": "manual", "timestamp": datetime.utcnow().isoformat()}
+            {"channel_id": channel.id, "user": "manual", "timestamp": utc_now().isoformat()}
         ]
 
         queue_setting = ApplicationSettings(
             key=QUEUE_KEY,
             value=json.dumps(entries),
             description="Queue",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=utc_now(),
+            updated_at=utc_now()
         )
         db_session.add(queue_setting)
         db_session.commit()
