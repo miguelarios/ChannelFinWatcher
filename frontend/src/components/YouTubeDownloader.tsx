@@ -4,21 +4,8 @@ import {
   PlusIcon,
 } from 'lucide-react'
 import { DownloadResults } from './DownloadResults'
-import { ChannelsList } from './ChannelsList'
+import { ChannelsList, Channel } from './ChannelsList'
 import { SchedulerStatusWidget } from './SchedulerStatusWidget'
-
-/**
- * Channel interface representing a YouTube channel configuration
- */
-interface Channel {
-  id: number
-  url: string
-  name: string
-  limit: number
-  enabled: boolean
-  created_at: string
-  updated_at: string
-}
 
 /**
  * Props for YouTubeDownloader component
@@ -180,10 +167,11 @@ export function YouTubeDownloader({ onNavigateToSettings }: YouTubeDownloaderPro
     try {
       // Call backend API to add channel
       // User Story 3 Integration: Only send custom limit, let backend apply default
+      // US-015: quality_preset is omitted so the backend applies the global
+      // default quality setting (sending 'best' here would override it)
       const requestBody: any = {
         url: channelUrl,
-        enabled: true,
-        quality_preset: 'best'
+        enabled: true
       }
       
       // Only include limit if user explicitly chose a custom value

@@ -32,7 +32,9 @@ import { ScheduleOverrideModal } from './ScheduleOverrideModal'
  * - Maintains edit state isolation per channel
  */
 
-interface Channel {
+// Exported as the single source of truth for the channel shape — imported by
+// YouTubeDownloader to avoid divergent duplicate interfaces (TS2719)
+export interface Channel {
   id: number
   url: string
   name: string
@@ -42,6 +44,7 @@ interface Channel {
   updated_at: string
   metadata_status: string
   schedule_override?: string | null
+  quality_preset?: string
   metadata_path?: string
   directory_path?: string
   last_metadata_update?: string
@@ -69,7 +72,10 @@ export function ChannelsList({
   const [editingChannelId, setEditingChannelId] = useState<number | null>(null)
   
   // Current value in the edit input field (may differ from saved value during editing)
-  const [editingLimit, setEditingLimit] = useState<number>(10)
+  // number | '' so the field can be transiently empty while the user retypes
+  // (parseInt-with-fallback previously snapped '' to 1, making e.g. "15"
+  // impossible to type after clearing — it became "115")
+  const [editingLimit, setEditingLimit] = useState<number | ''>(10)
   
   // Original limit value before editing started (used for reset/cancel and confirmation logic)
   const [originalLimit, setOriginalLimit] = useState<number>(10)
@@ -120,6 +126,34 @@ export function ChannelsList({
   // === CUSTOM SCHEDULE MODAL STATE (US-016) ===
   // Channel whose custom schedule is being edited (null = modal closed)
   const [scheduleModalChannel, setScheduleModalChannel] = useState<Channel | null>(null)
+
+  // === QUALITY PRESET STATE (US-015) ===
+  // Channel whose quality is currently being saved (disables its select)
+  const [updatingQualityChannelId, setUpdatingQualityChannelId] = useState<number | null>(null)
+
+  /**
+   * Update a channel's video quality preset (US-015).
+   * Takes effect on the channel's next download cycle.
+   */
+  const updateQualityPreset = async (channelId: number, quality: string) => {
+    setUpdatingQualityChannelId(channelId)
+    try {
+      const response = await fetch(`/api/v1/channels/${channelId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quality_preset: quality }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to update video quality')
+      }
+      onUpdateChannel?.(channelId, { quality_preset: quality })
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : 'Failed to update video quality')
+    } finally {
+      setUpdatingQualityChannelId(null)
+    }
+  }
   const [isDeleting, setIsDeleting] = useState(false)
   const [deleteSuccess, setDeleteSuccess] = useState('')
 
@@ -249,8 +283,8 @@ export function ChannelsList({
     if (e) e.stopPropagation() // Prevent event bubbling if called from button click
     
     // === INPUT VALIDATION ===
-    // Frontend validation to catch invalid ranges before API call
-    if (editingLimit < 1 || editingLimit > 100) {
+    // Frontend validation to catch empty/invalid ranges before API call
+    if (editingLimit === '' || editingLimit < 1 || editingLimit > 100) {
       setUpdateError('Limit must be between 1 and 100')
       return // Stop here - don't proceed with invalid values
     }
@@ -690,7 +724,7 @@ export function ChannelsList({
                         min="1"
                         max="100"
                         value={editingLimit}
-                        onChange={(e) => setEditingLimit(parseInt(e.target.value) || 1)}
+                        onChange={(e) => setEditingLimit(e.target.value === '' ? '' : parseInt(e.target.value))}
                         onKeyDown={(e) => handleKeyPress(e, channel.id)}                // Enter/Escape shortcuts
                         onFocus={(e) => e.target.select()}                             // Fallback text selection
                         className="w-16 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none"
@@ -800,6 +834,27 @@ export function ChannelsList({
                             <DownloadIcon className={`h-4 w-4 mr-2 ${downloadingChannelId === channel.id ? 'animate-pulse' : ''}`} />
                             Download recent videos
                           </button>
+
+                          {/* Video quality (US-015) */}
+                          <div
+                            className="px-4 py-2 flex items-center justify-between"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <span className="text-sm text-gray-700">Quality</span>
+                            <select
+                              value={channel.quality_preset || 'best'}
+                              disabled={updatingQualityChannelId === channel.id}
+                              aria-label={`Video quality for ${channel.name}`}
+                              onChange={(e) => updateQualityPreset(channel.id, e.target.value)}
+                              className="ml-2 rounded border border-gray-300 px-1.5 py-0.5 text-xs focus:border-red-500 focus:ring-red-500 disabled:opacity-50"
+                            >
+                              <option value="best">Best</option>
+                              <option value="2160p">2160p</option>
+                              <option value="1080p">1080p</option>
+                              <option value="720p">720p</option>
+                              <option value="480p">480p</option>
+                            </select>
+                          </div>
 
                           {/* Custom schedule (US-016) */}
                           <button

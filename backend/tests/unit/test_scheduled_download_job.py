@@ -567,23 +567,28 @@ class TestCleanupOldVideos:
         # Verify 3 oldest videos were deleted
         assert deleted_count == 3
 
-        # Verify correct number of videos remain
+        # Cleanup soft-deletes (file_exists=False + deleted_at set, row kept
+        # for history) — count only active videos
         remaining_count = db_session.query(Download).filter(
-            Download.channel_id == channel.id
+            Download.channel_id == channel.id,
+            Download.file_exists == True,
+            Download.deleted_at.is_(None)
         ).count()
         assert remaining_count == 10
 
-        # Verify oldest videos were deleted (video_0, video_1, video_2)
+        # Verify oldest videos were soft-deleted (video_0, video_1, video_2)
         oldest_videos = db_session.query(Download).filter(
             Download.channel_id == channel.id,
             Download.video_id.in_(["video_0", "video_1", "video_2"])
         ).all()
-        assert len(oldest_videos) == 0
+        assert all(not v.file_exists and v.deleted_at is not None for v in oldest_videos)
 
-        # Verify newest videos were kept (video_10, video_11, video_12)
+        # Verify newest videos were kept active (video_10, video_11, video_12)
         newest_videos = db_session.query(Download).filter(
             Download.channel_id == channel.id,
-            Download.video_id.in_(["video_10", "video_11", "video_12"])
+            Download.video_id.in_(["video_10", "video_11", "video_12"]),
+            Download.file_exists == True,
+            Download.deleted_at.is_(None)
         ).all()
         assert len(newest_videos) == 3
 
@@ -665,17 +670,22 @@ class TestCleanupOldVideos:
         # Verify 5 videos were deleted
         assert deleted_count == 5
 
-        # Verify ALL NULL videos were deleted (priority deletion)
-        null_videos = db_session.query(Download).filter(
+        # Verify ALL NULL videos were soft-deleted first (priority deletion).
+        # Cleanup keeps rows for history: file_exists=False + deleted_at set
+        active_null_videos = db_session.query(Download).filter(
             Download.channel_id == channel.id,
-            Download.upload_date.is_(None)
+            Download.upload_date.is_(None),
+            Download.file_exists == True,
+            Download.deleted_at.is_(None)
         ).all()
-        assert len(null_videos) == 0, "All NULL upload_date videos should be deleted first"
+        assert len(active_null_videos) == 0, "All NULL upload_date videos should be deleted first"
 
-        # Verify ALL dated videos were kept
+        # Verify ALL dated videos were kept active
         dated_videos = db_session.query(Download).filter(
             Download.channel_id == channel.id,
-            Download.upload_date.isnot(None)
+            Download.upload_date.isnot(None),
+            Download.file_exists == True,
+            Download.deleted_at.is_(None)
         ).all()
         assert len(dated_videos) == 10, "All videos with upload_dates should be kept"
 
@@ -724,12 +734,14 @@ class TestCleanupOldVideos:
         # Run cleanup - should handle missing files gracefully
         deleted_count = await cleanup_old_videos(channel, db_session)
 
-        # Database records should still be deleted
+        # Database records should still be soft-deleted
         assert deleted_count == 3
 
-        # Verify correct count remains
+        # Verify correct count of active videos remains (soft-delete keeps rows)
         remaining_count = db_session.query(Download).filter(
-            Download.channel_id == channel.id
+            Download.channel_id == channel.id,
+            Download.file_exists == True,
+            Download.deleted_at.is_(None)
         ).count()
         assert remaining_count == 5
 
@@ -777,11 +789,13 @@ class TestCleanupOldVideos:
         # Run cleanup - should continue despite error
         deleted_count = await cleanup_old_videos(channel, db_session)
 
-        # All database records should be deleted (even if file deletion failed)
+        # All database records should be soft-deleted (even if file deletion failed)
         assert deleted_count == 3
 
         remaining_count = db_session.query(Download).filter(
-            Download.channel_id == channel.id
+            Download.channel_id == channel.id,
+            Download.file_exists == True,
+            Download.deleted_at.is_(None)
         ).count()
         assert remaining_count == 5
 

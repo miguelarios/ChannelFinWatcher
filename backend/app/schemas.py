@@ -1,7 +1,11 @@
 """Pydantic schemas for API request/response validation."""
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Literal
 from pydantic import BaseModel, HttpUrl, Field
+
+# Quality presets supported by the download pipeline (US-015).
+# Must stay in sync with VideoDownloadService.QUALITY_FORMATS.
+QualityPreset = Literal['best', '2160p', '1080p', '720p', '480p']
 
 
 # Base schemas for common patterns
@@ -28,7 +32,7 @@ class ChannelCreate(BaseModel):
     limit: Optional[int] = Field(None, ge=1, le=100, description="Maximum videos to keep (uses default if not specified)")
     enabled: bool = Field(default=True, description="Whether channel monitoring is enabled")
     schedule_override: Optional[str] = Field(None, description="Custom cron schedule for this channel")
-    quality_preset: str = Field(default="best", description="Video quality preset")
+    quality_preset: Optional[QualityPreset] = Field(None, description="Video quality preset (uses global default if not specified)")
 
 
 class ChannelUpdate(BaseModel):
@@ -37,7 +41,7 @@ class ChannelUpdate(BaseModel):
     limit: Optional[int] = Field(None, ge=1, le=100)
     enabled: Optional[bool] = None
     schedule_override: Optional[str] = None
-    quality_preset: Optional[str] = None
+    quality_preset: Optional[QualityPreset] = None
 
 
 class Channel(ChannelBase, TimestampMixin):
@@ -322,6 +326,22 @@ class DashboardResponse(BaseModel):
     totals: DashboardTotals
     channels: List[ChannelDashboardItem]
     generated_at: datetime
+
+
+# Default quality preset schemas (US-015)
+class DefaultQualityUpdate(BaseModel):
+    """Schema for updating the default quality preset for new channels."""
+    quality: QualityPreset = Field(..., description="Default quality preset for new channels")
+
+
+class DefaultQualityResponse(BaseModel):
+    """Schema for default quality preset responses."""
+    quality: str = Field(..., description="Current default quality preset")
+    description: str = Field(..., description="Setting description")
+    updated_at: Optional[datetime] = Field(None, description="When setting was last updated")
+
+    class Config:
+        from_attributes = True
 
 
 # Error response schemas

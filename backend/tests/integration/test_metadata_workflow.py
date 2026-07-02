@@ -80,36 +80,46 @@ def sample_channel_data():
 class TestMetadataWorkflowIntegration:
     """Integration tests for metadata workflow."""
     
-    def test_create_channel_triggers_metadata_processing(self, test_client, test_db_session, 
+    def test_create_channel_triggers_metadata_processing(self, test_client, test_db_session,
                                                         sample_channel_data):
         """Test that creating a channel triggers metadata processing."""
-        with patch('app.youtube_service.youtube_service.extract_channel_info') as mock_extract:
-            with patch('app.metadata_service.metadata_service.process_channel_metadata') as mock_process:
-                
-                # Mock YouTube service response
-                mock_extract.return_value = (True, {
-                    'channel_id': 'UC123456789',
-                    'name': 'Test Channel'
-                }, None)
-                
-                # Mock metadata processing success
-                mock_process.return_value = (True, [])
-                
-                # Create channel via API
-                response = test_client.post("/api/v1/channels", json=sample_channel_data)
-                
-                assert response.status_code == 200
-                channel_data = response.json()
-                
-                # Verify channel was created
-                assert channel_data['name'] == 'Test Channel'
-                assert channel_data['channel_id'] == 'UC123456789'
-                assert channel_data['metadata_status'] == 'completed'  # Should be updated by process
-                
-                # Verify metadata processing was triggered
-                mock_process.assert_called_once()
-                call_args = mock_process.call_args[0]
-                assert call_args[1].id == channel_data['id']  # Channel instance
+        with patch('app.youtube_service.youtube_service.extract_channel_info') as mock_extract, \
+                patch('app.metadata_service.metadata_service.process_channel_metadata') as mock_process, \
+                patch('app.api.video_download_service.process_channel_downloads') as mock_downloads:
+
+            # Mock YouTube service response
+            mock_extract.return_value = (True, {
+                'channel_id': 'UC123456789',
+                'name': 'Test Channel'
+            }, None)
+
+            # Mock metadata processing success. The 'completed' status is set
+            # INSIDE the real service, so the mock must simulate that side
+            # effect for the response to reflect it.
+            def fake_process(db, channel, url):
+                channel.metadata_status = 'completed'
+                db.commit()
+                return (True, [])
+            mock_process.side_effect = fake_process
+
+            # Prevent real yt-dlp network calls for initial downloads
+            mock_downloads.return_value = (True, 0, None)
+
+            # Create channel via API
+            response = test_client.post("/api/v1/channels", json=sample_channel_data)
+
+            assert response.status_code == 200
+            channel_data = response.json()
+
+            # Verify channel was created
+            assert channel_data['name'] == 'Test Channel'
+            assert channel_data['channel_id'] == 'UC123456789'
+            assert channel_data['metadata_status'] == 'completed'  # Set by (mocked) process
+
+            # Verify metadata processing was triggered
+            mock_process.assert_called_once()
+            call_args = mock_process.call_args[0]
+            assert call_args[1].id == channel_data['id']  # Channel instance
     
     def test_refresh_metadata_endpoint(self, test_client, test_db_session, sample_channel_data):
         """Test metadata refresh endpoint functionality."""
@@ -136,9 +146,13 @@ class TestMetadataWorkflowIntegration:
             assert response.status_code == 200
             result = response.json()
             assert result['message'] == 'Channel metadata refreshed successfully'
-            
-            # Verify refresh was called
-            mock_refresh.assert_called_once_with(test_db_session, channel)
+
+            # Verify refresh was called. The endpoint uses its own
+            # request-scoped session (and channel instance loaded from it),
+            # so compare by id rather than object identity.
+            mock_refresh.assert_called_once()
+            call_args = mock_refresh.call_args[0]
+            assert call_args[1].id == channel.id
     
     def test_refresh_metadata_endpoint_failure(self, test_client, test_db_session):
         """Test metadata refresh endpoint error handling."""
@@ -301,31 +315,34 @@ class TestMetadataWorkflowErrorScenarios:
             assert len(result['warnings']) == 1
             assert "Image download" in result['warnings'][0]
     
-    def test_metadata_workflow_database_rollback(self, test_client, test_db_session, sample_channel_data):
-        """Test that database operations are properly rolled back on failure."""
+    def test_metadata_workflow_database_rollback(self, test_db_session, sample_channel_data):
+        """Test that an unexpected metadata-processing exception yields a 500."""
+        # TestClient re-raises server exceptions by default, which would fail
+        # the test before we can assert on the response — disable that so the
+        # unhandled exception surfaces as the 500 the client would see.
+        client = TestClient(app, raise_server_exceptions=False)
+
         with patch('app.youtube_service.youtube_service.extract_channel_info') as mock_extract:
             with patch('app.metadata_service.metadata_service.process_channel_metadata') as mock_process:
-                
+
                 # Mock successful channel extraction
                 mock_extract.return_value = (True, {
-                    'channel_id': 'UC123456789', 
+                    'channel_id': 'UC123456789',
                     'name': 'Test Channel'
                 }, None)
-                
+
                 # Mock metadata processing that raises exception
                 mock_process.side_effect = Exception("Unexpected error during metadata processing")
-                
+
                 # Try to create channel
-                response = test_client.post("/api/v1/channels", json=sample_channel_data)
-                
+                response = client.post("/api/v1/channels", json=sample_channel_data)
+
                 # Should get a 500 error due to unhandled exception
                 assert response.status_code == 500
-                
-                # Verify channel was not persisted in database
-                channels = test_db_session.query(Channel).all()
-                # Channel might be created but metadata processing failed
-                # The exact behavior depends on implementation details
-                # This test ensures we handle the error gracefully
+
+                # The channel row itself is committed before metadata
+                # processing; this test ensures the error surfaces as a 500
+                # rather than crashing the app
 
 
 class TestMetadataWorkflowPerformance:

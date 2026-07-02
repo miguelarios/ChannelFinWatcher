@@ -112,10 +112,15 @@ class TestDownloadHistoryManagement:
         # Mock database query returns None (no existing record)
         mock_db.query.return_value.filter.return_value.first.return_value = None
         
-        # Mock file found on disk
-        with patch.object(service, 'check_video_on_disk', return_value=True):
+        # Mock file found on disk with valid metadata. should_download_video
+        # uses _find_video_file_path + extract_video_metadata (not the legacy
+        # check_video_on_disk) to detect and register on-disk videos.
+        with patch.object(service, '_find_video_file_path',
+                          return_value='/fake/path/video [testVideo123].mkv'), \
+                patch.object(service, 'extract_video_metadata',
+                             return_value={'title': 'Test Video', 'upload_date': '20240101'}):
             should_download, existing_download = service.should_download_video(video_id, test_channel, mock_db)
-        
+
         assert should_download is False  # Should skip - found on disk
         # Verify database record was created
         mock_db.add.assert_called()

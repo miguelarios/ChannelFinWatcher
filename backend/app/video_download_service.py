@@ -44,6 +44,18 @@ class VideoDownloadService:
     # Used for file detection, verification, and .info.json path derivation
     VIDEO_EXTENSIONS = ('.mkv', '.mp4', '.webm', '.avi', '.mov', '.flv', '.m4v', '.3gp')
 
+    # Quality preset → yt-dlp format string (US-015).
+    # Each capped preset falls back to progressively lower quality and finally
+    # to best-available, so downloads degrade gracefully when the preferred
+    # quality doesn't exist for a video.
+    QUALITY_FORMATS = {
+        'best': 'bv*+ba/b',
+        '2160p': 'bv*[height<=2160]+ba/b[height<=2160]/bv*+ba/b',
+        '1080p': 'bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b',
+        '720p': 'bv*[height<=720]+ba/b[height<=720]/bv*+ba/b',
+        '480p': 'bv*[height<=480]+ba/b[height<=480]/bv*+ba/b',
+    }
+
     # Per-video retry policy:
     # - Within a run: retry transient failures up to WITHIN_RUN_RETRIES extra
     #   times with a short backoff (handles brief network hiccups)
@@ -928,6 +940,25 @@ class VideoDownloadService:
         logger.error("All extraction attempts failed")
         return False, [], "Could not extract videos using any method"
     
+    def format_for_quality(self, quality_preset: Optional[str]) -> str:
+        """
+        Resolve a channel's quality preset to a yt-dlp format string (US-015).
+
+        Args:
+            quality_preset: Preset name ('best', '2160p', '1080p', '720p', '480p')
+
+        Returns:
+            yt-dlp format string; unknown/missing presets resolve to 'best'
+        """
+        if quality_preset in self.QUALITY_FORMATS:
+            return self.QUALITY_FORMATS[quality_preset]
+
+        if quality_preset:
+            logger.warning(
+                f"Unknown quality preset '{quality_preset}', falling back to 'best'"
+            )
+        return self.QUALITY_FORMATS['best']
+
     def download_video_with_retry(self, video_info: Dict, channel: Channel, db: Session) -> Tuple[bool, Optional[str]]:
         """
         Download a single video, retrying transient failures within the run.
@@ -1025,9 +1056,12 @@ class VideoDownloadService:
                 db.add(download)
             
             db.commit()
-            
+
             # Configure yt-dlp for this specific video
             opts = self.download_opts.copy()
+            # Apply the channel's quality preset (US-015); unknown presets
+            # fall back to 'best' with a warning rather than failing
+            opts['format'] = self.format_for_quality(channel.quality_preset)
             video_url = f"https://www.youtube.com/watch?v={video_id}"
 
             # Verify the cookie file referenced in options is still present on disk

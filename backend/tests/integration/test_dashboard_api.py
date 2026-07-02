@@ -144,6 +144,21 @@ class TestDashboardEndpoint:
             assert 0 <= disk["usage_percent"] <= 100
             assert disk["warning"] == (disk["usage_percent"] >= 80.0)
 
+    def test_disk_block_null_when_media_dir_unavailable(
+        self, test_client: TestClient, dashboard_fixture
+    ):
+        """If the media volume can't be read, disk degrades to null (not a 500)."""
+        from unittest.mock import patch
+
+        with patch("app.api.shutil.disk_usage", side_effect=OSError("not mounted")):
+            response = test_client.get("/api/v1/dashboard")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["disk"] is None
+        # The rest of the payload is unaffected
+        assert data["totals"]["channels"] == 3
+
     def test_empty_database(self, test_client: TestClient):
         response = test_client.get("/api/v1/dashboard")
 

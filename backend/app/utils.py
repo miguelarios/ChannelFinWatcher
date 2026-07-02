@@ -574,3 +574,38 @@ def is_retryable_error(error_message: str) -> bool:
 
     error_lower = error_message.lower()
     return any(keyword in error_lower for keyword in retryable_keywords)
+
+
+def get_default_quality_preset(db_session=None) -> str:
+    """
+    Get the default video quality preset for new channels (US-015).
+
+    Priority order (same 3-tier scheme as get_default_video_limit):
+    1. Database application_settings table (default_quality_preset)
+    2. YAML configuration file (supports US-008 file-based configuration)
+    3. Hardcoded fallback ('best')
+
+    Args:
+        db_session: Optional database session for direct queries
+
+    Returns:
+        str: Quality preset name (e.g., 'best', '1080p')
+    """
+    try:
+        if db_session:
+            from app.models import ApplicationSettings
+            setting = db_session.query(ApplicationSettings).filter(
+                ApplicationSettings.key == 'default_quality_preset'
+            ).first()
+            if setting and setting.value:
+                return setting.value
+
+        # Fallback to YAML configuration (advanced users may edit the file
+        # directly without ever using the settings API)
+        config = load_yaml_config()
+        if 'settings' in config and config['settings'].get('default_quality_preset'):
+            return str(config['settings']['default_quality_preset'])
+    except Exception as e:
+        logger.warning(f"Failed to read default quality preset, using 'best': {e}")
+
+    return 'best'
