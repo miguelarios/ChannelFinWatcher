@@ -12,7 +12,7 @@ This guide explains how the video download system works and how to troubleshoot 
 
 **Recent Videos Only**: Uses lightweight flat-playlist queries to get the most recent X videos (based on your channel limit setting) efficiently
 
-**Duplicate Prevention**: Uses `archive.txt` to remember what's already downloaded - won't re-download the same video
+**Duplicate Prevention**: Tracks what's already downloaded using the **database and files on disk** (not an `archive.txt`) — won't re-download a video that's already present. If a file goes missing it is re-downloaded, and files you add manually are picked up via **Reindex**.
 
 **Smart Skipping**: If a channel has 50 videos but your limit is 10, only downloads the 10 most recent ones
 

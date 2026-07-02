@@ -1,5 +1,11 @@
 # US-008: Active Download Progress
 
+> **As-built note:** Delivered via yt-dlp progress hooks → an in-memory store →
+> **1–2s polling** in the UI, plus a **Server-Sent Events** stream
+> (`GET /api/v1/downloads/progress/stream`) for API consumers. The WebSocket
+> items below remain future roadmap. See the
+> [User Guide](../user-guide.md#live-progress).
+
 ## Story Description
 
 As a user, I want to see real-time progress of currently downloading videos so that I know the system is working and can estimate completion time.

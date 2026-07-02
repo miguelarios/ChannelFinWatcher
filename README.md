@@ -53,18 +53,30 @@ docker compose -f docker-compose.dev.yml up
 
 ## Configuration
 
-Create a `config.yaml` file:
+Everything is configurable from the **web UI** — no file editing required. A
+`config.yaml` is written to `data/config.yaml` and kept in sync with the
+database, so advanced users can also edit it directly:
 
 ```yaml
 channels:
   - url: "https://www.youtube.com/@ChannelName"
-    limit: 10
-    enabled: true
+    limit: 10                      # Videos to keep for this channel
+    enabled: true                  # Pause monitoring without removing
+    quality_preset: "best"         # best | 2160p | 1080p | 720p | 480p
+    schedule_override: "0 6 * * *" # Optional per-channel cron (omit to use global)
 
 settings:
-  schedule: "0 */6 * * *"  # Every 6 hours
-  media_dir: "/media"
+  default_video_limit: 10          # Applied to new channels
+  default_quality_preset: "best"   # Applied to new channels
+  cron_schedule: "0 */6 * * *"     # Global download schedule
+  scheduler_enabled: true
+  nfo_enabled: true                # Generate Jellyfin .nfo files
+  notification_url: ""             # Apprise URL for failure alerts (blank = off)
 ```
+
+> The database is the source of truth; the YAML file mirrors it for backup and
+> transparency. See [docs/configuration.md](docs/configuration.md) for the full
+> reference.
 
 ## File Organization
 
@@ -114,21 +126,21 @@ cd channelfinwatcher
 # Download compose file
 curl -O https://raw.githubusercontent.com/miguelarios/ChannelFinWatcher/main/docker-compose.yml
 
-# Edit for production use (IMPORTANT: change test paths and ports)
+# Optional: adjust TZ and host ports for your environment
 nano docker-compose.yml
-# Change:
-#   - ./test/data -> ./data
-#   - ./test/media -> ./media
-#   - ./test/temp -> ./temp
-#   - ports 3333:3000 -> 3000:3000 (or your preferred port)
-#   - ports 8001:8000 -> 8000:8000 (optional, for API access)
-#   - TZ to your timezone
+#   - TZ: set your timezone (default America/Chicago)
+#   - ports: 3333:3000 maps the web UI to host port 3333 (change as desired)
+#   - ports: 8001:8000 exposes the API/docs (optional)
 
 # Start the application
 docker compose up -d
 
-# Access web UI at http://localhost:3000
+# Access web UI at http://localhost:3333
 ```
+
+The shipped image is a **single container** that runs both the API (port 8000)
+and the web UI (port 3000) under supervisor, with `ffmpeg` and Node.js
+included. Volumes already point at `./data`, `./media`, and `./temp`.
 
 ### Directory Structure
 
@@ -140,19 +152,34 @@ docker compose up -d
 
 ## Architecture
 
-- **Backend**: FastAPI with SQLAlchemy, APScheduler, and WebSocket support
-- **Frontend**: NextJS with TypeScript, TailwindCSS, and React Query  
-- **Database**: SQLite for development, configurable for production
-- **Real-time**: WebSocket connections for live updates
-- **Deployment**: Multi-container Docker setup with persistent volumes
+- **Backend**: FastAPI with SQLAlchemy and APScheduler (SQLite-persisted jobs)
+- **Frontend**: NextJS (pages router) with TypeScript and TailwindCSS
+- **Database**: SQLite (schema managed by Alembic migrations)
+- **Live updates**: yt-dlp progress hooks → in-memory store → 1s polling in the
+  UI, plus a Server-Sent Events stream for API consumers
+- **Deployment**: single production container (supervisor runs API + UI);
+  multi-container Docker Compose for local development
 
-## Development Resources
+See the [Technical Design Document](docs/tdd.md) for the full architecture and
+[docs/api-reference.md](docs/api-reference.md) for the REST API.
 
-See [CLAUDE.md](CLAUDE.md) for development workflow and [docs/](docs/) for detailed requirements.
+## Documentation
 
-## Status
+- **[User Guide](docs/user-guide.md)** — every feature and how to use it
+- **[Configuration Reference](docs/configuration.md)** — all settings (web UI, YAML, env)
+- **[API Reference](docs/api-reference.md)** — every REST endpoint
+- **[Deployment Guide](docs/DEPLOYMENT.md)** — production setup and updates
+- **[Technical Design](docs/tdd.md)** — architecture and internals
+- **[CLAUDE.md](CLAUDE.md)** — development workflow
 
-🚧 **In Development** - Core functionality being implemented
+## Roadmap
+
+Ideas not yet implemented (contributions welcome):
+
+- WebSocket transport for live updates (currently polling + SSE)
+- Authentication / multi-user support (currently single-user, trusted-LAN)
+- Storage-trend charts and disk-full projections
+- Bandwidth / concurrent-download limits
 
 ---
 

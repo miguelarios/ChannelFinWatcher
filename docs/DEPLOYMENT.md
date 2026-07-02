@@ -89,7 +89,10 @@ channelfinwatcher/
 ├── media/                         # Downloaded videos (REQUIRED)
 │   └── [Channel Name] [ID]/
 │       └── YYYY/
-│           └── [Channel] - [Date] - [Title] [ID].mp4
+│           └── [Channel] - [Date] - [Title] [ID]/
+│               ├── [Channel] - [Date] - [Title] [ID].mkv
+│               ├── [Channel] - [Date] - [Title] [ID].info.json
+│               └── [Channel] - [Date] - [Title] [ID].nfo   # Jellyfin metadata
 ├── temp/                          # Download staging (REQUIRED)
 │   └── [temporary download files]
 └── docker-compose.prod.yml        # Your deployment configuration
@@ -116,6 +119,12 @@ channelfinwatcher/
 - Storage: **Fast SSD highly recommended** for download performance
 
 ## Configuration
+
+> This guide covers **container/deployment** configuration (Docker, volumes,
+> ports, timezone). For **application** settings — video limits, quality presets,
+> schedules, notifications, cookies — see the
+> [Configuration Reference](configuration.md). Almost all of those are managed
+> from the web UI's **Settings** page.
 
 ### Basic Configuration (docker-compose.yml)
 
@@ -578,8 +587,22 @@ crontab -e
 The container includes built-in health checks:
 
 ```bash
-# Check health status
+# Check Docker's view of health status
 docker inspect channelfinwatcher | grep -A 10 Health
+```
+
+The application also exposes a **deep health endpoint** that reports more than
+reachability — database, yt-dlp, ffmpeg, disk capacity, and scheduler liveness:
+
+```bash
+curl http://localhost:8000/health | jq
+# "status" is "healthy" or "degraded"; "problems" lists any issues
+```
+
+Recent application logs are available without a shell into the container:
+
+```bash
+curl "http://localhost:8000/api/v1/logs/recent?limit=50&level=WARNING" | jq
 ```
 
 ### Resource Usage
