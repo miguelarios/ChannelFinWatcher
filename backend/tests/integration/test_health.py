@@ -38,7 +38,10 @@ class TestHealthEndpoint:
         assert "database" in data  # Database connection field
         
         # Status should be positive
-        assert data["status"] in ["healthy", "ok"]
+        assert data["status"] in ["healthy", "degraded"]
+        # Degraded must always be explained
+        if data["status"] == "degraded":
+            assert data["problems"]
         
     def test_health_endpoint_database_connectivity(self, test_client):
         """Test health endpoint confirms database connectivity."""
@@ -76,4 +79,7 @@ class TestHealthEndpoint:
         for response in responses:
             assert response.status_code == 200
             data = response.json()
-            assert data["status"] in ["healthy", "ok"]
+            assert data["status"] in ["healthy", "degraded"]
+        # Degraded must always be explained
+        if data["status"] == "degraded":
+            assert data["problems"]

@@ -187,6 +187,18 @@ async def scheduled_download_job():
             # Update global job statistics
             _update_job_statistics(downloaded_summary, db)
 
+            # Best-effort failure notification (no-op unless configured)
+            if downloaded_summary["failed_channels"] > 0:
+                from app.notification_service import send_notification
+                send_notification(
+                    db,
+                    "ChannelFinWatcher: scheduled run had failures",
+                    f"{downloaded_summary['failed_channels']} of "
+                    f"{downloaded_summary['total_channels']} channels failed. "
+                    f"{downloaded_summary['total_videos']} videos downloaded. "
+                    f"Check the dashboard for per-channel errors."
+                )
+
     except JobAlreadyRunningError:
         logger.warning("Scheduled download job skipped - another instance already running")
         return
@@ -244,6 +256,13 @@ async def channel_download_job(channel_id: int):
                 )
             else:
                 logger.error(f"Per-channel job for '{channel.name}' failed: {error_message}")
+                # Best-effort failure notification (no-op unless configured)
+                from app.notification_service import send_notification
+                send_notification(
+                    db,
+                    f"ChannelFinWatcher: '{channel.name}' download failed",
+                    f"Scheduled download for '{channel.name}' failed: {error_message}"
+                )
 
     except JobAlreadyRunningError:
         logger.info(

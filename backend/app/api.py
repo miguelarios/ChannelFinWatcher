@@ -39,6 +39,7 @@ from app.schemas import (
     RetryDownloadResponse,
     DownloadHistory as DownloadHistorySchema,
     NfoSettingsUpdate,
+    NotificationSettingsUpdate,
     DiskUsage,
     ChannelDashboardItem,
     DashboardTotals,
@@ -908,6 +909,146 @@ async def update_default_quality(
             status_code=500,
             detail="Internal server error while updating default quality preset"
         )
+
+
+@router.get("/settings/cookies-status", tags=["Settings"])
+async def get_cookies_status():
+    """
+    Report the state of the YouTube cookies file (operational hardening).
+
+    Cookies are the #1 operational breakage source (they expire silently and
+    downloads start failing with auth-shaped errors). Surfacing presence and
+    age lets the UI warn before that happens.
+
+    Example:
+        GET /api/v1/settings/cookies-status
+        Response: {"present": true, "size_bytes": 4096,
+                   "modified_at": "...", "age_days": 12, "stale": false}
+    """
+    settings = get_settings()
+    path = settings.cookies_file
+
+    if not os.path.exists(path):
+        return {"present": False, "path": path, "size_bytes": None,
+                "modified_at": None, "age_days": None, "stale": False}
+
+    stat = os.stat(path)
+    modified = datetime.utcfromtimestamp(stat.st_mtime)
+    age_days = (datetime.utcnow() - modified).days
+    return {
+        "present": True,
+        "path": path,
+        "size_bytes": stat.st_size,
+        "modified_at": modified.isoformat(),
+        "age_days": age_days,
+        # YouTube session cookies commonly rot within weeks
+        "stale": age_days >= 30,
+    }
+
+
+@router.get("/settings/notifications", tags=["Settings"])
+async def get_notification_settings(db: Session = Depends(get_db)):
+    """
+    Get the configured Apprise notification URL (blank = disabled).
+
+    The URL may embed credentials (tokens/webhooks), so it is returned
+    as-is only to this trusted single-user API — consistent with the
+    app's no-auth, trusted-LAN deployment model.
+    """
+    from app.notification_service import get_notification_url
+
+    url = get_notification_url(db)
+    return {"url": url or "", "enabled": bool(url)}
+
+
+@router.put("/settings/notifications", tags=["Settings"])
+async def update_notification_settings(
+    payload: NotificationSettingsUpdate,
+    db: Session = Depends(get_db)
+):
+    """
+    Set or clear the Apprise notification URL.
+
+    Blank URL disables notifications. Non-blank URLs are validated against
+    Apprise's URL parser (400 on unrecognized formats).
+
+    Example:
+        PUT /api/v1/settings/notifications
+        Body: {"url": "ntfy://ntfy.sh/my-topic"}
+    """
+    from app.notification_service import validate_notification_url, NOTIFICATION_URL_KEY
+
+    url = (payload.url or "").strip()
+    if url:
+        is_valid, error = validate_notification_url(url)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error)
+
+    setting = db.query(ApplicationSettings).filter(
+        ApplicationSettings.key == NOTIFICATION_URL_KEY
+    ).first()
+    if setting:
+        setting.value = url
+        setting.updated_at = datetime.utcnow()
+    else:
+        setting = ApplicationSettings(
+            key=NOTIFICATION_URL_KEY,
+            value=url,
+            description="Apprise URL for failure notifications (blank = disabled)",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(setting)
+    db.commit()
+
+    logger.info(f"Notifications {'configured' if url else 'disabled'}")
+    return {"url": url, "enabled": bool(url)}
+
+
+@router.post("/settings/notifications/test", tags=["Settings"])
+def send_test_notification(db: Session = Depends(get_db)):
+    """
+    Send a test notification to the configured URL.
+
+    Sync handler on purpose: Apprise performs blocking network I/O, so
+    FastAPI runs this in the threadpool.
+    """
+    from app.notification_service import get_notification_url, send_notification
+
+    if not get_notification_url(db):
+        raise HTTPException(status_code=400, detail="No notification URL configured")
+
+    sent = send_notification(db, "ChannelFinWatcher test",
+                             "Notifications are working correctly.")
+    if not sent:
+        raise HTTPException(
+            status_code=502,
+            detail="Notification dispatch failed - check the URL and service logs"
+        )
+    return {"message": "Test notification sent"}
+
+
+@router.get("/logs/recent", tags=["System"])
+async def get_recent_logs(
+    limit: int = Query(100, ge=1, le=500, description="Maximum records to return"),
+    level: Optional[str] = Query(None, description="Minimum level (INFO, WARNING, ERROR)"),
+):
+    """
+    Get recent application log records from the in-memory buffer (US-014).
+
+    Complements (does not replace) docker logs: gives the web UI and API
+    consumers quick access to the last 500 records without host shell access.
+
+    Example:
+        GET /api/v1/logs/recent?limit=50&level=WARNING
+    """
+    from app.log_buffer import log_buffer_handler
+
+    if level and level.upper() not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+        raise HTTPException(status_code=400, detail=f"Unknown log level: {level}")
+
+    records = log_buffer_handler.recent(limit=limit, level=level)
+    return {"logs": records, "count": len(records)}
 
 
 # === DOWNLOAD ENDPOINTS (User Story 5) ===

@@ -14,7 +14,9 @@ class TestHealthEndpoint:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "healthy"
+        assert data["status"] in ["healthy", "degraded"]
+        if data["status"] == "degraded":
+            assert data["problems"]
         assert "database" in data
         assert data["database"] == "connected"
         assert "directories" in data

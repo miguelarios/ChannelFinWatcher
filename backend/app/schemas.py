@@ -344,6 +344,12 @@ class DefaultQualityResponse(BaseModel):
         from_attributes = True
 
 
+# Notification settings schema (operational hardening)
+class NotificationSettingsUpdate(BaseModel):
+    """Schema for setting the Apprise notification URL (blank disables)."""
+    url: Optional[str] = Field(None, max_length=1000, description="Apprise notification URL, blank to disable")
+
+
 # Error response schemas
 class ErrorDetail(BaseModel):
     """Error detail schema."""

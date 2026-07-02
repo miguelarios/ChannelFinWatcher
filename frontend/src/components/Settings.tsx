@@ -86,6 +86,19 @@ export function Settings() {
   const [originalQuality, setOriginalQuality] = useState<string>('best')
   const [qualitySaving, setQualitySaving] = useState<boolean>(false)
 
+  // Cookie health + notification settings (operational hardening)
+  const [cookieStatus, setCookieStatus] = useState<{
+    present: boolean
+    age_days?: number | null
+    stale?: boolean
+  } | null>(null)
+  const [notificationUrl, setNotificationUrl] = useState<string>('')
+  const [originalNotificationUrl, setOriginalNotificationUrl] = useState<string>('')
+  const [notifSaving, setNotifSaving] = useState<boolean>(false)
+  const [notifTesting, setNotifTesting] = useState<boolean>(false)
+  const [notifMessage, setNotifMessage] = useState<string>('')
+  const [notifError, setNotifError] = useState<string>('')
+
   // Scheduler state (Story 007)
   const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null)
   const [cronExpression, setCronExpression] = useState<string>('0 0 * * *')
@@ -206,6 +219,72 @@ export function Settings() {
       setError(err instanceof Error ? err.message : 'Failed to save default quality')
     } finally {
       setQualitySaving(false)
+    }
+  }
+
+  /** Fetch cookie file health (non-critical; UI degrades silently). */
+  const fetchCookieStatus = async () => {
+    try {
+      const response = await fetch('/api/v1/settings/cookies-status')
+      if (response.ok) setCookieStatus(await response.json())
+    } catch (err) {
+      console.error('Error fetching cookie status:', err)
+    }
+  }
+
+  /** Fetch the configured notification URL (non-critical). */
+  const fetchNotificationSettings = async () => {
+    try {
+      const response = await fetch('/api/v1/settings/notifications')
+      if (response.ok) {
+        const data = await response.json()
+        setNotificationUrl(data.url || '')
+        setOriginalNotificationUrl(data.url || '')
+      }
+    } catch (err) {
+      console.error('Error fetching notification settings:', err)
+    }
+  }
+
+  /** Save (or clear, when blank) the Apprise notification URL. */
+  const saveNotificationSettings = async () => {
+    setNotifSaving(true)
+    setNotifError('')
+    setNotifMessage('')
+    try {
+      const response = await fetch('/api/v1/settings/notifications', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: notificationUrl.trim() }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.detail || 'Failed to save notification settings')
+      setOriginalNotificationUrl(data.url || '')
+      setNotificationUrl(data.url || '')
+      setNotifMessage(data.enabled ? 'Notifications enabled' : 'Notifications disabled')
+      setTimeout(() => setNotifMessage(''), 3000)
+    } catch (err) {
+      setNotifError(err instanceof Error ? err.message : 'Failed to save notification settings')
+    } finally {
+      setNotifSaving(false)
+    }
+  }
+
+  /** Send a test notification to the saved URL. */
+  const sendTestNotification = async () => {
+    setNotifTesting(true)
+    setNotifError('')
+    setNotifMessage('')
+    try {
+      const response = await fetch('/api/v1/settings/notifications/test', { method: 'POST' })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.detail || 'Test notification failed')
+      setNotifMessage('Test notification sent')
+      setTimeout(() => setNotifMessage(''), 3000)
+    } catch (err) {
+      setNotifError(err instanceof Error ? err.message : 'Test notification failed')
+    } finally {
+      setNotifTesting(false)
     }
   }
 
@@ -580,7 +659,9 @@ export function Settings() {
       fetchDefaultQuality(),
       fetchSchedulerStatus(),
       checkChannelsExist(),
-      fetchNfoSettings()
+      fetchNfoSettings(),
+      fetchCookieStatus(),
+      fetchNotificationSettings()
     ])
   }, [])
 
@@ -1079,6 +1160,80 @@ export function Settings() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div className="border-t border-gray-200 my-8"></div>
+
+        {/* System Health & Alerts (operational hardening) */}
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-lg font-medium text-gray-900 mb-4">
+              System Health &amp; Alerts
+            </h3>
+
+            {/* YouTube cookies status */}
+            <div className={`p-3 rounded-md border mb-4 ${
+              !cookieStatus || !cookieStatus.present || cookieStatus.stale
+                ? 'bg-yellow-50 border-yellow-200'
+                : 'bg-green-50 border-green-200'
+            }`}>
+              <p className="text-sm font-medium text-gray-800">YouTube Cookies</p>
+              <p className="text-sm text-gray-600 mt-0.5">
+                {!cookieStatus
+                  ? 'Checking cookie file...'
+                  : !cookieStatus.present
+                    ? 'No cookies file found. Downloads may be blocked by YouTube bot detection.'
+                    : cookieStatus.stale
+                      ? `Cookies file is ${cookieStatus.age_days} days old — YouTube sessions typically expire within weeks. Consider refreshing it.`
+                      : `Cookies file present (${cookieStatus.age_days} day${cookieStatus.age_days === 1 ? '' : 's'} old).`}
+              </p>
+            </div>
+
+            {/* Failure notifications */}
+            <label htmlFor="notificationUrl" className="block text-sm font-medium text-gray-700 mb-2">
+              Failure Notifications (Apprise URL)
+            </label>
+            <div className="flex items-start space-x-4">
+              <div className="flex-1">
+                <input
+                  type="text"
+                  id="notificationUrl"
+                  value={notificationUrl}
+                  onChange={(e) => setNotificationUrl(e.target.value)}
+                  placeholder="ntfy://ntfy.sh/my-topic or discord://webhook_id/token"
+                  disabled={notifSaving}
+                  className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                <p className="mt-1 text-sm text-gray-500">
+                  Notified when scheduled downloads fail. Leave blank to disable.
+                  Supports any <a className="underline" href="https://github.com/caronc/apprise" target="_blank" rel="noopener noreferrer">Apprise</a> service.
+                </p>
+              </div>
+              <button
+                onClick={saveNotificationSettings}
+                disabled={notificationUrl === originalNotificationUrl || notifSaving}
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {notifSaving ? 'Saving...' : 'Save'}
+              </button>
+              <button
+                onClick={sendTestNotification}
+                disabled={!originalNotificationUrl || notifTesting}
+                title={originalNotificationUrl ? 'Send a test notification' : 'Save a URL first'}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {notifTesting ? 'Sending...' : 'Test'}
+              </button>
+            </div>
+
+            {notifMessage && (
+              <p className="mt-2 text-sm text-green-700">{notifMessage}</p>
+            )}
+            {notifError && (
+              <p className="mt-2 text-sm text-red-700">{notifError}</p>
+            )}
           </div>
         </div>
       </div>
