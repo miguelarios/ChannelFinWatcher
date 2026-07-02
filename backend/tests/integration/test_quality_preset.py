@@ -94,6 +94,45 @@ class TestChannelQualityValidation:
         assert channel.quality_preset == "1080p"
 
 
+class TestCreateChannelRace:
+    """Regression test for the create-channel TOCTOU race.
+
+    With blocking work moved to worker threads, two requests for the same
+    channel can both pass the duplicate check before either commits. The
+    unique constraint must then surface as a friendly 400, not a 500.
+    """
+
+    def test_concurrent_duplicate_creation_returns_400(self, test_client: TestClient, db_session: Session):
+        channel_info = {"channel_id": "UCraceaaaaaaaaaaaaaaaa", "name": "Race Channel"}
+
+        def insert_conflicting_channel(db):
+            # Simulates the concurrent request winning the race in the window
+            # between the duplicate check and this request's commit
+            db_session.add(Channel(
+                url="https://youtube.com/@race-winner",
+                name="Race Channel",
+                channel_id=channel_info["channel_id"],
+                limit=10,
+                enabled=True,
+            ))
+            db_session.commit()
+            return 'best'
+
+        with patch("app.api.youtube_service.normalize_channel_url",
+                   return_value="https://youtube.com/@race-loser"), \
+                patch("app.api.youtube_service.extract_channel_info",
+                      return_value=(True, channel_info, None)), \
+                patch("app.api.get_default_quality_preset",
+                      side_effect=insert_conflicting_channel):
+            response = test_client.post(
+                "/api/v1/channels",
+                json={"url": "https://youtube.com/@race-loser"},
+            )
+
+        assert response.status_code == 400
+        assert "already being monitored" in response.json()["detail"]
+
+
 class TestDefaultQualitySetting:
     """GET/PUT /settings/default-quality (global default for new channels)."""
 

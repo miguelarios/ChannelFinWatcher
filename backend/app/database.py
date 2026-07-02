@@ -6,9 +6,12 @@ from app.config import get_settings
 settings = get_settings()
 
 # Create SQLAlchemy engine
+# timeout: how long a connection waits on a locked database before raising
+# "database is locked". Matters now that request handlers run blocking work
+# in threadpool threads and can genuinely overlap as concurrent writers.
 engine = create_engine(
     settings.database_url,
-    connect_args={"check_same_thread": False} if "sqlite" in settings.database_url else {}
+    connect_args={"check_same_thread": False, "timeout": 15} if "sqlite" in settings.database_url else {}
 )
 
 # Create SessionLocal class

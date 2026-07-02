@@ -10,6 +10,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -207,9 +208,20 @@ async def create_channel(channel: ChannelCreate, db: Session = Depends(get_db)):
         metadata_status="pending",                       # Initial metadata status
     )
     
-    # Persist to database
-    db.add(db_channel)
-    db.commit()
+    # Persist to database. The duplicate check above is not atomic with this
+    # commit: now that metadata extraction runs in a worker thread, two
+    # near-simultaneous requests for the same channel can both pass the check.
+    # The unique constraint on channel_id is the real guard — translate its
+    # violation into the same friendly 400 the check produces.
+    try:
+        db.add(db_channel)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="This channel is already being monitored (it was added by a concurrent request)."
+        )
     db.refresh(db_channel)  # Refresh to get auto-generated fields (id, timestamps)
     
     # === METADATA PROCESSING (Story 004) ===
