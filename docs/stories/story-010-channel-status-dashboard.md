@@ -1,5 +1,9 @@
 # US-007: Channel Status Dashboard
 
+> **As-built note:** Delivered. Live status updates use **polling** (and an SSE
+> stream for downloads), not WebSockets — the WebSocket items below remain
+> future roadmap. See the [User Guide](../user-guide.md#dashboard).
+
 ## Story Description
 
 As a user, I want to view all monitored channels with their current status so that I can see which channels are active and their basic information at a glance.

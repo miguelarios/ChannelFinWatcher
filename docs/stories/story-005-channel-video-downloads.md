@@ -1,5 +1,12 @@
 # User Story: Channel Video Downloads
 
+> **As-built note:** This is the original planning spec. The shipped
+> implementation prevents duplicates using the **database + files on disk**
+> (`should_download_video`), **not** an `archive.txt` / `--download-archive`.
+> Automatic retry and cleanup were also added later. For current behavior see
+> the [User Guide](../user-guide.md#how-downloading-works) and
+> [TDD §6](../tdd.md#6-detailed-design).
+
 ## Section 1: Story Definition
 
 ### Feature
