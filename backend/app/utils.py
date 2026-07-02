@@ -580,9 +580,10 @@ def get_default_quality_preset(db_session=None) -> str:
     """
     Get the default video quality preset for new channels (US-015).
 
-    Priority order:
+    Priority order (same 3-tier scheme as get_default_video_limit):
     1. Database application_settings table (default_quality_preset)
-    2. Hardcoded fallback ('best')
+    2. YAML configuration file (supports US-008 file-based configuration)
+    3. Hardcoded fallback ('best')
 
     Args:
         db_session: Optional database session for direct queries
@@ -598,6 +599,12 @@ def get_default_quality_preset(db_session=None) -> str:
             ).first()
             if setting and setting.value:
                 return setting.value
+
+        # Fallback to YAML configuration (advanced users may edit the file
+        # directly without ever using the settings API)
+        config = load_yaml_config()
+        if 'settings' in config and config['settings'].get('default_quality_preset'):
+            return str(config['settings']['default_quality_preset'])
     except Exception as e:
         logger.warning(f"Failed to read default quality preset, using 'best': {e}")
 
