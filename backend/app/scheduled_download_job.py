@@ -222,6 +222,9 @@ async def channel_download_job(channel_id: int):
 
         logger.info(f"Starting per-channel scheduled download for '{channel.name}' (ID: {channel_id})")
 
+        # Shared lock: per-channel jobs serialize with the global job AND each
+        # other. Custom schedules control *when* a channel runs, not parallelism
+        # — sequential downloads are deliberate (one yt-dlp process at a time).
         with scheduler_lock(db, "scheduled_downloads"):
             success, videos_downloaded, error_message = await _process_channel_with_recovery(channel, db)
 

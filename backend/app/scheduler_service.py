@@ -61,6 +61,9 @@ class SchedulerService:
     container restarts.
     """
 
+    # Job id prefix for per-channel schedule override jobs (US-016)
+    CHANNEL_JOB_PREFIX = 'channel_download_job_'
+
     def __init__(self):
         """Initialize scheduler with production-ready configuration.
 
@@ -235,8 +238,6 @@ class SchedulerService:
         except Exception as e:
             logger.error(f"Failed to update download schedule: {e}")
             raise
-
-    CHANNEL_JOB_PREFIX = 'channel_download_job_'
 
     def sync_channel_schedule(self, channel_id: int, cron_expression: Optional[str], enabled: bool):
         """Create, update, or remove the per-channel download job (US-016).

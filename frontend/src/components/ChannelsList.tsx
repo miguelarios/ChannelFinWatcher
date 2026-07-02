@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { YoutubeIcon, TrashIcon, CheckCircleIcon, EditIcon, CheckIcon, XIcon, RefreshCwIcon, AlertCircleIcon, HardDriveIcon, DownloadIcon, MoreVertical, FileText } from 'lucide-react'
+import { YoutubeIcon, TrashIcon, CheckCircleIcon, EditIcon, CheckIcon, XIcon, RefreshCwIcon, AlertCircleIcon, HardDriveIcon, DownloadIcon, MoreVertical, FileText, CalendarClockIcon } from 'lucide-react'
+import { ScheduleOverrideModal } from './ScheduleOverrideModal'
 
 /**
  * ChannelsList Component - Displays and manages YouTube channels with inline limit editing
@@ -40,6 +41,7 @@ interface Channel {
   created_at: string
   updated_at: string
   metadata_status: string
+  schedule_override?: string | null
   metadata_path?: string
   directory_path?: string
   last_metadata_update?: string
@@ -114,6 +116,10 @@ export function ChannelsList({
     channelName: '',
     deleteMedia: false
   })
+
+  // === CUSTOM SCHEDULE MODAL STATE (US-016) ===
+  // Channel whose custom schedule is being edited (null = modal closed)
+  const [scheduleModalChannel, setScheduleModalChannel] = useState<Channel | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [deleteSuccess, setDeleteSuccess] = useState('')
 
@@ -795,6 +801,22 @@ export function ChannelsList({
                             Download recent videos
                           </button>
 
+                          {/* Custom schedule (US-016) */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setScheduleModalChannel(channel)
+                              setOpenMenuChannelId(null)
+                            }}
+                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                          >
+                            <CalendarClockIcon className="h-4 w-4 mr-2" />
+                            Custom schedule
+                            {channel.schedule_override && (
+                              <span className="ml-auto h-2 w-2 rounded-full bg-red-500" title={`Custom: ${channel.schedule_override}`} />
+                            )}
+                          </button>
+
                           {/* Regenerate NFO files */}
                           <button
                             onClick={(e) => {
@@ -1106,6 +1128,19 @@ export function ChannelsList({
             </div>
           </div>
         </div>
+      )}
+
+      {/* === CUSTOM SCHEDULE MODAL (US-016) === */}
+      {scheduleModalChannel && (
+        <ScheduleOverrideModal
+          channelId={scheduleModalChannel.id}
+          channelName={scheduleModalChannel.name}
+          currentOverride={scheduleModalChannel.schedule_override}
+          onClose={() => setScheduleModalChannel(null)}
+          onSaved={(scheduleOverride) => {
+            onUpdateChannel?.(scheduleModalChannel.id, { schedule_override: scheduleOverride })
+          }}
+        />
       )}
     </div>
   )
