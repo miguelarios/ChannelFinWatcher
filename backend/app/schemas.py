@@ -1,7 +1,7 @@
 """Pydantic schemas for API request/response validation."""
 from datetime import datetime
 from typing import Optional, List, Literal
-from pydantic import BaseModel, HttpUrl, Field
+from pydantic import BaseModel, ConfigDict, HttpUrl, Field
 
 # Quality presets supported by the download pipeline (US-015).
 # Must stay in sync with VideoDownloadService.QUALITY_FORMATS.
@@ -58,8 +58,7 @@ class Channel(ChannelBase, TimestampMixin):
     cover_image_path: Optional[str] = Field(None, description="Path to cover image")
     backdrop_image_path: Optional[str] = Field(None, description="Path to backdrop image")
 
-    class Config:
-        from_attributes = True  # Allows creation from SQLAlchemy models
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Download schemas
@@ -88,8 +87,7 @@ class Download(DownloadBase):
     created_at: datetime = Field(..., description="When download was created")
     completed_at: Optional[datetime] = Field(None, description="When download completed")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Download History schemas
@@ -115,8 +113,7 @@ class DownloadHistory(DownloadHistoryBase):
     error_message: Optional[str] = Field(None, description="Run-level error message")
     status: str = Field(..., description="Overall run status")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Application Settings schemas
@@ -142,8 +139,7 @@ class ApplicationSetting(ApplicationSettingBase, TimestampMixin):
     """Complete application setting schema for API responses."""
     id: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Response schemas for collections
@@ -269,8 +265,7 @@ class DefaultVideoLimitResponse(BaseModel):
     description: str = Field(..., description="Setting description")
     updated_at: datetime = Field(..., description="When setting was last updated")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # NFO settings schemas (Story 008)
@@ -340,8 +335,7 @@ class DefaultQualityResponse(BaseModel):
     description: str = Field(..., description="Setting description")
     updated_at: Optional[datetime] = Field(None, description="When setting was last updated")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Notification settings schema (operational hardening)

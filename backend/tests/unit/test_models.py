@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy.exc import IntegrityError
 
 from app.models import Channel, Download, DownloadHistory, ApplicationSettings
+from app.time_utils import utc_now
 
 
 class TestChannelModel:
@@ -207,5 +208,5 @@ class TestApplicationSettingsModel:
         db_session.commit()
         
         # updated_at should change (though this might be subtle in fast tests)
-        # In real usage, the onupdate=datetime.utcnow would update this
+        # In real usage, the onupdate=utc_now would update this
         assert setting.value == "new_value"

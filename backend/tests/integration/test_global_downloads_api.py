@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models import Channel, Download, ApplicationSettings
+from app.time_utils import utc_now
 
 
 @pytest.fixture
@@ -33,7 +34,7 @@ def two_channels_with_downloads(db_session):
     db_session.refresh(channel_a)
     db_session.refresh(channel_b)
 
-    now = datetime.utcnow()
+    now = utc_now()
     downloads = [
         Download(
             channel_id=channel_a.id,
@@ -124,7 +125,7 @@ class TestGlobalDownloadsList:
         """file_exists/deleted_at must reflect the ORM row, not schema defaults,
         so the UI can show cleaned-up videos correctly."""
         channel_a, _ = two_channels_with_downloads
-        cleanup_time = datetime.utcnow() - timedelta(minutes=30)
+        cleanup_time = utc_now() - timedelta(minutes=30)
         db_session.add(Download(
             channel_id=channel_a.id,
             video_id="vid_a_cleaned",
@@ -132,7 +133,7 @@ class TestGlobalDownloadsList:
             status="completed",
             file_exists=False,
             deleted_at=cleanup_time,
-            created_at=datetime.utcnow()
+            created_at=utc_now()
         ))
         db_session.commit()
 

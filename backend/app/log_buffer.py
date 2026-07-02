@@ -8,8 +8,8 @@ them without shell access to the host. Bounded deque = fixed memory cost.
 import logging
 import threading
 from collections import deque
-from datetime import datetime
 from typing import List, Optional
+from app.time_utils import utc_from_timestamp
 
 BUFFER_SIZE = 500
 
@@ -26,7 +26,7 @@ class RingBufferHandler(logging.Handler):
         try:
             with self._lock_buffer:
                 self._records.append({
-                    "timestamp": datetime.utcfromtimestamp(record.created).isoformat(),
+                    "timestamp": utc_from_timestamp(record.created).isoformat(),
                     "level": record.levelname,
                     "logger": record.name,
                     "message": record.getMessage(),

@@ -29,7 +29,6 @@ Usage:
 """
 
 import logging
-from datetime import datetime
 from typing import Dict, List, Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore

@@ -31,6 +31,7 @@ from app.utils import (
 )
 from app.api import router as api_router
 from app.scheduler_service import scheduler_service
+from app.time_utils import utc_now
 
 
 class AccessLogFilter(logging.Filter):
@@ -314,7 +315,7 @@ async def health_check(db: Session = Depends(get_db)):
         if last_run_row and last_run_row.value:
             scheduler["last_run"] = last_run_row.value
             last_run = datetime.fromisoformat(last_run_row.value.replace("Z", "+00:00"))
-            if scheduler["enabled"] and datetime.utcnow() - last_run > timedelta(hours=48):
+            if scheduler["enabled"] and utc_now() - last_run > timedelta(hours=48):
                 scheduler["stale"] = True
                 problems.append("scheduler enabled but has not run in over 48h")
     except Exception as e:

@@ -6,12 +6,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.models import Channel, Download, DownloadHistory
+from app.time_utils import utc_now
 
 
 @pytest.fixture
 def dashboard_fixture(db_session):
     """Two channels with downloads and run history, one never-checked channel."""
-    now = datetime.utcnow()
+    now = utc_now()
 
     active = Channel(
         url="https://youtube.com/@active",

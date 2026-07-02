@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models import Channel, Download, DownloadHistory
+from app.time_utils import utc_now
 
 
 @pytest.fixture
@@ -84,7 +85,7 @@ class TestDownloadAPI:
         """Test retrieving download history for a channel."""
         # Create some test downloads
         from datetime import timedelta
-        now = datetime.utcnow()
+        now = utc_now()
         
         download1 = Download(
             channel_id=test_channel_with_metadata.id,
@@ -123,7 +124,7 @@ class TestDownloadAPI:
     def test_get_channel_downloads_with_pagination(self, test_client: TestClient, db_session: Session, test_channel_with_metadata):
         """Test download history with pagination parameters."""
         # Create multiple downloads
-        now = datetime.utcnow()
+        now = utc_now()
         for i in range(5):
             download = Download(
                 channel_id=test_channel_with_metadata.id,
@@ -154,7 +155,7 @@ class TestDownloadAPI:
 
     def test_get_download_details(self, test_client: TestClient, db_session: Session, test_channel_with_metadata):
         """Test retrieving individual download details."""
-        now = datetime.utcnow()
+        now = utc_now()
         download = Download(
             channel_id=test_channel_with_metadata.id,
             video_id="test123",

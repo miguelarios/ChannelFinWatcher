@@ -39,6 +39,7 @@ from sqlalchemy.orm import Session
 from app.models import ApplicationSettings, Channel
 from app.video_download_service import video_download_service
 from app.scheduled_download_job import cleanup_old_videos
+from app.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -80,21 +81,21 @@ def add_to_queue(db: Session, channel_id: int) -> int:
         new_entry = {
             "channel_id": channel_id,
             "user": "manual",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utc_now().isoformat()
         }
         queue.append(new_entry)
 
         # Save back to database
         if queue_setting:
             queue_setting.value = json.dumps(queue)
-            queue_setting.updated_at = datetime.utcnow()
+            queue_setting.updated_at = utc_now()
         else:
             queue_setting = ApplicationSettings(
                 key=QUEUE_KEY,
                 value=json.dumps(queue),
                 description="Queue for manual download triggers during scheduler runs",
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                created_at=utc_now(),
+                updated_at=utc_now()
             )
             db.add(queue_setting)
 
@@ -161,7 +162,7 @@ def clear_queue(db: Session):
 
         if queue_setting:
             queue_setting.value = "[]"
-            queue_setting.updated_at = datetime.utcnow()
+            queue_setting.updated_at = utc_now()
             db.commit()
             logger.info("Manual trigger queue cleared")
 
@@ -193,7 +194,7 @@ def remove_stale_entries(db: Session) -> int:
         if not queue:
             return 0
 
-        now = datetime.utcnow()
+        now = utc_now()
         timeout_threshold = now - timedelta(minutes=TIMEOUT_MINUTES)
 
         original_count = len(queue)
@@ -223,7 +224,7 @@ def remove_stale_entries(db: Session) -> int:
 
             if queue_setting:
                 queue_setting.value = json.dumps(fresh_queue)
-                queue_setting.updated_at = datetime.utcnow()
+                queue_setting.updated_at = utc_now()
                 db.commit()
 
         return removed_count

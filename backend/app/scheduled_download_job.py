@@ -26,7 +26,6 @@ import logging
 import asyncio
 import shutil
 import os
-from datetime import datetime
 from typing import Tuple
 from pathlib import Path
 from sqlalchemy.orm import Session
@@ -36,6 +35,7 @@ from app.models import Channel, ApplicationSettings, DownloadHistory, Download
 from app.video_download_service import video_download_service
 from app.overlap_prevention import scheduler_lock, JobAlreadyRunningError
 from app.utils import is_retryable_error
+from app.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ async def scheduled_download_job():
         "failed_channels": 0,
         "total_videos": 0,
         "total_videos_deleted": 0,
-        "start_time": datetime.utcnow()
+        "start_time": utc_now()
     }
 
     try:
@@ -109,7 +109,7 @@ async def scheduled_download_job():
 
             # Process each channel with individual error handling
             for channel in channels:
-                channel_start_time = datetime.utcnow()
+                channel_start_time = utc_now()
 
                 try:
                     logger.info(f"Processing channel: {channel.name} (ID: {channel.id})")
@@ -138,7 +138,7 @@ async def scheduled_download_job():
                             # Cleanup errors shouldn't stop the job
                             logger.error(f"Cleanup failed for channel '{channel.name}': {e}")
 
-                        processing_time = (datetime.utcnow() - channel_start_time).total_seconds()
+                        processing_time = (utc_now() - channel_start_time).total_seconds()
                         logger.info(
                             f"Channel '{channel.name}' completed successfully: "
                             f"{videos_downloaded} videos in {processing_time:.1f}s"
@@ -158,7 +158,7 @@ async def scheduled_download_job():
                     continue  # Continue with next channel
 
             # Log final summary
-            total_time = (datetime.utcnow() - downloaded_summary["start_time"]).total_seconds()
+            total_time = (utc_now() - downloaded_summary["start_time"]).total_seconds()
             logger.info(
                 f"Scheduled download job completed in {total_time:.1f}s: "
                 f"{downloaded_summary['successful_channels']}/{downloaded_summary['total_channels']} channels successful, "
@@ -376,13 +376,13 @@ def _create_failed_history_record(channel_id: int, error_message: str, db: Sessi
     try:
         history = DownloadHistory(
             channel_id=channel_id,
-            run_date=datetime.utcnow(),
+            run_date=utc_now(),
             videos_found=0,
             videos_downloaded=0,
             videos_skipped=0,
             status='failed',
             error_message=error_message[:500],  # Truncate long errors
-            completed_at=datetime.utcnow()
+            completed_at=utc_now()
         )
         db.add(history)
         db.commit()
@@ -425,14 +425,14 @@ def _update_job_statistics(summary: dict, db: Session):
 
             if setting:
                 setting.value = value
-                setting.updated_at = datetime.utcnow()
+                setting.updated_at = utc_now()
             else:
                 setting = ApplicationSettings(
                     key=key,
                     value=value,
                     description=f"Scheduler statistic: {key}",
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+                    created_at=utc_now(),
+                    updated_at=utc_now()
                 )
                 db.add(setting)
 
@@ -527,7 +527,7 @@ async def cleanup_old_videos(channel: Channel, db: Session) -> int:
                 # Mark database record as deleted (preserve history)
                 # Don't delete the record - just mark when it was removed from disk
                 download.file_exists = False
-                download.deleted_at = datetime.utcnow()
+                download.deleted_at = utc_now()
                 deleted_count += 1
                 deleted_video_names.append(download.title)  # Track for summary log
 
@@ -544,7 +544,7 @@ async def cleanup_old_videos(channel: Channel, db: Session) -> int:
                 # Still try to mark the DB record as deleted
                 try:
                     download.file_exists = False
-                    download.deleted_at = datetime.utcnow()
+                    download.deleted_at = utc_now()
                     deleted_count += 1
                     deleted_video_names.append(download.title)  # Track even if file deletion failed
                 except Exception as db_error:

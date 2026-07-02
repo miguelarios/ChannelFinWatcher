@@ -5,7 +5,6 @@ import glob
 import shutil
 import asyncio
 import logging
-from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -22,6 +21,7 @@ from app.metadata_service import metadata_service
 from app.video_download_service import video_download_service
 from app.scheduled_download_job import cleanup_old_videos
 from app.utils import update_channel_in_yaml, remove_channel_from_yaml, sync_setting_to_yaml, get_default_video_limit as get_default_limit_setting, get_default_quality_preset, channel_dir_name
+from app.time_utils import utc_now, utc_from_timestamp
 from app.schemas import (
     Channel as ChannelSchema,
     ChannelCreate,
@@ -543,7 +543,7 @@ def _reindex_channel_media(channel: Channel, settings, db: Session) -> dict:
                                         status='completed',
                                         file_exists=True,
                                         file_path=video_file_path,
-                                        completed_at=datetime.utcnow()
+                                        completed_at=utc_now()
                                     )
                                     db.add(download)
                                     stats["added"] += 1
@@ -788,9 +788,8 @@ async def update_default_video_limit(
             )
         
         # Update the setting value and timestamp
-        from datetime import datetime
         setting.value = str(setting_update.limit)
-        setting.updated_at = datetime.utcnow()
+        setting.updated_at = utc_now()
         
         # Commit to database
         db.commit()
@@ -875,14 +874,14 @@ async def update_default_quality(
 
         if setting:
             setting.value = setting_update.quality
-            setting.updated_at = datetime.utcnow()
+            setting.updated_at = utc_now()
         else:
             setting = ApplicationSettings(
                 key='default_quality_preset',
                 value=setting_update.quality,
                 description='Default video quality preset for new channels',
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=utc_now(),
+                updated_at=utc_now(),
             )
             db.add(setting)
 
@@ -933,8 +932,8 @@ async def get_cookies_status():
                 "modified_at": None, "age_days": None, "stale": False}
 
     stat = os.stat(path)
-    modified = datetime.utcfromtimestamp(stat.st_mtime)
-    age_days = (datetime.utcnow() - modified).days
+    modified = utc_from_timestamp(stat.st_mtime)
+    age_days = (utc_now() - modified).days
     return {
         "present": True,
         "path": path,
@@ -989,14 +988,14 @@ async def update_notification_settings(
     ).first()
     if setting:
         setting.value = url
-        setting.updated_at = datetime.utcnow()
+        setting.updated_at = utc_now()
     else:
         setting = ApplicationSettings(
             key=NOTIFICATION_URL_KEY,
             value=url,
             description="Apprise URL for failure notifications (blank = disabled)",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=utc_now(),
+            updated_at=utc_now(),
         )
         db.add(setting)
     db.commit()
@@ -1349,7 +1348,7 @@ async def get_dashboard(db: Session = Depends(get_db)):
             storage_bytes=total_storage,
         ),
         channels=items,
-        generated_at=datetime.utcnow(),
+        generated_at=utc_now(),
     )
 
 
@@ -1705,14 +1704,14 @@ async def update_scheduler_schedule(
 
     if cron_setting:
         cron_setting.value = cron_expr
-        cron_setting.updated_at = datetime.utcnow()
+        cron_setting.updated_at = utc_now()
     else:
         cron_setting = ApplicationSettings(
             key="cron_schedule",
             value=cron_expr,
             description="Cron expression for automatic downloads",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=utc_now(),
+            updated_at=utc_now()
         )
         db.add(cron_setting)
 
@@ -1767,14 +1766,14 @@ async def toggle_scheduler(
 
     if enabled_setting:
         enabled_setting.value = new_value
-        enabled_setting.updated_at = datetime.utcnow()
+        enabled_setting.updated_at = utc_now()
     else:
         enabled_setting = ApplicationSettings(
             key="scheduler_enabled",
             value=new_value,
             description="Enable/disable automatic scheduled downloads",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=utc_now(),
+            updated_at=utc_now()
         )
         db.add(enabled_setting)
 
@@ -2070,7 +2069,6 @@ async def update_nfo_settings(
         }
     """
     try:
-        from datetime import datetime
 
         # Validate input
         if settings.enabled is None and settings.overwrite_existing is None:
@@ -2088,15 +2086,15 @@ async def update_nfo_settings(
 
             if enabled_setting:
                 enabled_setting.value = enabled_value
-                enabled_setting.updated_at = datetime.utcnow()
+                enabled_setting.updated_at = utc_now()
             else:
                 # Create if doesn't exist
                 enabled_setting = ApplicationSettings(
                     key='nfo_enabled',
                     value=enabled_value,
                     description='Enable/disable NFO file generation for new video downloads.',
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+                    created_at=utc_now(),
+                    updated_at=utc_now()
                 )
                 db.add(enabled_setting)
 
@@ -2111,15 +2109,15 @@ async def update_nfo_settings(
 
             if overwrite_setting:
                 overwrite_setting.value = overwrite_value
-                overwrite_setting.updated_at = datetime.utcnow()
+                overwrite_setting.updated_at = utc_now()
             else:
                 # Create if doesn't exist
                 overwrite_setting = ApplicationSettings(
                     key='nfo_overwrite_existing',
                     value=overwrite_value,
                     description='Overwrite existing NFO files during regeneration.',
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+                    created_at=utc_now(),
+                    updated_at=utc_now()
                 )
                 db.add(overwrite_setting)
 

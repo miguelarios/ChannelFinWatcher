@@ -20,6 +20,7 @@ from app.scheduled_download_job import (
 )
 from app.models import Channel, DownloadHistory, ApplicationSettings, Download
 from app.overlap_prevention import JobAlreadyRunningError
+from app.time_utils import utc_now
 
 
 class TestScheduledDownloadJob:
@@ -342,7 +343,7 @@ class TestUpdateJobStatistics:
             "successful_channels": 4,
             "failed_channels": 1,
             "total_videos": 20,
-            "start_time": datetime.utcnow()
+            "start_time": utc_now()
         }
 
         _update_job_statistics(summary, db_session)
@@ -369,8 +370,8 @@ class TestUpdateJobStatistics:
             key="scheduler_total_channels_last_run",
             value="3",
             description="Test stat",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=utc_now(),
+            updated_at=utc_now()
         )
         db_session.add(old_stat)
         db_session.commit()
@@ -381,7 +382,7 @@ class TestUpdateJobStatistics:
             "successful_channels": 8,
             "failed_channels": 2,
             "total_videos": 40,
-            "start_time": datetime.utcnow()
+            "start_time": utc_now()
         }
 
         _update_job_statistics(summary, db_session)
@@ -397,7 +398,7 @@ class TestUpdateJobStatistics:
         """Test that database errors don't crash the job."""
         summary = {
             "total_channels": 5,
-            "start_time": datetime.utcnow()
+            "start_time": utc_now()
         }
 
         # Force database to fail

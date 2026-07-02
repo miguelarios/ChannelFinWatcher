@@ -28,6 +28,7 @@ from contextlib import contextmanager
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from app.models import ApplicationSettings
+from app.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -92,15 +93,15 @@ def scheduler_lock(db: Session, job_name: str = "scheduler"):
         # Acquire lock atomically
         if running_flag:
             running_flag.value = "true"
-            running_flag.updated_at = datetime.utcnow()
+            running_flag.updated_at = utc_now()
         else:
             # Create flag if it doesn't exist (shouldn't happen if migration ran)
             running_flag = ApplicationSettings(
                 key=lock_key,
                 value="true",
                 description=f"Lock flag to prevent overlapping {job_name} executions",
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                created_at=utc_now(),
+                updated_at=utc_now()
             )
             db.add(running_flag)
 
@@ -130,7 +131,7 @@ def scheduler_lock(db: Session, job_name: str = "scheduler"):
             try:
                 if running_flag:
                     running_flag.value = "false"
-                    running_flag.updated_at = datetime.utcnow()
+                    running_flag.updated_at = utc_now()
                     db.commit()
                     logger.info(f"Released lock for job '{job_name}'")
             except Exception as e:
@@ -159,18 +160,18 @@ def _update_last_run_timestamp(db: Session, job_name: str):
             ApplicationSettings.key == timestamp_key
         ).first()
 
-        current_time = datetime.utcnow().isoformat()
+        current_time = utc_now().isoformat()
         if last_run_setting:
             last_run_setting.value = current_time
-            last_run_setting.updated_at = datetime.utcnow()
+            last_run_setting.updated_at = utc_now()
         else:
             # Create timestamp setting if it doesn't exist
             last_run_setting = ApplicationSettings(
                 key=timestamp_key,
                 value=current_time,
                 description=f"Timestamp of last successful {job_name} execution",
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                created_at=utc_now(),
+                updated_at=utc_now()
             )
             db.add(last_run_setting)
 
@@ -214,7 +215,7 @@ def clear_stale_locks(db: Session, max_age_hours: int = 2):
         ).all()
 
         cleared_count = 0
-        now = datetime.utcnow()
+        now = utc_now()
         max_age = max_age_hours * 3600  # Convert to seconds
 
         for flag in running_flags:

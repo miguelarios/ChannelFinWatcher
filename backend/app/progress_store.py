@@ -12,8 +12,8 @@ mid-download means the download restarts anyway.
 
 import logging
 import threading
-from datetime import datetime
 from typing import Dict, List, Optional
+from app.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +39,8 @@ class DownloadProgressStore:
                 "total_bytes": None,
                 "speed": None,
                 "eta_seconds": None,
-                "started_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat(),
+                "started_at": utc_now().isoformat(),
+                "updated_at": utc_now().isoformat(),
             }
 
     def update(self, video_id: str, **fields):
@@ -50,7 +50,7 @@ class DownloadProgressStore:
             if entry is None:
                 return
             entry.update(fields)
-            entry["updated_at"] = datetime.utcnow().isoformat()
+            entry["updated_at"] = utc_now().isoformat()
 
     def finish(self, video_id: str):
         """Remove a download from the active set (success or failure)."""
