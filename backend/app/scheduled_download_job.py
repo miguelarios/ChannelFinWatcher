@@ -190,7 +190,10 @@ async def scheduled_download_job():
             # Best-effort failure notification (no-op unless configured)
             if downloaded_summary["failed_channels"] > 0:
                 from app.notification_service import send_notification
-                send_notification(
+                # Worker thread: Apprise performs blocking network I/O and a
+                # slow endpoint must not stall the shared event loop
+                await asyncio.to_thread(
+                    send_notification,
                     db,
                     "ChannelFinWatcher: scheduled run had failures",
                     f"{downloaded_summary['failed_channels']} of "
@@ -256,9 +259,11 @@ async def channel_download_job(channel_id: int):
                 )
             else:
                 logger.error(f"Per-channel job for '{channel.name}' failed: {error_message}")
-                # Best-effort failure notification (no-op unless configured)
+                # Best-effort failure notification (no-op unless configured;
+                # worker thread keeps blocking network I/O off the event loop)
                 from app.notification_service import send_notification
-                send_notification(
+                await asyncio.to_thread(
+                    send_notification,
                     db,
                     f"ChannelFinWatcher: '{channel.name}' download failed",
                     f"Scheduled download for '{channel.name}' failed: {error_message}"
@@ -302,10 +307,11 @@ async def _process_channel_with_recovery(channel: Channel, db: Session) -> Tuple
 
     while retry_count < max_retries:
         try:
-            # Use existing video download service
-            # This returns (success, videos_downloaded, error_message)
-            success, videos_downloaded, error_message = video_download_service.process_channel_downloads(
-                channel, db
+            # Use existing video download service (worker thread: this is
+            # minutes of blocking yt-dlp work and the scheduler shares the
+            # event loop with the API)
+            success, videos_downloaded, error_message = await asyncio.to_thread(
+                video_download_service.process_channel_downloads, channel, db
             )
 
             # If successful or non-retryable error, return immediately

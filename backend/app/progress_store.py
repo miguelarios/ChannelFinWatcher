@@ -21,10 +21,12 @@ logger = logging.getLogger(__name__)
 class DownloadProgressStore:
     """Thread-safe registry of currently-downloading videos.
 
-    Entries are keyed by video_id alone: channels are processed sequentially
-    (one yt-dlp process at a time, enforced by the shared scheduler lock), so
-    the same video id can never be actively downloading for two channels at
-    once. Revisit the key if parallel channel processing is ever introduced.
+    Entries are keyed by video_id alone. A given video can only be
+    mid-download once at a time by construction, so the key is unique for
+    progress purposes. The one edge to know about: if the same video appears
+    in two channels' feeds AND downloads ever run concurrently (today the
+    shared scheduler lock keeps them sequential), the second start() would
+    overwrite the first entry's channel attribution in the display.
     """
 
     def __init__(self):

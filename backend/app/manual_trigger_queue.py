@@ -31,6 +31,7 @@ Usage:
 """
 
 import json
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
@@ -289,9 +290,10 @@ async def process_queue(db: Session) -> Tuple[int, int]:
                 failed += 1
                 continue
 
-            # Process the download
-            success, videos_downloaded, error_message = video_download_service.process_channel_downloads(
-                channel, db
+            # Process the download (worker thread: blocking yt-dlp work
+            # must not stall the shared event loop)
+            success, videos_downloaded, error_message = await asyncio.to_thread(
+                video_download_service.process_channel_downloads, channel, db
             )
 
             if success:
