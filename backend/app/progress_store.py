@@ -19,7 +19,13 @@ logger = logging.getLogger(__name__)
 
 
 class DownloadProgressStore:
-    """Thread-safe registry of currently-downloading videos."""
+    """Thread-safe registry of currently-downloading videos.
+
+    Entries are keyed by video_id alone: channels are processed sequentially
+    (one yt-dlp process at a time, enforced by the shared scheduler lock), so
+    the same video id can never be actively downloading for two channels at
+    once. Revisit the key if parallel channel processing is ever introduced.
+    """
 
     def __init__(self):
         self._lock = threading.Lock()

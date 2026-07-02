@@ -78,6 +78,43 @@ class TestProgressStore:
         # No exception raised - download must not be affected by display errors
 
 
+class TestProgressStream:
+    """Tests for the SSE progress event generator."""
+
+    @pytest.mark.asyncio
+    async def test_event_generator_emits_snapshots_until_disconnect(self):
+        import json
+        from app.api import _progress_event_stream
+
+        class FakeRequest:
+            """Reports connected for the first check, disconnected after."""
+            def __init__(self):
+                self.checks = 0
+
+            async def is_disconnected(self):
+                self.checks += 1
+                return self.checks > 1
+
+        download_progress_store.start("vid_sse_1", 1, "SSE Channel", "SSE Video")
+        download_progress_store.update("vid_sse_1", status="downloading", percent=12.5)
+        try:
+            gen = _progress_event_stream(FakeRequest())
+
+            event = await gen.__anext__()
+            assert event.startswith("data: ")
+            assert event.endswith("\n\n")
+            payload = json.loads(event[len("data: "):])
+            assert payload["count"] == 1
+            assert payload["active"][0]["video_id"] == "vid_sse_1"
+            assert payload["active"][0]["percent"] == 12.5
+
+            # Second iteration sees the disconnect and ends the stream
+            with pytest.raises(StopAsyncIteration):
+                await gen.__anext__()
+        finally:
+            download_progress_store.finish("vid_sse_1")
+
+
 class TestActiveDownloadsEndpoint:
     """Tests for GET /api/v1/downloads/active."""
 

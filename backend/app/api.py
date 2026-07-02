@@ -1371,6 +1371,24 @@ async def get_active_downloads():
     return {"active": active, "count": len(active)}
 
 
+async def _progress_event_stream(request: Request):
+    """SSE event generator: one JSON snapshot per second until disconnect.
+
+    Module-level (not a closure) so tests can drive it directly with a fake
+    request — TestClient cannot cleanly disconnect an infinite stream.
+    """
+    import json
+    from app.progress_store import download_progress_store
+
+    while True:
+        if await request.is_disconnected():
+            break
+        active = download_progress_store.snapshot()
+        payload = json.dumps({"active": active, "count": len(active)})
+        yield f"data: {payload}\n\n"
+        await asyncio.sleep(1)
+
+
 @router.get("/downloads/progress/stream")
 async def stream_download_progress(request: Request):
     """
@@ -1385,20 +1403,8 @@ async def stream_download_progress(request: Request):
         GET /api/v1/downloads/progress/stream
         data: {"active": [...], "count": 1}
     """
-    import json
-    from app.progress_store import download_progress_store
-
-    async def event_stream():
-        while True:
-            if await request.is_disconnected():
-                break
-            active = download_progress_store.snapshot()
-            payload = json.dumps({"active": active, "count": len(active)})
-            yield f"data: {payload}\n\n"
-            await asyncio.sleep(1)
-
     return StreamingResponse(
-        event_stream(),
+        _progress_event_stream(request),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

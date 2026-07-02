@@ -296,6 +296,9 @@ async def health_check(db: Session = Depends(get_db)):
             "free_bytes": usage.free,
             "usage_percent": percent,
         }
+        # Deliberately stricter than the dashboard's 80% heads-up banner
+        # (US-012): 80% is a UI nudge to lower limits, 90% is an operational
+        # problem worth flagging in healthchecks/monitors.
         if percent >= 90:
             problems.append(f"disk {percent}% full")
     except OSError as e:

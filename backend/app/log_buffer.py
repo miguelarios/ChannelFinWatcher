@@ -37,6 +37,9 @@ class RingBufferHandler(logging.Handler):
 
     def recent(self, limit: int = 100, level: Optional[str] = None) -> List[dict]:
         """Most recent records, newest first, optionally filtered by min level."""
+        # Stdlib quirk: getLevelName() maps BOTH ways - given a level *name*
+        # ("WARNING") it returns the numeric level (30). Documented behavior,
+        # relied upon here and guarded by the isinstance check below.
         min_levelno = logging.getLevelName(level.upper()) if level else logging.NOTSET
         if not isinstance(min_levelno, int):
             min_levelno = logging.NOTSET
