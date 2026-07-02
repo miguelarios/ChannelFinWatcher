@@ -7,7 +7,8 @@ import asyncio
 import logging
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -1196,6 +1197,58 @@ async def get_dashboard(db: Session = Depends(get_db)):
         ),
         channels=items,
         generated_at=datetime.utcnow(),
+    )
+
+
+@router.get("/downloads/active")
+async def get_active_downloads():
+    """
+    Get all currently-active downloads with real-time progress (US-010).
+
+    Snapshot of the in-memory progress store fed by yt-dlp progress hooks.
+    Designed for lightweight polling from the UI; for push-based consumption
+    use /downloads/progress/stream (SSE).
+
+    Example:
+        GET /api/v1/downloads/active
+        Response: {"active": [{"video_id": "...", "percent": 42.3, ...}], "count": 1}
+    """
+    from app.progress_store import download_progress_store
+
+    active = download_progress_store.snapshot()
+    return {"active": active, "count": len(active)}
+
+
+@router.get("/downloads/progress/stream")
+async def stream_download_progress(request: Request):
+    """
+    Server-Sent Events stream of active download progress (US-010).
+
+    Emits a JSON snapshot of active downloads every second while the client
+    stays connected. Intended for direct API consumers; the bundled web UI
+    polls /downloads/active instead because the Next.js pages-router proxy
+    buffers streaming responses.
+
+    Example:
+        GET /api/v1/downloads/progress/stream
+        data: {"active": [...], "count": 1}
+    """
+    import json
+    from app.progress_store import download_progress_store
+
+    async def event_stream():
+        while True:
+            if await request.is_disconnected():
+                break
+            active = download_progress_store.snapshot()
+            payload = json.dumps({"active": active, "count": len(active)})
+            yield f"data: {payload}\n\n"
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
