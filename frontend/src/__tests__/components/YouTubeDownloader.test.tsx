@@ -17,29 +17,42 @@ import { YouTubeDownloader } from '../../components/YouTubeDownloader'
 // Mock fetch globally for API testing
 global.fetch = jest.fn()
 
+// Stub out SchedulerStatusWidget: it fires its own fetches on mount
+// (/scheduler/status, /channels) which would consume the ordered fetch
+// mocks below and break every assertion that depends on call order.
+jest.mock('../../components/SchedulerStatusWidget', () => ({
+  SchedulerStatusWidget: () => null,
+}))
+
+const jsonResponse = (body: unknown, ok = true) => ({ ok, json: () => Promise.resolve(body) })
+
+// Responses for POST /api/v1/channels, consumed in order. Tests push what
+// they need. URL-dispatched mocking (instead of ordered mockResolvedValueOnce
+// chains) keeps tests immune to changes in how many fetches mount performs.
+let postChannelResponses: unknown[] = []
+
 describe('YouTubeDownloader Component - Story 1 Tests', () => {
   beforeEach(() => {
-    // Clear all mocks before each test
     jest.clearAllMocks()
-    ;(fetch as jest.Mock).mockClear()
-    
-    // Mock the default API calls that occur on component mount
-    ;(fetch as jest.Mock)
-      .mockResolvedValueOnce({
-        // Health check
-        ok: true,
-        json: () => Promise.resolve({ status: 'healthy' })
-      })
-      .mockResolvedValueOnce({
-        // Existing channels list (empty by default)
-        ok: true,
-        json: () => Promise.resolve({ channels: [], total: 0, enabled: 0 })
-      })
-      .mockResolvedValueOnce({
-        // Default video limit setting
-        ok: true,
-        json: () => Promise.resolve({ limit: 10 })
-      })
+    postChannelResponses = []
+    ;(fetch as jest.Mock).mockReset()
+    ;(fetch as jest.Mock).mockImplementation((url: string, options?: RequestInit) => {
+      if (url === '/api/health') {
+        return Promise.resolve(jsonResponse({ status: 'healthy' }))
+      }
+      if (url === '/api/v1/settings/default-video-limit') {
+        return Promise.resolve(jsonResponse({ limit: 10 }))
+      }
+      if (url === '/api/v1/channels' && options?.method === 'POST') {
+        const next = postChannelResponses.shift()
+        if (next instanceof Promise) return next
+        return Promise.resolve(next ?? jsonResponse({ detail: 'No mocked POST response queued' }, false))
+      }
+      if (url === '/api/v1/channels') {
+        return Promise.resolve(jsonResponse({ channels: [], total: 0, enabled: 0 }))
+      }
+      return Promise.resolve(jsonResponse({}))
+    })
   })
 
   describe('Form Rendering - Story 1 Requirements', () => {
@@ -79,32 +92,16 @@ describe('YouTubeDownloader Component - Story 1 Tests', () => {
       const user = userEvent.setup()
       
       // Mock successful channel creation
-      ;(fetch as jest.Mock)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ status: 'healthy' })
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ channels: [], total: 0 })
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ limit: 10 })
-        })
-        .mockResolvedValueOnce({
-          // Channel creation success
-          ok: true,
-          json: () => Promise.resolve({
-            id: 1,
-            url: 'https://www.youtube.com/@MrsRachel',
-            name: 'Mrs. Rachel - Toddler Learning Videos',
-            limit: 10,
-            enabled: true,
-            created_at: '2024-01-01T00:00:00Z',
-            updated_at: '2024-01-01T00:00:00Z'
-          })
-        })
+      postChannelResponses.push(jsonResponse({
+        id: 1,
+        url: 'https://www.youtube.com/@MrsRachel',
+        name: 'Mrs. Rachel - Toddler Learning Videos',
+        limit: 10,
+        enabled: true,
+        metadata_status: 'completed',
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z'
+      }))
 
       render(<YouTubeDownloader />)
 
@@ -130,7 +127,9 @@ describe('YouTubeDownloader Component - Story 1 Tests', () => {
         expect(screen.getByText(/successfully added channel/i)).toBeInTheDocument()
       }, { timeout: 3000 })
 
-      // Verify API call was made correctly
+      // Verify API call was made correctly. quality_preset is intentionally
+      // omitted so the backend applies the global default quality (US-015),
+      // and no limit field means the default video limit applies (US-003)
       expect(fetch).toHaveBeenCalledWith('/api/v1/channels', {
         method: 'POST',
         headers: {
@@ -138,9 +137,7 @@ describe('YouTubeDownloader Component - Story 1 Tests', () => {
         },
         body: JSON.stringify({
           url: 'https://www.youtube.com/@MrsRachel',
-          enabled: true,
-          quality_preset: 'best'
-          // No limit field - should use default
+          enabled: true
         }),
       })
 
@@ -156,31 +153,16 @@ describe('YouTubeDownloader Component - Story 1 Tests', () => {
     it('displays channel information in card format', async () => {
       const user = userEvent.setup()
       
-      ;(fetch as jest.Mock)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ status: 'healthy' })
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ channels: [], total: 0 })
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ limit: 10 })
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({
-            id: 1,
-            name: 'Test Channel',
-            url: 'https://www.youtube.com/@TestChannel',
-            limit: 10,
-            enabled: true,
-            created_at: '2024-01-01T00:00:00Z',
-            updated_at: '2024-01-01T00:00:00Z'
-          })
-        })
+      postChannelResponses.push(jsonResponse({
+        id: 1,
+        name: 'Test Channel',
+        url: 'https://www.youtube.com/@TestChannel',
+        limit: 10,
+        enabled: true,
+        metadata_status: 'completed',
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z'
+      }))
 
       render(<YouTubeDownloader />)
 
@@ -281,45 +263,28 @@ describe('YouTubeDownloader Component - Story 1 Tests', () => {
       const user = userEvent.setup()
       
       // Mock responses for multiple channel additions
-      ;(fetch as jest.Mock)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ status: 'healthy' })
+      postChannelResponses.push(
+        jsonResponse({
+          id: 1,
+          name: 'First Channel',
+          url: 'https://www.youtube.com/@FirstChannel',
+          limit: 10,
+          enabled: true,
+          metadata_status: 'completed',
+          created_at: '2024-01-01T00:00:00Z',
+          updated_at: '2024-01-01T00:00:00Z'
+        }),
+        jsonResponse({
+          id: 2,
+          name: 'Second Channel',
+          url: 'https://www.youtube.com/@SecondChannel',
+          limit: 10,
+          enabled: true,
+          metadata_status: 'completed',
+          created_at: '2024-01-01T00:00:00Z',
+          updated_at: '2024-01-01T00:00:00Z'
         })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ channels: [], total: 0 })
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ limit: 10 })
-        })
-        .mockResolvedValueOnce({
-          // First channel addition
-          ok: true,
-          json: () => Promise.resolve({
-            id: 1,
-            name: 'First Channel',
-            url: 'https://www.youtube.com/@FirstChannel',
-            limit: 10,
-            enabled: true,
-            created_at: '2024-01-01T00:00:00Z',
-            updated_at: '2024-01-01T00:00:00Z'
-          })
-        })
-        .mockResolvedValueOnce({
-          // Second channel addition
-          ok: true,
-          json: () => Promise.resolve({
-            id: 2,
-            name: 'Second Channel',
-            url: 'https://www.youtube.com/@SecondChannel',
-            limit: 10,
-            enabled: true,
-            created_at: '2024-01-01T00:00:00Z',
-            updated_at: '2024-01-01T00:00:00Z'
-          })
-        })
+      )
 
       render(<YouTubeDownloader />)
 
@@ -369,31 +334,19 @@ describe('YouTubeDownloader Component - Story 1 Tests', () => {
         resolveChannelCreation = resolve
       })
 
-      ;(fetch as jest.Mock)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ status: 'healthy' })
+      postChannelResponses.push(slowPromise.then(() => ({
+        ok: true,
+        json: () => Promise.resolve({
+          id: 1,
+          name: 'Test Channel',
+          url: 'https://www.youtube.com/@TestChannel',
+          limit: 10,
+          enabled: true,
+          metadata_status: 'completed',
+          created_at: '2024-01-01T00:00:00Z',
+          updated_at: '2024-01-01T00:00:00Z'
         })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ channels: [], total: 0 })
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ limit: 10 })
-        })
-        .mockReturnValueOnce(slowPromise.then(() => ({
-          ok: true,
-          json: () => Promise.resolve({
-            id: 1,
-            name: 'Test Channel',
-            url: 'https://www.youtube.com/@TestChannel',
-            limit: 10,
-            enabled: true,
-            created_at: '2024-01-01T00:00:00Z',
-            updated_at: '2024-01-01T00:00:00Z'
-          })
-        })))
+      })))
 
       render(<YouTubeDownloader />)
 
@@ -424,24 +377,8 @@ describe('YouTubeDownloader Component - Story 1 Tests', () => {
     it('handles API errors gracefully', async () => {
       const user = userEvent.setup()
       
-      ;(fetch as jest.Mock)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ status: 'healthy' })
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ channels: [], total: 0 })
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ limit: 10 })
-        })
-        .mockResolvedValueOnce({
-          // API error response
-          ok: false,
-          json: () => Promise.resolve({ detail: 'Channel not found' })
-        })
+      // API error response for the POST
+      postChannelResponses.push(jsonResponse({ detail: 'Channel not found' }, false))
 
       render(<YouTubeDownloader />)
 

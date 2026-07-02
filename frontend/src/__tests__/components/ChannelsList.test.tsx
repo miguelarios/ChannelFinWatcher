@@ -110,11 +110,12 @@ describe('ChannelsList Component', () => {
         />
       )
 
-      // Find the channel container divs (they don't have role="button" anymore)
-      const channelContainers = screen.getByText('Mrs. Rachel - Toddler Learning Videos').closest('div')
-      
+      // The channel name is nested inside inner layout divs; the selection
+      // classes live on the clickable row container (cursor-pointer)
+      const channelRow = screen.getByText('Mrs. Rachel - Toddler Learning Videos').closest('div.cursor-pointer')
+
       // Selected channel should have red border styling
-      expect(channelContainers).toHaveClass('border-red-500', 'bg-red-50')
+      expect(channelRow).toHaveClass('border-red-500', 'bg-red-50')
     })
   })
 
@@ -146,9 +147,9 @@ describe('ChannelsList Component', () => {
         />
       )
 
-      // Find and click remove button for first channel
-      const removeButtons = screen.getAllByTitle('Remove channel')
-      fireEvent.click(removeButtons[0])
+      // Delete now lives in the kebab menu: open it, then click the item
+      fireEvent.click(screen.getAllByTitle('More actions')[0])
+      fireEvent.click(screen.getByRole('button', { name: /delete channel/i }))
 
       // Should show confirmation modal instead of immediately deleting
       expect(screen.getByText('Confirm Channel Deletion')).toBeInTheDocument()
@@ -389,10 +390,12 @@ describe('ChannelsList Component', () => {
       await user.type(input, '5')
       await user.type(input, '{Enter}')
 
-      // Should show confirmation dialog
+      // Should show confirmation dialog. The from/to numbers are wrapped in
+      // <strong> tags, so match on the dialog's combined text content.
       await waitFor(() => {
         expect(screen.getByText('Confirm Limit Reduction')).toBeInTheDocument()
-        expect(screen.getByText(/reducing the video limit from 25 to 5/i)).toBeInTheDocument()
+        const dialog = screen.getByText('Confirm Limit Reduction').closest('div')
+        expect(dialog).toHaveTextContent(/reducing the video limit from 25 to 5/i)
       })
     })
 
@@ -480,6 +483,49 @@ describe('ChannelsList Component', () => {
     })
   })
 
+  // Row actions moved into a kebab menu ("More actions") — open it first,
+  // then click the labeled menu item
+  const clickKebabMenuItem = (itemName: RegExp, rowIndex = 0) => {
+    fireEvent.click(screen.getAllByTitle('More actions')[rowIndex])
+    fireEvent.click(screen.getByRole('button', { name: itemName }))
+  }
+
+  describe('Quality Preset (US-015)', () => {
+    it('updates channel quality via the kebab menu select', async () => {
+      ;(fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 1, quality_preset: '720p' }),
+      })
+
+      render(
+        <ChannelsList
+          channels={sampleChannels}
+          selectedChannelId={null}
+          onSelectChannel={mockOnSelectChannel}
+          onRemoveChannel={mockOnRemoveChannel}
+          onUpdateChannel={mockOnUpdateChannel}
+        />
+      )
+
+      // Open the kebab menu and change the quality select
+      fireEvent.click(screen.getAllByTitle('More actions')[0])
+      const select = screen.getByLabelText(/video quality for/i)
+      fireEvent.change(select, { target: { value: '720p' } })
+
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalledWith('/api/v1/channels/1', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quality_preset: '720p' }),
+        })
+      })
+
+      await waitFor(() => {
+        expect(mockOnUpdateChannel).toHaveBeenCalledWith(1, { quality_preset: '720p' })
+      })
+    })
+  })
+
   describe('Delete Modal Functionality', () => {
     it('shows delete modal when delete button clicked', async () => {
       render(
@@ -491,8 +537,7 @@ describe('ChannelsList Component', () => {
         />
       )
 
-      const deleteButton = screen.getAllByTitle('Remove channel')[0]
-      fireEvent.click(deleteButton)
+      clickKebabMenuItem(/delete channel/i)
 
       expect(screen.getByText('Confirm Channel Deletion')).toBeInTheDocument()
       expect(screen.getByText('Also delete media files (permanent)')).toBeInTheDocument()
@@ -513,7 +558,7 @@ describe('ChannelsList Component', () => {
         />
       )
 
-      fireEvent.click(screen.getAllByTitle('Remove channel')[0])
+      clickKebabMenuItem(/delete channel/i)
       fireEvent.click(screen.getByText('Delete Channel'))
 
       await waitFor(() => {
@@ -543,7 +588,7 @@ describe('ChannelsList Component', () => {
         />
       )
 
-      fireEvent.click(screen.getAllByTitle('Remove channel')[0])
+      clickKebabMenuItem(/delete channel/i)
       fireEvent.click(screen.getByLabelText('Also delete media files (permanent)'))
       fireEvent.click(screen.getByText('Delete Channel'))
 
@@ -565,8 +610,8 @@ describe('ChannelsList Component', () => {
         />
       )
 
-      // Open modal
-      fireEvent.click(screen.getAllByTitle('Remove channel')[0])
+      // Open modal via the kebab menu
+      clickKebabMenuItem(/delete channel/i)
       expect(screen.getByText('Confirm Channel Deletion')).toBeInTheDocument()
 
       // Cancel
@@ -594,13 +639,12 @@ describe('ChannelsList Component', () => {
         />
       )
 
-      const reindexButton = screen.getAllByTitle('Reindex media (sync DB with disk)')[0]
-      fireEvent.click(reindexButton)
+      clickKebabMenuItem(/reindex media/i)
 
       await waitFor(() => {
         expect(fetch).toHaveBeenCalledWith(
           '/api/v1/channels/1/reindex',
-          expect.objectContaining({ 
+          expect.objectContaining({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
           })
@@ -623,7 +667,7 @@ describe('ChannelsList Component', () => {
         />
       )
 
-      fireEvent.click(screen.getAllByTitle('Reindex media (sync DB with disk)')[0])
+      clickKebabMenuItem(/reindex media/i)
 
       await waitFor(() => {
         expect(screen.getByText('Reindex complete - found 2, added 3, missing 1')).toBeInTheDocument()
@@ -645,7 +689,7 @@ describe('ChannelsList Component', () => {
         />
       )
 
-      fireEvent.click(screen.getAllByTitle('Reindex media (sync DB with disk)')[0])
+      clickKebabMenuItem(/reindex media/i)
 
       await waitFor(() => {
         expect(screen.getByText('Reindex failed')).toBeInTheDocument()
@@ -670,16 +714,17 @@ describe('ChannelsList Component', () => {
         />
       )
 
-      const reindexButton = screen.getAllByTitle('Reindex media (sync DB with disk)')[0]
-      fireEvent.click(reindexButton)
+      // Trigger reindex via the kebab menu (the menu closes on click)
+      clickKebabMenuItem(/reindex media/i)
 
-      // Should show loading state (button disabled and spinning icon)
-      expect(reindexButton).toBeDisabled()
-      
+      // Re-open the menu: while the operation runs, the reindex item is disabled
+      fireEvent.click(screen.getAllByTitle('More actions')[0])
+      expect(screen.getByRole('button', { name: /reindex media/i })).toBeDisabled()
+
       // Wait for operation to complete
       await waitFor(() => {
-        expect(reindexButton).not.toBeDisabled()
-      }, { timeout: 200 })
+        expect(screen.getByRole('button', { name: /reindex media/i })).not.toBeDisabled()
+      }, { timeout: 300 })
     })
   })
 })
