@@ -653,6 +653,18 @@ def friendly_download_error(raw_messages: Optional[List[str]]) -> Optional[str]:
     Returns:
         A friendly one-line explanation, or None if nothing usable was captured
         (the caller should then fall back to its own generic message).
+
+    Invariants worth preserving if you add branches:
+    - Matching runs over the *combined* text of the given lines. Callers pass
+      the fatal error line(s) (see YtdlpErrorCapture.messages), which are
+      effectively single-cause per video, so branch priority order decides the
+      result. If multiple conflicting error lines are ever passed, the
+      highest-priority branch wins.
+    - This output is fed to is_retryable_error() by the retry layer. Retryable
+      causes (rate-limit/network) MUST keep a keyword it recognizes ("429",
+      "network", …) in their friendly text; non-retryable causes must not. The
+      last-resort branch preserves the raw line, so unclassified transient
+      errors stay retryable by keyword survival.
     """
     non_empty = [m for m in (raw_messages or []) if m and m.strip()]
     if not non_empty:

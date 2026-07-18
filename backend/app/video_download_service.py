@@ -1191,11 +1191,12 @@ class VideoDownloadService:
                     #
                     # Translate yt-dlp's captured error into a message the user
                     # can act on (refresh cookies, update the app, etc.). If we
-                    # captured nothing recognizable, fall back to a generic hint
-                    # that points at DEBUG logging.
+                    # captured nothing recognizable, fall back to a plainly worded
+                    # hint (this text is shown in the web UI, so keep it friendly).
                     error_msg = friendly_download_error(error_capture.messages) or (
-                        "Download finished but produced no video file, and yt-dlp "
-                        "reported no error. Enable DEBUG logging to see details."
+                        "The download didn't produce a video file and no reason was "
+                        "reported. Try again later; if it keeps happening, check the "
+                        "container logs for details."
                     )
                     download.status = 'failed'
                     download.file_exists = False

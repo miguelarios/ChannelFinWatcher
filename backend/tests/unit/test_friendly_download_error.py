@@ -68,6 +68,17 @@ class TestFriendlyDownloadError:
         msg = friendly_download_error(["ERROR: Something totally unexpected happened"])
         assert msg == "Download failed: Something totally unexpected happened"
 
+    def test_multiple_conflicting_error_lines_follow_branch_priority(self):
+        # When more than one error line is passed with conflicting keywords,
+        # branch priority (not line order) decides. "private video" outranks the
+        # network branch regardless of which line came first. This documents the
+        # single-cause-per-video assumption in friendly_download_error.
+        msg = friendly_download_error([
+            "ERROR: The read operation timed out",
+            "ERROR: Private video. Sign in if you've been granted access.",
+        ])
+        assert "private" in msg.lower()
+
 
 class TestYtdlpErrorCapture:
     """YtdlpErrorCapture records yt-dlp's error/warning output for inspection."""
