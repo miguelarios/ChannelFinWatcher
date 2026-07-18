@@ -713,8 +713,14 @@ def friendly_download_error(raw_messages: Optional[List[str]]) -> Optional[str]:
          "This video is geo-blocked in your region and can't be downloaded from here."),
         ([("requested format is not available",), ("requested format not available",)],
          "The selected quality/format isn't available for this video. Try a different quality preset."),
-        # Stale yt-dlp vs. YouTube player changes — the fix is to update yt-dlp
-        ([("nsig",), ("unable to extract",), ("signature", "extract"), ("player", "extract")],
+        # Stale yt-dlp vs. YouTube player changes — the fix is to update yt-dlp.
+        # Deliberately require player/signature/nsig context: a bare
+        # "unable to extract" is too broad (yt-dlp uses it for metadata,
+        # uploader id, thumbnails, …) and would wrongly claim an unrelated
+        # extraction failure is a stale-player problem — and, being
+        # higher-priority than the network rule, could strip a retry keyword
+        # from a line that also carried one.
+        ([("nsig",), ("signature", "extract"), ("player", "extract")],
          "YouTube changed its player and the installed yt-dlp can't decode this "
          "video. Update yt-dlp (rebuild the container) and try again."),
         # Transient conditions (must keep an is_retryable_error keyword)

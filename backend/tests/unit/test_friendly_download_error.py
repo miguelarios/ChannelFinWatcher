@@ -56,6 +56,21 @@ class TestFriendlyDownloadError:
         msg = friendly_download_error(["WARNING: [youtube] Some videos may not be available: nsig extraction failed"])
         assert "update" in msg.lower()
 
+    def test_stale_player_matches_with_player_context(self):
+        msg = friendly_download_error(["ERROR: Unable to extract player response"])
+        assert "update" in msg.lower()
+
+    def test_unrelated_unable_to_extract_does_not_claim_stale_player(self):
+        # A bare "unable to extract" (here for uploader id) must NOT be labeled a
+        # stale-player issue, and — critically — must not strip the retry keyword
+        # from a line that also carries a transient signal. The stale-player rule
+        # is higher priority than the network/rate-limit rules, so this pins that
+        # tightening the clause keeps a colliding retryable error retryable.
+        msg = friendly_download_error(["ERROR: unable to extract uploader id; HTTP Error 429: Too Many Requests"])
+        assert "update yt-dlp" not in msg.lower()
+        assert "429" in msg or "rate" in msg.lower()
+        assert is_retryable_error(msg) is True
+
     def test_rate_limit(self):
         msg = friendly_download_error(["ERROR: HTTP Error 429: Too Many Requests"])
         assert "429" in msg or "rate" in msg.lower()
