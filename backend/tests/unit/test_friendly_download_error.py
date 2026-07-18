@@ -9,7 +9,7 @@ import logging
 
 import pytest
 
-from app.utils import YtdlpErrorCapture, friendly_download_error
+from app.utils import YtdlpErrorCapture, friendly_download_error, is_retryable_error
 
 
 class TestFriendlyDownloadError:
@@ -81,9 +81,15 @@ class TestYtdlpErrorCapture:
 
         assert cap.errors == ["ERROR: boom"]
         assert cap.warnings == ["WARNING: careful"]
-        # messages puts warnings first and errors last, so the fallback (which
-        # takes the last line) surfaces the real error, not an incidental warning
-        assert cap.messages == ["WARNING: careful", "ERROR: boom"]
+        # messages classifies on the error lines when any exist, so an
+        # incidental warning can't outrank the real cause
+        assert cap.messages == ["ERROR: boom"]
+
+    def test_messages_falls_back_to_warnings_when_no_error(self):
+        # When yt-dlp reports no ERROR (only warnings), classify on the warnings.
+        cap = YtdlpErrorCapture(logging.getLogger("test"))
+        cap.warning("WARNING: only a warning")
+        assert cap.messages == ["WARNING: only a warning"]
 
     def test_fallback_surfaces_error_not_warning(self):
         # A benign warning alongside an unrecognized fatal error: the friendly
@@ -94,6 +100,22 @@ class TestYtdlpErrorCapture:
         assert friendly_download_error(cap.messages) == (
             "Download failed: Some brand-new unrecognized failure"
         )
+
+    def test_colliding_warning_does_not_mask_retryable_error(self):
+        # Regression for the blob-matching pitfall: a benign warning whose text
+        # collides with an earlier, non-retryable branch ("format is not
+        # available") must NOT outrank the real transient error. Both the
+        # friendly message AND is_retryable_error must reflect the real cause,
+        # or the within-run retry would be silently skipped.
+        cap = YtdlpErrorCapture(logging.getLogger("test"))
+        cap.warning("WARNING: Requested format is not available. Falling back.")
+        cap.error("ERROR: Unable to download webpage: The read operation timed out")
+
+        friendly = friendly_download_error(cap.messages)
+        assert "network" in friendly.lower()
+        assert "format" not in friendly.lower()
+        # The translated message preserves retryability for the retry layer
+        assert is_retryable_error(friendly) is True
 
     def test_capture_feeds_translator(self):
         cap = YtdlpErrorCapture(logging.getLogger("test"))

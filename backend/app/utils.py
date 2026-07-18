@@ -618,14 +618,24 @@ class YtdlpErrorCapture:
 
     @property
     def messages(self) -> List[str]:
-        """All captured lines, warnings first and errors last.
+        """Captured lines most relevant to diagnosing the failure.
 
-        The error lines are the ones that explain *why* a download failed, so
-        they go last: friendly_download_error's fallback surfaces the final
-        line, and we want that to be the real error, not an incidental warning
-        (e.g. "unable to download thumbnail") that happened to be logged too.
+        yt-dlp is noisy: a failed run often logs several *benign* warnings
+        (thumbnail/subtitle failures, format fallbacks, "some formats are
+        missing") alongside the one fatal ERROR. Under ``ignoreerrors=True`` the
+        fatal cause is reported through ``error()``, so we classify on the error
+        lines when any exist and only fall back to warnings when none were
+        captured.
+
+        Why this matters beyond the message text: the translated message is
+        also fed to ``is_retryable_error`` (see
+        ``download_video_with_retry``). If an incidental warning outranked the
+        real cause, a genuinely transient failure could be mislabeled
+        non-retryable and silently skip its within-run retry. Preferring the
+        error lines keeps both the user-facing message and the retry decision
+        anchored to what actually failed.
         """
-        return self.warnings + self.errors
+        return self.errors or self.warnings
 
 
 def friendly_download_error(raw_messages: Optional[List[str]]) -> Optional[str]:
@@ -701,10 +711,11 @@ def friendly_download_error(raw_messages: Optional[List[str]]) -> Optional[str]:
     # We captured something we don't have a canned message for. Surfacing the
     # real (trimmed) yt-dlp line still beats an opaque "file not found".
     last = non_empty[-1].strip()
-    # Drop yt-dlp's noisy "ERROR: " prefix for readability
+    # Drop one leading "ERROR: "/"WARNING: " prefix for readability
     for prefix in ("ERROR: ", "WARNING: "):
         if last.startswith(prefix):
             last = last[len(prefix):]
+            break
     return f"Download failed: {last}" if last else None
 
 
