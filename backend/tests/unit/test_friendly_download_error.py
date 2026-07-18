@@ -79,6 +79,20 @@ class TestFriendlyDownloadError:
         ])
         assert "private" in msg.lower()
 
+    def test_no_cross_line_keyword_bleeding(self):
+        # A two-keyword rule (geo needs "geo" AND "restrict") must not be
+        # satisfied by keywords coming from two *different*, unrelated lines.
+        # Here "geo" and "restrict" each appear in a separate line that does not
+        # describe a geo-block, so the geo rule must NOT fire.
+        msg = friendly_download_error([
+            "ERROR: failed to parse geo metadata field",
+            "ERROR: could not restrict output template",
+        ])
+        assert msg is not None
+        assert "geo-blocked" not in msg.lower()
+        # Falls through to the raw last-line fallback instead
+        assert msg.startswith("Download failed:")
+
     # Guards the load-bearing invariant documented on friendly_download_error:
     # every translated message must round-trip through is_retryable_error() to
     # the correct retryable/non-retryable category. Runs one representative

@@ -654,12 +654,14 @@ def friendly_download_error(raw_messages: Optional[List[str]]) -> Optional[str]:
         A friendly one-line explanation, or None if nothing usable was captured
         (the caller should then fall back to its own generic message).
 
-    Invariants worth preserving if you add branches:
-    - Matching runs over the *combined* text of the given lines. Callers pass
-      the fatal error line(s) (see YtdlpErrorCapture.messages), which are
-      effectively single-cause per video, so branch priority order decides the
-      result. If multiple conflicting error lines are ever passed, the
-      highest-priority branch wins.
+    Invariants worth preserving if you add rules:
+    - Each rule is matched against a *single* line, and rules are tried in
+      priority order, so the highest-priority category any one line describes
+      wins. Matching per-line (rather than over one joined blob) prevents a
+      multi-keyword rule from being satisfied by keywords bleeding across two
+      unrelated lines (e.g. "geo" in one line + "restrict" in another).
+    - Age restriction is ordered before the generic bot rule because both begin
+      with "Sign in to confirm ..." ("...your age" vs "...you're not a bot").
     - This output is fed to is_retryable_error() by the retry layer. Retryable
       causes (rate-limit/network) MUST keep a keyword it recognizes ("429",
       "network", …) in their friendly text; non-retryable causes must not. The
@@ -670,55 +672,55 @@ def friendly_download_error(raw_messages: Optional[List[str]]) -> Optional[str]:
     if not non_empty:
         return None
 
-    blob = " ".join(non_empty).lower()
+    lines = [m.lower() for m in non_empty]
 
-    # Age restriction is checked before the generic bot message because both
-    # begin with "Sign in to confirm ..." ("...your age" vs "...you're not a bot").
-    # Match specific phrases rather than a bare "age" substring, which would
-    # also fire on unrelated words ("storage", "message", "usage", …).
-    if ("confirm your age" in blob or "age-restricted" in blob
-            or "age restricted" in blob or "inappropriate for some users" in blob):
-        return "This video is age-restricted. Cookies from a signed-in, age-verified account are required."
+    # Each rule: (clauses, friendly_message). A line matches the rule if it
+    # satisfies ANY clause; a clause is a tuple of substrings that must ALL be
+    # present in that one line. Keeping AND-groups within a single line is what
+    # prevents cross-line keyword bleeding. Ordered most-specific first.
+    rules = [
+        # Age restriction — specific phrases, not a bare "age" (which would also
+        # fire on "storage", "message", "usage", …).
+        ([("confirm your age",), ("age-restricted",), ("age restricted",),
+          ("inappropriate for some users",)],
+         "This video is age-restricted. Cookies from a signed-in, age-verified account are required."),
+        # Bot detection / missing-expired cookies — the most common cause of
+        # "downloads stopped working" after a period of running fine.
+        ([("sign in to confirm",), ("not a bot",), ("confirm you", "bot")],
+         "YouTube blocked the download with a bot check. Your cookies are "
+         "likely missing or expired — export a fresh cookies file from a "
+         "signed-in browser session."),
+        # Video no longer downloadable for account/visibility reasons
+        ([("private video",)],
+         "This video is private and can no longer be downloaded."),
+        ([("video unavailable",), ("no longer available",), ("removed by the uploader",),
+          ("account associated",), ("has been terminated",)],
+         "This video is unavailable (deleted, removed, or the channel was terminated)."),
+        ([("members-only",), ("members only",), ("join this channel",)],
+         "This video is members-only and needs a channel membership (and matching cookies) to download."),
+        # Region / format issues
+        ([("available in your country",), ("blocked it in your country",), ("geo", "restrict")],
+         "This video is geo-blocked in your region and can't be downloaded from here."),
+        ([("requested format is not available",), ("requested format not available",)],
+         "The selected quality/format isn't available for this video. Try a different quality preset."),
+        # Stale yt-dlp vs. YouTube player changes — the fix is to update yt-dlp
+        ([("nsig",), ("unable to extract",), ("signature", "extract"), ("player", "extract")],
+         "YouTube changed its player and the installed yt-dlp can't decode this "
+         "video. Update yt-dlp (rebuild the container) and try again."),
+        # Transient conditions (must keep an is_retryable_error keyword)
+        ([("http error 429",), ("too many requests",)],
+         "YouTube is rate-limiting downloads (HTTP 429). Wait a while before retrying."),
+        ([("timed out",), ("timeout",), ("connection",), ("network",), ("getaddrinfo",),
+          ("temporary failure in name resolution",)],
+         "A network error interrupted the download. This is usually temporary — retry later."),
+    ]
 
-    # Bot detection / missing-expired cookies — by far the most common cause of
-    # "downloads stopped working" after a period of running fine.
-    if ("sign in to confirm" in blob or "not a bot" in blob
-            or ("confirm you" in blob and "bot" in blob)):
-        return ("YouTube blocked the download with a bot check. Your cookies are "
-                "likely missing or expired — export a fresh cookies file from a "
-                "signed-in browser session.")
+    def line_matches(line: str, clauses) -> bool:
+        return any(all(keyword in line for keyword in clause) for clause in clauses)
 
-    # Video no longer downloadable for account/visibility reasons
-    if "private video" in blob:
-        return "This video is private and can no longer be downloaded."
-    if ("video unavailable" in blob or "no longer available" in blob
-            or "removed by the uploader" in blob or "account associated" in blob
-            or "has been terminated" in blob):
-        return "This video is unavailable (deleted, removed, or the channel was terminated)."
-    if "members-only" in blob or "members only" in blob or "join this channel" in blob:
-        return "This video is members-only and needs a channel membership (and matching cookies) to download."
-
-    # Region / format issues
-    if ("available in your country" in blob or "blocked it in your country" in blob
-            or ("geo" in blob and "restrict" in blob)):
-        return "This video is geo-blocked in your region and can't be downloaded from here."
-    if "requested format is not available" in blob or "requested format not available" in blob:
-        return "The selected quality/format isn't available for this video. Try a different quality preset."
-
-    # Stale yt-dlp vs. YouTube player changes — the fix is to update yt-dlp
-    if ("nsig" in blob or "unable to extract" in blob
-            or ("signature" in blob and "extract" in blob)
-            or ("player" in blob and "extract" in blob)):
-        return ("YouTube changed its player and the installed yt-dlp can't decode this "
-                "video. Update yt-dlp (rebuild the container) and try again.")
-
-    # Transient conditions
-    if "http error 429" in blob or "too many requests" in blob:
-        return "YouTube is rate-limiting downloads (HTTP 429). Wait a while before retrying."
-    if ("timed out" in blob or "timeout" in blob or "connection" in blob
-            or "network" in blob or "getaddrinfo" in blob
-            or "temporary failure in name resolution" in blob):
-        return "A network error interrupted the download. This is usually temporary — retry later."
+    for clauses, message in rules:
+        if any(line_matches(line, clauses) for line in lines):
+            return message
 
     # We captured something we don't have a canned message for. Surfacing the
     # real (trimmed) yt-dlp line still beats an opaque "file not found".
