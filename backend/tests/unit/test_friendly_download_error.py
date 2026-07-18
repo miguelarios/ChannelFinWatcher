@@ -93,6 +93,27 @@ class TestFriendlyDownloadError:
         # Falls through to the raw last-line fallback instead
         assert msg.startswith("Download failed:")
 
+    def test_no_bleeding_within_a_single_multiline_message(self):
+        # Same guarantee when the two keywords live on separate physical lines
+        # *within one* string (e.g. a multi-cause DownloadError). The message is
+        # split on newlines internally, so the geo rule must NOT fire.
+        msg = friendly_download_error([
+            "ERROR: failed to parse geo metadata field\n"
+            "ERROR: could not restrict output template"
+        ])
+        assert msg is not None
+        assert "geo-blocked" not in msg.lower()
+        # Fallback surfaces the terminal (last) line
+        assert "restrict output template" in msg.lower()
+
+    def test_multiline_message_still_classifies_real_cause(self):
+        # A genuine cause on one line of a multi-line string is still matched.
+        msg = friendly_download_error([
+            "ERROR: unable to download video data\n"
+            "ERROR: HTTP Error 429: Too Many Requests"
+        ])
+        assert "429" in msg or "rate" in msg.lower()
+
     # Guards the load-bearing invariant documented on friendly_download_error:
     # every translated message must round-trip through is_retryable_error() to
     # the correct retryable/non-retryable category. Runs one representative

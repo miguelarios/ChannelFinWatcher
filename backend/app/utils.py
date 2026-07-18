@@ -668,11 +668,21 @@ def friendly_download_error(raw_messages: Optional[List[str]]) -> Optional[str]:
       last-resort branch preserves the raw line, so unclassified transient
       errors stay retryable by keyword survival.
     """
-    non_empty = [m for m in (raw_messages or []) if m and m.strip()]
-    if not non_empty:
+    # Expand every captured message into individual physical lines. A single
+    # message can itself embed newlines (a yt-dlp DownloadError string often
+    # chains several causes), and matching a multi-line string as one unit would
+    # let a two-keyword rule bleed across its lines — the same failure mode the
+    # per-line matching guards against for separate list entries. Splitting here
+    # gives every call site (capture path and DownloadError path alike) the same
+    # per-line guarantee.
+    source_lines = [
+        ln for m in (raw_messages or []) if m
+        for ln in m.splitlines() if ln.strip()
+    ]
+    if not source_lines:
         return None
 
-    lines = [m.lower() for m in non_empty]
+    lines = [ln.lower() for ln in source_lines]
 
     # Each rule: (clauses, friendly_message). A line matches the rule if it
     # satisfies ANY clause; a clause is a tuple of substrings that must ALL be
@@ -723,8 +733,10 @@ def friendly_download_error(raw_messages: Optional[List[str]]) -> Optional[str]:
             return message
 
     # We captured something we don't have a canned message for. Surfacing the
-    # real (trimmed) yt-dlp line still beats an opaque "file not found".
-    last = non_empty[-1].strip()
+    # real (trimmed) yt-dlp line still beats an opaque "file not found". Use the
+    # LAST line: yt-dlp's terminal line is usually the actual cause, with any
+    # preceding lines being context/traceback leading up to it.
+    last = source_lines[-1].strip()
     # Drop one leading "ERROR: "/"WARNING: " prefix for readability
     for prefix in ("ERROR: ", "WARNING: "):
         if last.startswith(prefix):
