@@ -11,7 +11,12 @@ import yt_dlp
 
 from app.models import Channel, Download, DownloadHistory
 from app.config import get_settings
-from app.utils import channel_dir_name, is_retryable_error
+from app.utils import (
+    channel_dir_name,
+    is_retryable_error,
+    YtdlpErrorCapture,
+    friendly_download_error,
+)
 from app.nfo_service import get_nfo_service
 from app.progress_store import download_progress_store
 from app.time_utils import utc_now
@@ -1068,6 +1073,12 @@ class VideoDownloadService:
             # progress store and stream yt-dlp progress into it
             download_progress_store.start(video_id, channel.id, channel.name, video_title)
             opts['progress_hooks'] = [download_progress_store.make_progress_hook(video_id)]
+            # Capture yt-dlp's real error output. Because ignoreerrors=True makes
+            # yt-dlp swallow failures (so one bad video doesn't abort the run),
+            # the actual reason is otherwise lost. Routing yt-dlp through this
+            # logger lets us translate the failure into a friendly message below.
+            error_capture = YtdlpErrorCapture(logger)
+            opts['logger'] = error_capture
             video_url = f"https://www.youtube.com/watch?v={video_id}"
 
             # Verify the cookie file referenced in options is still present on disk
@@ -1177,7 +1188,15 @@ class VideoDownloadService:
                 else:
                     # FAILURE: yt-dlp completed but no video file found
                     # This happens when yt-dlp encounters errors but doesn't throw (ignoreerrors=True)
-                    error_msg = "yt-dlp completed but video file not found on disk (check logs for yt-dlp errors)"
+                    #
+                    # Translate yt-dlp's captured error into a message the user
+                    # can act on (refresh cookies, update the app, etc.). If we
+                    # captured nothing recognizable, fall back to a generic hint
+                    # that points at DEBUG logging.
+                    error_msg = friendly_download_error(error_capture.messages) or (
+                        "Download finished but produced no video file, and yt-dlp "
+                        "reported no error. Enable DEBUG logging to see details."
+                    )
                     download.status = 'failed'
                     download.file_exists = False
                     download.error_message = error_msg[:500]
@@ -1187,16 +1206,19 @@ class VideoDownloadService:
                     return False, error_msg
                 
         except yt_dlp.DownloadError as e:
-            error_msg = str(e)
-            logger.warning(f"Download failed for {video_title} ({video_id}): {error_msg}")
-            
+            raw_msg = str(e)
+            # Prefer a friendly, actionable explanation; keep the raw yt-dlp
+            # text as the fallback so no detail is lost.
+            error_msg = friendly_download_error([raw_msg]) or f"Download error: {raw_msg}"
+            logger.warning(f"Download failed for {video_title} ({video_id}): {raw_msg}")
+
             # Update download record with error
             if 'download' in locals():
                 download.status = 'failed'
                 download.error_message = error_msg[:500]  # Truncate long error messages
                 db.commit()
-            
-            return False, f"Download error: {error_msg}"
+
+            return False, error_msg
             
         except Exception as e:
             error_msg = str(e)

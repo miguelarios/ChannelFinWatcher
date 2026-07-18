@@ -285,10 +285,12 @@ class TestVideoDownloadService:
         video_info = sample_video_info[0]
         
         success, error = service.download_video(video_info, test_channel, mock_db)
-        
+
         assert success is False
-        assert "Video unavailable" in error
-        
+        # yt-dlp's raw "Video unavailable" is now translated into a friendly,
+        # user-facing explanation (see utils.friendly_download_error)
+        assert "unavailable" in error.lower()
+
         # Verify error was stored in database
         mock_db.add.assert_called()
         mock_db.commit.assert_called()

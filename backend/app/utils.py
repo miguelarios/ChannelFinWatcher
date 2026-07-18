@@ -5,7 +5,7 @@ import yaml
 import threading
 import re
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from app.config import get_settings
 from app.time_utils import utc_now
 
@@ -574,6 +574,129 @@ def is_retryable_error(error_message: str) -> bool:
 
     error_lower = error_message.lower()
     return any(keyword in error_lower for keyword in retryable_keywords)
+
+
+class YtdlpErrorCapture:
+    """Capture yt-dlp's own error/warning output for later inspection.
+
+    Why this exists: our download options set ``ignoreerrors=True`` so a single
+    bad video never aborts a whole channel run. The trade-off is that yt-dlp
+    swallows the exception internally — ``ydl.download()`` returns normally even
+    when nothing was downloaded, and the *real* reason (bot check, private
+    video, format gone, stale player code, …) is lost. The caller is left only
+    with "the file isn't on disk", which is useless for troubleshooting.
+
+    yt-dlp accepts any object exposing ``debug``/``info``/``warning``/``error``
+    as its ``logger`` option and routes all of its messages through it. By
+    plugging this in we keep a copy of the error/warning lines (the ones that
+    explain *why* a download produced no file) so we can translate them into a
+    friendly message, while still forwarding everything to the app logger at
+    DEBUG level so nothing is silently dropped.
+    """
+
+    def __init__(self, app_logger: Optional[logging.Logger] = None):
+        # Forward to the module logger by default; callers may pass their own
+        self._app_logger = app_logger or logger
+        self.errors: List[str] = []
+        self.warnings: List[str] = []
+
+    def debug(self, msg: str) -> None:
+        # yt-dlp funnels both debug and info lines through debug(); keep them
+        # at DEBUG so INFO-mode logs stay quiet but nothing is lost in DEBUG.
+        self._app_logger.debug("[yt-dlp] %s", msg)
+
+    def info(self, msg: str) -> None:
+        self._app_logger.debug("[yt-dlp] %s", msg)
+
+    def warning(self, msg: str) -> None:
+        self.warnings.append(msg)
+        self._app_logger.debug("[yt-dlp][warning] %s", msg)
+
+    def error(self, msg: str) -> None:
+        self.errors.append(msg)
+        self._app_logger.debug("[yt-dlp][error] %s", msg)
+
+    @property
+    def messages(self) -> List[str]:
+        """All captured lines, errors first (most explanatory), then warnings."""
+        return self.errors + self.warnings
+
+
+def friendly_download_error(raw_messages: List[str]) -> Optional[str]:
+    """Translate raw yt-dlp error/warning text into a short, human-friendly reason.
+
+    Turns yt-dlp's technical output into something a non-technical user can act
+    on ("refresh your cookies", "the video is private", "update the app"). This
+    is intentionally keyword-based rather than regex-heavy: yt-dlp's wording
+    shifts between releases, so we match on stable substrings and keep the rules
+    ordered from most specific/most common to least.
+
+    Args:
+        raw_messages: Captured yt-dlp error/warning lines (see YtdlpErrorCapture)
+
+    Returns:
+        A friendly one-line explanation, or None if nothing usable was captured
+        (the caller should then fall back to its own generic message).
+    """
+    non_empty = [m for m in (raw_messages or []) if m and m.strip()]
+    if not non_empty:
+        return None
+
+    blob = " ".join(non_empty).lower()
+
+    # Age restriction is checked before the generic bot message because both
+    # begin with "Sign in to confirm ..." ("...your age" vs "...you're not a bot").
+    if "age" in blob and ("restrict" in blob or "confirm your age" in blob or "inappropriate" in blob):
+        return "This video is age-restricted. Cookies from a signed-in, age-verified account are required."
+
+    # Bot detection / missing-expired cookies — by far the most common cause of
+    # "downloads stopped working" after a period of running fine.
+    if ("sign in to confirm" in blob or "not a bot" in blob
+            or ("confirm you" in blob and "bot" in blob)):
+        return ("YouTube blocked the download with a bot check. Your cookies are "
+                "likely missing or expired — export a fresh cookies file from a "
+                "signed-in browser session.")
+
+    # Video no longer downloadable for account/visibility reasons
+    if "private video" in blob:
+        return "This video is private and can no longer be downloaded."
+    if ("video unavailable" in blob or "no longer available" in blob
+            or "removed by the uploader" in blob or "account associated" in blob
+            or "has been terminated" in blob):
+        return "This video is unavailable (deleted, removed, or the channel was terminated)."
+    if "members-only" in blob or "members only" in blob or "join this channel" in blob:
+        return "This video is members-only and needs a channel membership (and matching cookies) to download."
+
+    # Region / format issues
+    if ("available in your country" in blob or "blocked it in your country" in blob
+            or ("geo" in blob and "restrict" in blob)):
+        return "This video is geo-blocked in your region and can't be downloaded from here."
+    if "requested format is not available" in blob or "requested format not available" in blob:
+        return "The selected quality/format isn't available for this video. Try a different quality preset."
+
+    # Stale yt-dlp vs. YouTube player changes — the fix is to update yt-dlp
+    if ("nsig" in blob or "unable to extract" in blob
+            or ("signature" in blob and "extract" in blob)
+            or ("player" in blob and "extract" in blob)):
+        return ("YouTube changed its player and the installed yt-dlp can't decode this "
+                "video. Update yt-dlp (rebuild the container) and try again.")
+
+    # Transient conditions
+    if "http error 429" in blob or "too many requests" in blob:
+        return "YouTube is rate-limiting downloads (HTTP 429). Wait a while before retrying."
+    if ("timed out" in blob or "timeout" in blob or "connection" in blob
+            or "network" in blob or "getaddrinfo" in blob
+            or "temporary failure in name resolution" in blob):
+        return "A network error interrupted the download. This is usually temporary — retry later."
+
+    # We captured something we don't have a canned message for. Surfacing the
+    # real (trimmed) yt-dlp line still beats an opaque "file not found".
+    last = non_empty[-1].strip()
+    # Drop yt-dlp's noisy "ERROR: " prefix for readability
+    for prefix in ("ERROR: ", "WARNING: "):
+        if last.startswith(prefix):
+            last = last[len(prefix):]
+    return f"Download failed: {last}" if last else None
 
 
 def get_default_quality_preset(db_session=None) -> str:
