@@ -1208,8 +1208,14 @@ class VideoDownloadService:
                 
         except yt_dlp.DownloadError as e:
             raw_msg = str(e)
-            # Prefer a friendly, actionable explanation; keep the raw yt-dlp
-            # text as the fallback so no detail is lost.
+            # Translate only the RAISED exception text, deliberately NOT
+            # error_capture.messages. When yt-dlp actually raises, the exception
+            # is the authoritative fatal cause. Combining it with captured lines
+            # would be unsafe here: error_capture.messages returns warnings when
+            # no error() was captured, and per-line priority matching could then
+            # let a benign warning (e.g. "format is not available") outrank the
+            # raised cause and even flip its retryability. Keep raw yt-dlp text
+            # as the fallback so no detail is lost.
             error_msg = friendly_download_error([raw_msg]) or f"Download error: {raw_msg}"
             logger.warning(f"Download failed for {video_title} ({video_id}): {raw_msg}")
 
