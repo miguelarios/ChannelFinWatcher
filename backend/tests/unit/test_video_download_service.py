@@ -295,6 +295,44 @@ class TestVideoDownloadService:
         mock_db.add.assert_called()
         mock_db.commit.assert_called()
 
+    @patch('app.video_download_service.yt_dlp.YoutubeDL')
+    def test_download_video_swallowed_error_surfaces_friendly_message(
+        self, mock_ydl_class, mock_settings, test_channel, mock_db, sample_video_info
+    ):
+        """The core PR scenario: ignoreerrors=True lets ydl.download() return
+        normally while producing no file. The error yt-dlp routed through the
+        capture logger must be translated into the user-facing message, proving
+        the logger is wired into opts before download() and read afterward.
+        """
+        # Deliberately create NO video file, so _find_video_file_path returns
+        # None and the "file not found" failure branch runs.
+        mock_ydl = Mock()
+        mock_ydl_class.return_value.__enter__.return_value = mock_ydl
+
+        def fake_download(urls):
+            # Retrieve the capture logger the service injected into opts and
+            # emit output the way yt-dlp would with ignoreerrors=True (no raise).
+            opts = mock_ydl_class.call_args[0][0]
+            capture = opts['logger']
+            capture.warning("WARNING: Unable to download thumbnail")
+            capture.error("ERROR: [youtube] abc: Sign in to confirm you're not a bot")
+            return None  # yt-dlp swallowed the error, returns normally
+
+        mock_ydl.download.side_effect = fake_download
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+
+        service = VideoDownloadService()
+        video_info = sample_video_info[0]
+
+        success, error = service.download_video(video_info, test_channel, mock_db)
+
+        assert success is False
+        # The recognized bot-check error flows through to the friendly message,
+        # not the opaque "file not found" text and not the incidental warning.
+        assert "cookies" in error.lower()
+        assert "thumbnail" not in error.lower()
+        assert "not found on disk" not in error.lower()
+
     @patch('app.video_download_service.VideoDownloadService.get_recent_videos')
     @patch('app.video_download_service.VideoDownloadService.download_video')
     def test_process_channel_downloads_success(self, mock_download_video, mock_get_recent_videos, 

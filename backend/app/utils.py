@@ -618,11 +618,17 @@ class YtdlpErrorCapture:
 
     @property
     def messages(self) -> List[str]:
-        """All captured lines, errors first (most explanatory), then warnings."""
-        return self.errors + self.warnings
+        """All captured lines, warnings first and errors last.
+
+        The error lines are the ones that explain *why* a download failed, so
+        they go last: friendly_download_error's fallback surfaces the final
+        line, and we want that to be the real error, not an incidental warning
+        (e.g. "unable to download thumbnail") that happened to be logged too.
+        """
+        return self.warnings + self.errors
 
 
-def friendly_download_error(raw_messages: List[str]) -> Optional[str]:
+def friendly_download_error(raw_messages: Optional[List[str]]) -> Optional[str]:
     """Translate raw yt-dlp error/warning text into a short, human-friendly reason.
 
     Turns yt-dlp's technical output into something a non-technical user can act
@@ -646,7 +652,10 @@ def friendly_download_error(raw_messages: List[str]) -> Optional[str]:
 
     # Age restriction is checked before the generic bot message because both
     # begin with "Sign in to confirm ..." ("...your age" vs "...you're not a bot").
-    if "age" in blob and ("restrict" in blob or "confirm your age" in blob or "inappropriate" in blob):
+    # Match specific phrases rather than a bare "age" substring, which would
+    # also fire on unrelated words ("storage", "message", "usage", …).
+    if ("confirm your age" in blob or "age-restricted" in blob
+            or "age restricted" in blob or "inappropriate for some users" in blob):
         return "This video is age-restricted. Cookies from a signed-in, age-verified account are required."
 
     # Bot detection / missing-expired cookies — by far the most common cause of

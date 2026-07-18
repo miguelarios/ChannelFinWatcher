@@ -81,8 +81,19 @@ class TestYtdlpErrorCapture:
 
         assert cap.errors == ["ERROR: boom"]
         assert cap.warnings == ["WARNING: careful"]
-        # messages puts errors first (most explanatory), then warnings
-        assert cap.messages == ["ERROR: boom", "WARNING: careful"]
+        # messages puts warnings first and errors last, so the fallback (which
+        # takes the last line) surfaces the real error, not an incidental warning
+        assert cap.messages == ["WARNING: careful", "ERROR: boom"]
+
+    def test_fallback_surfaces_error_not_warning(self):
+        # A benign warning alongside an unrecognized fatal error: the friendly
+        # fallback must report the error, never the warning.
+        cap = YtdlpErrorCapture(logging.getLogger("test"))
+        cap.warning("WARNING: Unable to download thumbnail")
+        cap.error("ERROR: Some brand-new unrecognized failure")
+        assert friendly_download_error(cap.messages) == (
+            "Download failed: Some brand-new unrecognized failure"
+        )
 
     def test_capture_feeds_translator(self):
         cap = YtdlpErrorCapture(logging.getLogger("test"))
