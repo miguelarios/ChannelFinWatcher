@@ -8,6 +8,7 @@ short, actionable message for the UI — the piece that replaces the opaque
 import logging
 
 import pytest
+import yt_dlp
 
 from app.utils import YtdlpErrorCapture, friendly_download_error, is_retryable_error
 
@@ -203,4 +204,58 @@ class TestYtdlpErrorCapture:
     def test_capture_feeds_translator(self):
         cap = YtdlpErrorCapture(logging.getLogger("test"))
         cap.error("ERROR: [youtube] abc: Sign in to confirm you're not a bot")
+        assert "cookies" in friendly_download_error(cap.messages).lower()
+
+
+class TestRealYtdlpDispatch:
+    """Validate the load-bearing assumption against the *installed* yt-dlp.
+
+    The whole feature relies on yt-dlp routing its error/warning output to our
+    custom `logger` even under the production options (`quiet=True`,
+    `no_warnings=True`, `ignoreerrors=True`). That dispatch is internal to
+    yt-dlp and has shifted across releases, and requirements.txt pins a floating
+    `>=` version — so these tests drive a REAL yt_dlp.YoutubeDL (no network:
+    they call yt-dlp's own report_error/report_warning, the same methods
+    extractors use) and fail loudly if a future version stops calling the
+    custom logger, instead of silently degrading to the generic message in
+    production while mocked unit tests stay green.
+    """
+
+    def _prod_ydl(self, capture):
+        # Mirror the quiet/no_warnings/ignoreerrors combo used in
+        # VideoDownloadService.download_opts for non-DEBUG operation.
+        return yt_dlp.YoutubeDL({
+            "quiet": True,
+            "no_warnings": True,
+            "ignoreerrors": True,
+            "logger": capture,
+        })
+
+    def test_report_error_reaches_custom_logger_under_prod_opts(self):
+        cap = YtdlpErrorCapture(logging.getLogger("test"))
+        ydl = self._prod_ydl(cap)
+        ydl.report_error("Sign in to confirm you're not a bot")
+
+        # The fatal cause must land in errors (not be swallowed by quiet), and
+        # translate to the actionable cookies message.
+        assert cap.errors, "yt-dlp did not route report_error() to the custom logger"
+        assert "cookies" in friendly_download_error(cap.messages).lower()
+
+    def test_report_warning_reaches_custom_logger_under_prod_opts(self):
+        cap = YtdlpErrorCapture(logging.getLogger("test"))
+        ydl = self._prod_ydl(cap)
+        ydl.report_warning("Unable to download thumbnail")
+
+        # Even with no_warnings=True, the custom logger receives warnings; they
+        # are captured for fallback use when no error() line is present.
+        assert cap.warnings, "yt-dlp did not route report_warning() to the custom logger"
+
+    def test_error_wins_over_warning_end_to_end_with_real_ydl(self):
+        # A benign warning plus a fatal error, both dispatched by a real
+        # YoutubeDL: the error must drive classification, not the warning.
+        cap = YtdlpErrorCapture(logging.getLogger("test"))
+        ydl = self._prod_ydl(cap)
+        ydl.report_warning("Unable to download thumbnail")
+        ydl.report_error("Sign in to confirm you're not a bot")
+
         assert "cookies" in friendly_download_error(cap.messages).lower()
