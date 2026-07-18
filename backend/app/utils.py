@@ -591,7 +591,9 @@ class YtdlpErrorCapture:
     plugging this in we keep a copy of the error/warning lines (the ones that
     explain *why* a download produced no file) so we can translate them into a
     friendly message, while still forwarding everything to the app logger at
-    DEBUG level so nothing is silently dropped.
+    DEBUG level. Note the forwarded copy is only *visible* when the deployment
+    persists DEBUG logs; the captured copy used for translation does not depend
+    on the log level.
     """
 
     def __init__(self, app_logger: Optional[logging.Logger] = None):
