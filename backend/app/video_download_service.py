@@ -1222,6 +1222,10 @@ class VideoDownloadService:
             return False, error_msg
             
         except Exception as e:
+            # Deliberately NOT run through friendly_download_error(): that
+            # translator is tuned for yt-dlp's failure vocabulary, whereas this
+            # branch catches unexpected non-yt-dlp errors (bugs, I/O, DB) whose
+            # raw text is more useful verbatim for debugging.
             error_msg = str(e)
             logger.error(f"Unexpected error downloading {video_title} ({video_id}): {error_msg}")
 

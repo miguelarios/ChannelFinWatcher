@@ -79,6 +79,28 @@ class TestFriendlyDownloadError:
         ])
         assert "private" in msg.lower()
 
+    # Guards the load-bearing invariant documented on friendly_download_error:
+    # every translated message must round-trip through is_retryable_error() to
+    # the correct retryable/non-retryable category. Runs one representative
+    # input per branch so a reworded message that drops (or wrongly gains) a
+    # retry keyword fails here instead of silently breaking the retry layer.
+    @pytest.mark.parametrize("raw,expect_retryable", [
+        ("ERROR: Sign in to confirm you're not a bot", False),
+        ("ERROR: Sign in to confirm your age", False),
+        ("ERROR: Private video", False),
+        ("ERROR: Video unavailable", False),
+        ("ERROR: Join this channel to get access to members-only content", False),
+        ("ERROR: The uploader has not made this video available in your country", False),
+        ("ERROR: Requested format is not available", False),
+        ("ERROR: nsig extraction failed", False),
+        ("ERROR: HTTP Error 429: Too Many Requests", True),
+        ("ERROR: Unable to download webpage: The read operation timed out", True),
+    ])
+    def test_retryability_preserved_per_branch(self, raw, expect_retryable):
+        friendly = friendly_download_error([raw])
+        assert friendly is not None
+        assert is_retryable_error(friendly) is expect_retryable
+
 
 class TestYtdlpErrorCapture:
     """YtdlpErrorCapture records yt-dlp's error/warning output for inspection."""
