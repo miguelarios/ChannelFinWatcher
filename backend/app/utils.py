@@ -5,7 +5,7 @@ import yaml
 import threading
 import re
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from app.config import get_settings
 from app.time_utils import utc_now
 
@@ -574,6 +574,183 @@ def is_retryable_error(error_message: str) -> bool:
 
     error_lower = error_message.lower()
     return any(keyword in error_lower for keyword in retryable_keywords)
+
+
+class YtdlpErrorCapture:
+    """Capture yt-dlp's own error/warning output for later inspection.
+
+    Why this exists: our download options set ``ignoreerrors=True`` so a single
+    bad video never aborts a whole channel run. The trade-off is that yt-dlp
+    swallows the exception internally — ``ydl.download()`` returns normally even
+    when nothing was downloaded, and the *real* reason (bot check, private
+    video, format gone, stale player code, …) is lost. The caller is left only
+    with "the file isn't on disk", which is useless for troubleshooting.
+
+    yt-dlp accepts any object exposing ``debug``/``info``/``warning``/``error``
+    as its ``logger`` option and routes all of its messages through it. By
+    plugging this in we keep a copy of the error/warning lines (the ones that
+    explain *why* a download produced no file) so we can translate them into a
+    friendly message, while still forwarding everything to the app logger at
+    DEBUG level. Note the forwarded copy is only *visible* when the deployment
+    persists DEBUG logs; the captured copy used for translation does not depend
+    on the log level.
+    """
+
+    def __init__(self, app_logger: Optional[logging.Logger] = None):
+        # Forward to the module logger by default; callers may pass their own
+        self._app_logger = app_logger or logger
+        self.errors: List[str] = []
+        self.warnings: List[str] = []
+
+    def debug(self, msg: str) -> None:
+        # yt-dlp funnels both debug and info lines through debug(); keep them
+        # at DEBUG so INFO-mode logs stay quiet but nothing is lost in DEBUG.
+        self._app_logger.debug("[yt-dlp] %s", msg)
+
+    def info(self, msg: str) -> None:
+        self._app_logger.debug("[yt-dlp] %s", msg)
+
+    def warning(self, msg: str) -> None:
+        self.warnings.append(msg)
+        self._app_logger.debug("[yt-dlp][warning] %s", msg)
+
+    def error(self, msg: str) -> None:
+        self.errors.append(msg)
+        self._app_logger.debug("[yt-dlp][error] %s", msg)
+
+    @property
+    def messages(self) -> List[str]:
+        """Captured lines most relevant to diagnosing the failure.
+
+        yt-dlp is noisy: a failed run often logs several *benign* warnings
+        (thumbnail/subtitle failures, format fallbacks, "some formats are
+        missing") alongside the one fatal ERROR. Under ``ignoreerrors=True`` the
+        fatal cause is reported through ``error()``, so we classify on the error
+        lines when any exist and only fall back to warnings when none were
+        captured.
+
+        Why this matters beyond the message text: the translated message is
+        also fed to ``is_retryable_error`` (see
+        ``download_video_with_retry``). If an incidental warning outranked the
+        real cause, a genuinely transient failure could be mislabeled
+        non-retryable and silently skip its within-run retry. Preferring the
+        error lines keeps both the user-facing message and the retry decision
+        anchored to what actually failed.
+        """
+        return self.errors or self.warnings
+
+
+def friendly_download_error(raw_messages: Optional[List[str]]) -> Optional[str]:
+    """Translate raw yt-dlp error/warning text into a short, human-friendly reason.
+
+    Turns yt-dlp's technical output into something a non-technical user can act
+    on ("refresh your cookies", "the video is private", "update the app"). This
+    is intentionally keyword-based rather than regex-heavy: yt-dlp's wording
+    shifts between releases, so we match on stable substrings and keep the rules
+    ordered from most specific/most common to least.
+
+    Args:
+        raw_messages: Captured yt-dlp error/warning lines (see YtdlpErrorCapture)
+
+    Returns:
+        A friendly one-line explanation, or None if nothing usable was captured
+        (the caller should then fall back to its own generic message).
+
+    Invariants worth preserving if you add rules:
+    - Each rule is matched against a *single* line, and rules are tried in
+      priority order, so the highest-priority category any one line describes
+      wins. Matching per-line (rather than over one joined blob) prevents a
+      multi-keyword rule from being satisfied by keywords bleeding across two
+      unrelated lines (e.g. "geo" in one line + "restrict" in another).
+    - Age restriction is ordered before the generic bot rule because both begin
+      with "Sign in to confirm ..." ("...your age" vs "...you're not a bot").
+    - This output is fed to is_retryable_error() by the retry layer. Retryable
+      causes (rate-limit/network) MUST keep a keyword it recognizes ("429",
+      "network", …) in their friendly text; non-retryable causes must not. The
+      last-resort branch preserves the raw line, so unclassified transient
+      errors stay retryable by keyword survival.
+    """
+    # Expand every captured message into individual physical lines. A single
+    # message can itself embed newlines (a yt-dlp DownloadError string often
+    # chains several causes), and matching a multi-line string as one unit would
+    # let a two-keyword rule bleed across its lines — the same failure mode the
+    # per-line matching guards against for separate list entries. Splitting here
+    # gives every call site (capture path and DownloadError path alike) the same
+    # per-line guarantee.
+    source_lines = [
+        ln for m in (raw_messages or []) if m
+        for ln in m.splitlines() if ln.strip()
+    ]
+    if not source_lines:
+        return None
+
+    lines = [ln.lower() for ln in source_lines]
+
+    # Each rule: (clauses, friendly_message). A line matches the rule if it
+    # satisfies ANY clause; a clause is a tuple of substrings that must ALL be
+    # present in that one line. Keeping AND-groups within a single line is what
+    # prevents cross-line keyword bleeding. Ordered most-specific first.
+    rules = [
+        # Age restriction — specific phrases, not a bare "age" (which would also
+        # fire on "storage", "message", "usage", …).
+        ([("confirm your age",), ("age-restricted",), ("age restricted",),
+          ("inappropriate for some users",)],
+         "This video is age-restricted. Cookies from a signed-in, age-verified account are required."),
+        # Bot detection / missing-expired cookies — the most common cause of
+        # "downloads stopped working" after a period of running fine.
+        ([("sign in to confirm",), ("not a bot",), ("confirm you", "bot")],
+         "YouTube blocked the download with a bot check. Your cookies are "
+         "likely missing or expired — export a fresh cookies file from a "
+         "signed-in browser session."),
+        # Video no longer downloadable for account/visibility reasons
+        ([("private video",)],
+         "This video is private and can no longer be downloaded."),
+        ([("video unavailable",), ("no longer available",), ("removed by the uploader",),
+          ("account associated",), ("has been terminated",)],
+         "This video is unavailable (deleted, removed, or the channel was terminated)."),
+        ([("members-only",), ("members only",), ("join this channel",)],
+         "This video is members-only and needs a channel membership (and matching cookies) to download."),
+        # Region / format issues
+        ([("available in your country",), ("blocked it in your country",), ("geo", "restrict")],
+         "This video is geo-blocked in your region and can't be downloaded from here."),
+        ([("requested format is not available",), ("requested format not available",)],
+         "The selected quality/format isn't available for this video. Try a different quality preset."),
+        # Stale yt-dlp vs. YouTube player changes — the fix is to update yt-dlp.
+        # Deliberately require player/signature/nsig context: a bare
+        # "unable to extract" is too broad (yt-dlp uses it for metadata,
+        # uploader id, thumbnails, …) and would wrongly claim an unrelated
+        # extraction failure is a stale-player problem — and, being
+        # higher-priority than the network rule, could strip a retry keyword
+        # from a line that also carried one.
+        ([("nsig",), ("signature", "extract"), ("player", "extract")],
+         "YouTube changed its player and the installed yt-dlp can't decode this "
+         "video. Update yt-dlp (rebuild the container) and try again."),
+        # Transient conditions (must keep an is_retryable_error keyword)
+        ([("http error 429",), ("too many requests",)],
+         "YouTube is rate-limiting downloads (HTTP 429). Wait a while before retrying."),
+        ([("timed out",), ("timeout",), ("connection",), ("network",), ("getaddrinfo",),
+          ("temporary failure in name resolution",)],
+         "A network error interrupted the download. This is usually temporary — retry later."),
+    ]
+
+    def line_matches(line: str, clauses) -> bool:
+        return any(all(keyword in line for keyword in clause) for clause in clauses)
+
+    for clauses, message in rules:
+        if any(line_matches(line, clauses) for line in lines):
+            return message
+
+    # We captured something we don't have a canned message for. Surfacing the
+    # real (trimmed) yt-dlp line still beats an opaque "file not found". Use the
+    # LAST line: yt-dlp's terminal line is usually the actual cause, with any
+    # preceding lines being context/traceback leading up to it.
+    last = source_lines[-1].strip()
+    # Drop one leading "ERROR: "/"WARNING: " prefix for readability
+    for prefix in ("ERROR: ", "WARNING: "):
+        if last.startswith(prefix):
+            last = last[len(prefix):]
+            break
+    return f"Download failed: {last}" if last else None
 
 
 def get_default_quality_preset(db_session=None) -> str:
