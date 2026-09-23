@@ -5,7 +5,7 @@
 # =============================================================================
 # Stage 1: Build Frontend
 # =============================================================================
-FROM node:20-alpine AS frontend-builder
+FROM node:22-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
@@ -47,10 +47,10 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 20+ for running frontend AND yt-dlp EJS (External JavaScript)
-# yt-dlp requires Node.js 20+ to decode YouTube's obfuscated video tokens
+# Install Node.js 22 for running frontend AND yt-dlp EJS (External JavaScript)
+# yt-dlp requires Node.js 22+ to solve YouTube's JavaScript challenges
 # See: https://github.com/yt-dlp/yt-dlp/wiki/EJS
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
@@ -63,6 +63,14 @@ WORKDIR /app
 # Copy Python dependencies from builder (installed globally)
 COPY --from=backend-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=backend-builder /usr/local/bin /usr/local/bin
+
+# Fail the build if yt-dlp rejects this Node.js as a JS runtime.
+# yt-dlp raises its minimum Node version over time, and an unsupported runtime
+# does not error: yt-dlp silently falls back to a client YouTube refuses, so
+# every download fails with "This video is not available".
+RUN runtimes="$(yt-dlp -v --js-runtimes node 2>&1 | grep 'JS runtimes:')"; \
+    echo "$runtimes"; \
+    echo "$runtimes" | grep -q 'node-' && ! echo "$runtimes" | grep -q 'unsupported'
 
 # Copy backend application
 COPY --chown=appuser:appuser backend/ ./backend/

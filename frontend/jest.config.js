@@ -30,6 +30,9 @@ const customJestConfig = {
     
     // Handle image imports
     '^.+\\.(png|jpg|jpeg|gif|webp|avif|ico|bmp|svg)$': '<rootDir>/__mocks__/fileMock.js',
+
+    // Mirror the tsconfig "@/*" path alias so API route handlers can be imported
+    '^@/(.*)$': '<rootDir>/src/$1',
   },
   
   // Coverage configuration

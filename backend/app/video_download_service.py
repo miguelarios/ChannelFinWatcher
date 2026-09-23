@@ -102,10 +102,9 @@ class VideoDownloadService:
         # Multi-client fallback strategy to handle YouTube changes
         #
         # IMPORTANT: YouTube requires JavaScript execution to decode video tokens
-        # We enable Node.js as the JS runtime (requires Node.js 20+)
+        # We enable Node.js as the JS runtime (requires Node.js 22+)
         # See: https://github.com/yt-dlp/yt-dlp/wiki/EJS
         self.download_opts = {
-            'js_runtimes': 'node',  # Enable Node.js for EJS (External JavaScript)
             'paths': {
                 'temp': self.temp_path,
                 'home': self.media_path
@@ -161,7 +160,6 @@ class VideoDownloadService:
         # Query-only configuration for getting recent videos
         # Using flat-playlist approach for fast, lightweight video ID extraction
         self.query_opts = {
-            'js_runtimes': 'node',  # Enable Node.js for EJS (External JavaScript)
             'quiet': True,
             'no_warnings': True,
             'extract_flat': True,   # Flat playlist - only get IDs and titles (like --flat-playlist)
