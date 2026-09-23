@@ -133,9 +133,13 @@ class VideoDownloadService:
             'noprogress': not is_debug,      # Hide progress bars unless DEBUG
             'no_warnings': not is_debug,     # Hide warnings unless DEBUG
             'js_runtimes': {'node': {}},  # Use Node.js runtime (fixes yt-dlp >=2025.09.26 validation error)
-            # NOTE: Removed extractor_args player_client override
-            # yt-dlp 2025.09.26+ has smart automatic client selection that works better
-            # than manual overrides. Let yt-dlp choose the optimal client for each video.
+            # Keep yt-dlp's automatic client selection ('default') but add
+            # web_safari back. yt-dlp 2026.08.19 dropped it from the defaults,
+            # and for some channels (e.g. made-for-kids videos where the
+            # embedded/TV clients are UNPLAYABLE and 'web' is forced onto SABR)
+            # its HLS formats are the only ones above 360p. Without it those
+            # videos silently download as format 18 (360p mp4).
+            'extractor_args': {'youtube': {'player_client': ['default', 'web_safari']}},
             # Anti-bot detection headers
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
