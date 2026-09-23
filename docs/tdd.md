@@ -27,7 +27,7 @@
 - **Production (single container)**: The published image
   (`ghcr.io/miguelarios/channelfinwatcher`) runs both the FastAPI backend
   (port 8000) and the NextJS frontend (port 3000) in one container, managed by
-  **supervisor**. `ffmpeg` and Node.js 20 are baked in (Node is required by
+  **supervisor**. `ffmpeg` and Node.js 22 are baked in (yt-dlp requires Node 22+ for
   yt-dlp's EJS JavaScript decoding). Built from the root `Dockerfile`.
 - **Development (multi-container)**: `docker-compose.dev.yml` runs the backend
   and frontend as separate hot-reloading containers with bind mounts.

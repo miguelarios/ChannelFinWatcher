@@ -102,7 +102,7 @@ class VideoDownloadService:
         # Multi-client fallback strategy to handle YouTube changes
         #
         # IMPORTANT: YouTube requires JavaScript execution to decode video tokens
-        # We enable Node.js as the JS runtime (requires Node.js 20+)
+        # We enable Node.js as the JS runtime (requires Node.js 22+)
         # See: https://github.com/yt-dlp/yt-dlp/wiki/EJS
         self.download_opts = {
             'js_runtimes': 'node',  # Enable Node.js for EJS (External JavaScript)
