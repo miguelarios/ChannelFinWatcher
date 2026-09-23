@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import handler from '@/pages/api/v1/downloads/[id]/retry'
-import { fetchBackend } from '@/lib/apiClient'
+import { fetchBackend, formatApiError } from '@/lib/apiClient'
 
 jest.mock('@/lib/apiClient', () => ({
   fetchBackend: jest.fn(),
@@ -42,6 +42,27 @@ describe('/api/v1/downloads/[id]/retry proxy', () => {
 
     expect(res.status).toHaveBeenCalledWith(400)
     expect(res.json).toHaveBeenCalledWith(payload)
+  })
+
+  it('maps a backend timeout to 504', async () => {
+    // A synchronous retry can run up to the 10-minute download timeout,
+    // so this is the proxy most likely to actually time out.
+    ;(fetchBackend as jest.Mock).mockRejectedValue(new Error('timeout'))
+    ;(formatApiError as jest.Mock).mockReturnValueOnce({ error: 'Retry timed out', timedOut: true })
+    const res = mockRes()
+
+    await handler({ method: 'POST', query: { id: '7' } } as unknown as NextApiRequest, res)
+
+    expect(res.status).toHaveBeenCalledWith(504)
+  })
+
+  it('returns 500 when the backend is unreachable', async () => {
+    ;(fetchBackend as jest.Mock).mockRejectedValue(new Error('ECONNREFUSED'))
+    const res = mockRes()
+
+    await handler({ method: 'POST', query: { id: '7' } } as unknown as NextApiRequest, res)
+
+    expect(res.status).toHaveBeenCalledWith(500)
   })
 
   it('rejects non-POST methods', async () => {
