@@ -98,6 +98,17 @@ class TestVideoDownloadService:
         assert service.download_opts['format'] == 'bv*+ba/b'
         assert service.download_opts['merge_output_format'] == 'mkv'
 
+    def test_download_opts_keep_default_clients_plus_web_safari(self, mock_settings):
+        """Regression: yt-dlp 2026.08.19 dropped web_safari from its default
+        clients, and for made-for-kids videos its HLS formats are the only
+        ones above 360p. 'default' must stay so yt-dlp's own selection still
+        applies."""
+        service = VideoDownloadService()
+
+        clients = service.download_opts['extractor_args']['youtube']['player_client']
+        assert clients[0] == 'default'
+        assert 'web_safari' in clients
+
     @patch('app.video_download_service.logger.isEnabledFor')
     def test_service_initialization_debug_mode(self, mock_is_enabled, mock_settings):
         """Test that yt-dlp options respect DEBUG logging level."""

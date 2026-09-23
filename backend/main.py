@@ -244,6 +244,44 @@ async def root():
     }
 
 
+# How late a scheduled run may be before /health calls the scheduler stale.
+# Covers misfire handling and a slow previous run holding the overlap lock.
+SCHEDULER_MISSED_RUN_GRACE_HOURS = 12
+# Used when no valid cron is stored, matching the original daily assumption.
+SCHEDULER_FALLBACK_STALE_HOURS = 48
+
+
+def _scheduled_run_missed_by(cron_expr, last_run):
+    """
+    Return how overdue the scheduler is (a timedelta), or None if on time.
+
+    last_run is a naive UTC datetime (storage convention). The expected next
+    run is the cron's first fire time after last_run; the scheduler is stale
+    once that time plus the grace period passes without a newer run.
+    """
+    from datetime import timedelta, timezone
+    from app.cron_validation import validate_cron_expression
+
+    now = utc_now()
+    trigger = None
+    if cron_expr:
+        is_valid, _, trigger = validate_cron_expression(cron_expr)
+        if not is_valid:
+            trigger = None
+
+    if trigger is None:
+        overdue = now - last_run - timedelta(hours=SCHEDULER_FALLBACK_STALE_HOURS)
+        return overdue if overdue > timedelta(0) else None
+
+    after = last_run.replace(tzinfo=timezone.utc) + timedelta(seconds=1)
+    expected = trigger.get_next_fire_time(None, after)
+    if expected is None:
+        return None
+    expected_utc = expected.astimezone(timezone.utc).replace(tzinfo=None)
+    overdue = now - expected_utc - timedelta(hours=SCHEDULER_MISSED_RUN_GRACE_HOURS)
+    return overdue if overdue > timedelta(0) else None
+
+
 @app.get("/health", tags=["System"])
 async def health_check(db: Session = Depends(get_db)):
     """
@@ -304,8 +342,9 @@ async def health_check(db: Session = Depends(get_db)):
     except OSError as e:
         problems.append(f"media volume unreadable: {e}")
 
-    # Scheduler liveness: enabled but silent for over 48h means something is
-    # wrong regardless of the configured cadence (default schedules are daily)
+    # Scheduler liveness: stale means a scheduled run was missed, measured
+    # against the configured cron so a weekly schedule is not flagged five
+    # days out of seven (see _scheduled_run_missed_by)
     scheduler = {"enabled": None, "last_run": None, "stale": False}
     try:
         from app.models import ApplicationSettings
@@ -314,13 +353,21 @@ async def health_check(db: Session = Depends(get_db)):
             ApplicationSettings.key == "scheduler_enabled").first()
         last_run_row = db.query(ApplicationSettings).filter(
             ApplicationSettings.key == "scheduled_downloads_last_run").first()
+        cron_row = db.query(ApplicationSettings).filter(
+            ApplicationSettings.key == "cron_schedule").first()
         scheduler["enabled"] = bool(enabled_row and enabled_row.value == "true")
         if last_run_row and last_run_row.value:
             scheduler["last_run"] = last_run_row.value
             last_run = datetime.fromisoformat(last_run_row.value.replace("Z", "+00:00"))
-            if scheduler["enabled"] and utc_now() - last_run > timedelta(hours=48):
+            missed_by = _scheduled_run_missed_by(
+                cron_row.value if cron_row else None, last_run
+            )
+            if scheduler["enabled"] and missed_by is not None:
                 scheduler["stale"] = True
-                problems.append("scheduler enabled but has not run in over 48h")
+                problems.append(
+                    "scheduler enabled but missed a scheduled run "
+                    f"({int(missed_by.total_seconds() // 3600)}h overdue)"
+                )
     except Exception as e:
         logger.warning(f"Scheduler health probe failed: {e}")
 

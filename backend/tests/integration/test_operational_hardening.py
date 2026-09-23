@@ -1,6 +1,7 @@
 """Tests for operational hardening: deep health checks, cookie status,
 notifications, and the recent-logs buffer."""
 import logging
+from datetime import datetime
 from unittest.mock import patch
 
 import pytest
@@ -45,6 +46,79 @@ class TestDeepHealthCheck:
         assert data["scheduler"]["stale"] is True
         assert data["status"] == "degraded"
         assert any("scheduler" in p for p in data["problems"])
+
+    # Sunday 2026-09-21 05:00 UTC is Sunday midnight in America/Chicago, the
+    # fire time of the weekly "0 0 * * 0" schedule. The "now" values below sit
+    # far enough from day boundaries to hold in either UTC or Chicago time.
+    WEEKLY_LAST_RUN = "2026-09-21T05:00:00"
+
+    def _seed_scheduler(self, db_session, cron, last_run):
+        db_session.add_all([
+            ApplicationSettings(key="scheduler_enabled", value="true"),
+            ApplicationSettings(key="cron_schedule", value=cron),
+            ApplicationSettings(key="scheduled_downloads_last_run", value=last_run),
+        ])
+        db_session.commit()
+
+    def test_weekly_schedule_mid_week_is_not_stale(self, test_client, db_session):
+        """Regression: a weekly cron was flagged stale 48h after every run,
+        which also hid the channel list on the Channels page."""
+        self._seed_scheduler(db_session, "0 0 * * 0", self.WEEKLY_LAST_RUN)
+
+        with patch("main.utc_now", return_value=datetime(2026, 9, 24, 12, 0)):
+            data = test_client.get("/health").json()
+
+        assert data["scheduler"]["stale"] is False
+        assert not any("scheduler" in p for p in data["problems"])
+
+    def test_weekly_schedule_missed_run_is_stale(self, test_client, db_session):
+        self._seed_scheduler(db_session, "0 0 * * 0", self.WEEKLY_LAST_RUN)
+
+        with patch("main.utc_now", return_value=datetime(2026, 9, 30, 12, 0)):
+            data = test_client.get("/health").json()
+
+        assert data["scheduler"]["stale"] is True
+        assert data["status"] == "degraded"
+        assert any("missed a scheduled run" in p for p in data["problems"])
+
+    def test_daily_schedule_missed_runs_is_stale(self, test_client, db_session):
+        self._seed_scheduler(db_session, "0 0 * * *", self.WEEKLY_LAST_RUN)
+
+        with patch("main.utc_now", return_value=datetime(2026, 9, 24, 12, 0)):
+            data = test_client.get("/health").json()
+
+        assert data["scheduler"]["stale"] is True
+
+    def test_run_within_grace_period_is_not_stale(self, test_client, db_session):
+        # Next weekly fire is 2026-09-28 05:00 UTC at the latest; 2h later is
+        # inside the 12h grace window.
+        self._seed_scheduler(db_session, "0 0 * * 0", self.WEEKLY_LAST_RUN)
+
+        with patch("main.utc_now", return_value=datetime(2026, 9, 28, 7, 0)):
+            data = test_client.get("/health").json()
+
+        assert data["scheduler"]["stale"] is False
+
+    @pytest.mark.parametrize("now, expected_stale", [
+        # Chicago fire time is 2026-09-28 05:00 UTC; stale after 17:00 UTC.
+        # Had the cron been evaluated in UTC (fire 00:00, stale after 12:00),
+        # 14:00 would wrongly read as stale.
+        (datetime(2026, 9, 28, 14, 0), False),
+        (datetime(2026, 9, 28, 18, 0), True),
+    ])
+    def test_weekly_schedule_uses_scheduler_timezone(
+        self, test_client, db_session, now, expected_stale
+    ):
+        import pytz
+
+        self._seed_scheduler(db_session, "0 0 * * 0", self.WEEKLY_LAST_RUN)
+
+        with patch("app.cron_validation.SCHEDULER_TIMEZONE",
+                   pytz.timezone("America/Chicago")), \
+             patch("main.utc_now", return_value=now):
+            data = test_client.get("/health").json()
+
+        assert data["scheduler"]["stale"] is expected_stale
 
 
 class TestCookiesStatus:

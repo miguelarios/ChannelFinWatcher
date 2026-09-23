@@ -70,21 +70,17 @@ export function YouTubeDownloader({ onNavigateToSettings }: YouTubeDownloaderPro
 
   /**
    * Load existing channels from the backend on component initialization.
-   * First checks if backend is healthy, then fetches channel list.
+   *
+   * Deliberately not gated on /api/health: 'degraded' reports operational
+   * problems (disk nearly full, a missed scheduled run) while the channel
+   * API still works, and gating on 'healthy' hid the whole list.
    */
   const loadChannels = async () => {
     try {
-      // First check if backend is available
-      const response = await fetch('/api/health')
-      const healthData = await response.json()
-      
-      if (healthData.status === 'healthy') {
-        // Backend is available, fetch existing channels
-        const channelsResponse = await fetch('/api/v1/channels')
-        if (channelsResponse.ok) {
-          const channelsData = await channelsResponse.json()
-          setChannels(channelsData.channels || [])
-        }
+      const channelsResponse = await fetch('/api/v1/channels')
+      if (channelsResponse.ok) {
+        const channelsData = await channelsResponse.json()
+        setChannels(channelsData.channels || [])
       }
     } catch (error) {
       console.error('Failed to load channels:', error)
