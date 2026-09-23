@@ -99,6 +99,27 @@ class TestDeepHealthCheck:
 
         assert data["scheduler"]["stale"] is False
 
+    @pytest.mark.parametrize("now, expected_stale", [
+        # Chicago fire time is 2026-09-28 05:00 UTC; stale after 17:00 UTC.
+        # Had the cron been evaluated in UTC (fire 00:00, stale after 12:00),
+        # 14:00 would wrongly read as stale.
+        (datetime(2026, 9, 28, 14, 0), False),
+        (datetime(2026, 9, 28, 18, 0), True),
+    ])
+    def test_weekly_schedule_uses_scheduler_timezone(
+        self, test_client, db_session, now, expected_stale
+    ):
+        import pytz
+
+        self._seed_scheduler(db_session, "0 0 * * 0", self.WEEKLY_LAST_RUN)
+
+        with patch("app.cron_validation.SCHEDULER_TIMEZONE",
+                   pytz.timezone("America/Chicago")), \
+             patch("main.utc_now", return_value=now):
+            data = test_client.get("/health").json()
+
+        assert data["scheduler"]["stale"] is expected_stale
+
 
 class TestCookiesStatus:
     """Tests for GET /api/v1/settings/cookies-status."""
