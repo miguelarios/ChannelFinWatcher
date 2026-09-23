@@ -9,7 +9,9 @@ pyyaml==6.0.1
 apscheduler==3.10.4
 # yt-dlp with [default] extra includes yt-dlp-ejs for YouTube JavaScript decoding
 # See: https://github.com/yt-dlp/yt-dlp/wiki/EJS
-yt-dlp[default]>=2025.09.26
+# Floor tracks the newest verified release: raising it also invalidates the CI
+# pip layer cache, which otherwise keeps shipping the previously cached yt-dlp.
+yt-dlp[default]>=2026.08.19
 websockets>=13.0
 apprise==1.6.0
 python-dotenv==1.0.0
