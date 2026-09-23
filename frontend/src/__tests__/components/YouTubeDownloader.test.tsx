@@ -399,4 +399,45 @@ describe('YouTubeDownloader Component - Story 1 Tests', () => {
       expect(screen.getByRole('textbox', { name: /youtube channel url/i })).toHaveValue('https://www.youtube.com/@BadChannel')
     })
   })
+
+  describe('Channel list loading', () => {
+    it('shows existing channels even when /api/health reports degraded', async () => {
+      // Regression: the list was gated on status === 'healthy', so a weekly
+      // schedule (flagged stale 48h after each run) hid every channel.
+      ;(fetch as jest.Mock).mockImplementation((url: string) => {
+        if (url === '/api/health') {
+          return Promise.resolve(jsonResponse({
+            status: 'degraded',
+            problems: ['scheduler enabled but missed a scheduled run (5h overdue)'],
+          }))
+        }
+        if (url === '/api/v1/settings/default-video-limit') {
+          return Promise.resolve(jsonResponse({ limit: 10 }))
+        }
+        if (url === '/api/v1/channels') {
+          return Promise.resolve(jsonResponse({
+            channels: [{
+              id: 1,
+              url: 'https://www.youtube.com/@example_user',
+              name: 'Example Channel',
+              limit: 20,
+              enabled: true,
+              channel_id: 'UC0000000000000000000000',
+              quality_preset: 'best',
+              schedule_override: null,
+              created_at: '2026-01-01T00:00:00',
+              updated_at: '2026-01-01T00:00:00',
+            }],
+            total: 1,
+            enabled: 1,
+          }))
+        }
+        return Promise.resolve(jsonResponse({}))
+      })
+
+      render(<YouTubeDownloader />)
+
+      expect(await screen.findByText('Example Channel')).toBeInTheDocument()
+    })
+  })
 })
