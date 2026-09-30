@@ -91,11 +91,12 @@ channelfinwatcher/
 │   └── cookies.txt               # Optional: YouTube authentication
 ├── media/                         # Downloaded videos (REQUIRED)
 │   └── [Channel Name] [ID]/
-│       └── YYYY/
-│           └── [Channel] - [Date] - [Title] [ID]/
-│               ├── [Channel] - [Date] - [Title] [ID].mkv
-│               ├── [Channel] - [Date] - [Title] [ID].info.json
-│               └── [Channel] - [Date] - [Title] [ID].nfo   # Jellyfin metadata
+│       └── Season YYYY/
+│           ├── season.nfo
+│           └── SYYYYEMMDDHHMM - [Title] [ID]/
+│               ├── SYYYYEMMDDHHMM - [Title] [ID].mkv
+│               ├── SYYYYEMMDDHHMM - [Title] [ID].info.json
+│               └── SYYYYEMMDDHHMM - [Title] [ID].nfo   # Jellyfin metadata
 ├── temp/                          # Download staging (REQUIRED)
 │   └── [temporary download files]
 └── docker-compose.prod.yml        # Your deployment configuration

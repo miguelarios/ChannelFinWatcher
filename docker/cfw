@@ -1,0 +1,46 @@
+#!/bin/sh
+# cfw: run ChannelFinWatcher maintenance commands as the app user.
+#
+# `docker exec` runs as root, and files root creates would not be writable
+# by the app. Like `occ` in linuxserver.io's Nextcloud image, this wrapper
+# switches to appuser (your PUID/PGID) by itself, so this just works:
+#
+#   docker exec -it channelfinwatcher cfw migrate-layout --dry-run
+
+set -e
+
+usage() {
+    cat <<USAGE
+Usage: cfw <command> [options]
+
+Commands:
+  migrate-layout   Rename videos into the Jellyfin season/episode layout
+                   (dry run by default; add --apply to rename)
+
+Run 'cfw <command> --help' for a command's options.
+USAGE
+}
+
+# Re-run this script as appuser when started as root
+if [ "$(id -u)" = "0" ]; then
+    exec setpriv --reuid=appuser --regid=appuser --init-groups \
+        env HOME=/home/appuser USER=appuser "$0" "$@"
+fi
+
+cd /app/backend
+umask "${UMASK:-022}"
+
+case "$1" in
+    migrate-layout)
+        shift
+        exec python -m app.migrate_media_layout "$@"
+        ;;
+    ""|-h|--help|help)
+        usage
+        ;;
+    *)
+        echo "Unknown command: $1" >&2
+        usage >&2
+        exit 1
+        ;;
+esac

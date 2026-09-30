@@ -27,6 +27,8 @@ from typing import Optional, Tuple, Dict, List
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 
+from app.media_layout import episode_numbers, parse_season_dir
+
 logger = logging.getLogger(__name__)
 
 
@@ -120,10 +122,14 @@ class NFOService:
                 return False, error_msg
 
             # Step 5: Generate XML content from JSON metadata
-            nfo_content = self._create_episode_nfo_xml(episode_info)
+            # Why the video's mtime for <dateadded>? It stays the same when the
+            # NFO is regenerated (backfill, layout migration), so old videos
+            # don't reappear under Jellyfin's "recently added".
+            date_added = datetime.fromtimestamp(os.path.getmtime(video_file_path))
+            nfo_content = self._create_episode_nfo_xml(episode_info, date_added)
 
             # Step 6: Write NFO file (same basename as video, .nfo extension)
-            nfo_path = video_file_path.replace('.mkv', '.nfo').replace('.mp4', '.nfo').replace('.webm', '.nfo')
+            nfo_path = os.path.splitext(video_file_path)[0] + '.nfo'
             self._write_nfo_file(nfo_path, nfo_content)
 
             logger.info(f"✓ Generated episode NFO: {nfo_path}")
@@ -134,7 +140,11 @@ class NFOService:
             logger.error(f"{error_msg} (video: {video_file_path})")
             return False, error_msg
 
-    def _create_episode_nfo_xml(self, episode_info: dict) -> bytes:
+    def _create_episode_nfo_xml(
+        self,
+        episode_info: dict,
+        date_added: Optional[datetime] = None
+    ) -> bytes:
         """
         Create episode.nfo XML content from yt-dlp metadata.
 
@@ -143,6 +153,7 @@ class NFOService:
 
         Args:
             episode_info: Dictionary from .info.json file
+            date_added: Value for <dateadded> (defaults to now)
 
         Returns:
             Pretty-printed XML as UTF-8 encoded bytes
@@ -161,6 +172,8 @@ class NFOService:
         upload_date         → <premiered>     | Format: 20211207 → 2021-12-07
         upload_date         → <aired>         | Format: 20211207 → 2021-12-07
         upload_date         → <year>          | Extract: 20211207 → 2021
+        upload_date         → <season>        | Year: 20211207 → 2021
+        timestamp           → <episode>       | UTC MMDDHHMM (see media_layout)
         duration (seconds)  → <runtime>       | Convert: 922 → 15 (minutes)
         uploader            → <director>      | Direct copy
         id                  → <uniqueid>      | Wrap with type="youtube"
@@ -176,6 +189,15 @@ class NFOService:
         # Required: Show title (channel name)
         # Why showtitle? Jellyfin uses this to group episodes into shows
         ET.SubElement(root, 'showtitle').text = episode_info.get('channel', '')
+
+        # Season/episode numbers (same values as the SxxxxEyyyy filename)
+        # Why? Jellyfin sorts episodes by these numbers; without them episodes
+        # in a season have no reliable order (in Jellyfin or in Infuse)
+        numbers = episode_numbers(episode_info)
+        if numbers:
+            season, episode = numbers
+            ET.SubElement(root, 'season').text = str(season)
+            ET.SubElement(root, 'episode').text = str(episode)
 
         # Description/plot (preserves newlines automatically)
         # Why always create? Jellyfin expects plot element even if empty
@@ -244,9 +266,8 @@ class NFOService:
         for tag in episode_info.get('tags', []):
             ET.SubElement(root, 'tag').text = tag
 
-        # Date added: When file was added to library (current timestamp)
-        # Why current time? This is when the video entered our library
-        dateadded = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Date added: When the video entered our library
+        dateadded = (date_added or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
         ET.SubElement(root, 'dateadded').text = dateadded
 
         # Convert to pretty-printed XML with proper formatting
@@ -260,13 +281,14 @@ class NFOService:
         """
         Generate season.nfo file for a year-based season directory.
 
-        In ChannelFinWatcher, videos are organized by upload year (2021/, 2022/, etc.).
+        In ChannelFinWatcher, videos are organized by upload year ("Season 2021/",
+        or "2021/" in libraries not yet migrated to the current layout).
         Jellyfin treats each year as a "season" of the TV show.
 
         Season NFO files are very simple - just the year as title/season number.
 
         Args:
-            year_dir_path: Path to year directory (e.g., "/media/.../Channel [ID]/2021/")
+            year_dir_path: Path to year directory (e.g., "/media/.../Channel [ID]/Season 2021/")
 
         Returns:
             Tuple of (success: bool, error_message: Optional[str])
@@ -278,17 +300,17 @@ class NFOService:
         """
         try:
             # Extract year from directory path
-            # Example: "/media/YouTube/Channel [ID]/2021/" → "2021"
-            year = os.path.basename(year_dir_path.rstrip('/'))
+            # Example: "/media/YouTube/Channel [ID]/Season 2021/" → 2021
+            year = parse_season_dir(os.path.basename(year_dir_path.rstrip('/')))
 
-            # Validate year format (should be 4-digit number)
-            if not year.isdigit() or len(year) != 4:
+            # Validate year format ("Season YYYY" or legacy "YYYY")
+            if year is None:
                 error_msg = f"Invalid year directory: {year_dir_path}"
                 logger.warning(error_msg)
                 return False, error_msg
 
             # Generate XML content
-            nfo_content = self._create_season_nfo_xml(year)
+            nfo_content = self._create_season_nfo_xml(str(year))
 
             # Write season.nfo file
             nfo_path = os.path.join(year_dir_path, 'season.nfo')

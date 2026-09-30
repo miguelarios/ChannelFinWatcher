@@ -93,6 +93,11 @@ COPY --chown=appuser:appuser docker/supervisord.conf /etc/supervisor/conf.d/supe
 COPY --chown=appuser:appuser docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
+# `cfw` maintenance commands; they switch to appuser themselves, so plain
+# `docker exec channelfinwatcher cfw ...` is safe
+COPY docker/cfw /usr/local/bin/cfw
+RUN chmod 755 /usr/local/bin/cfw
+
 # Expose ports
 EXPOSE 3000 8000
 

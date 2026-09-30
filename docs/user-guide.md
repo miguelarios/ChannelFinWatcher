@@ -12,6 +12,7 @@ interface and how downloads behave. For deployment see the
 - [History](#history)
 - [Settings](#settings)
 - [How downloading works](#how-downloading-works)
+- [Migrating an older library](#migrating-an-older-library)
 - [Live progress](#live-progress)
 - [Cookies](#youtube-cookies)
 - [Notifications](#failure-notifications)
@@ -132,10 +133,48 @@ own settings.
     after 5 failed runs — use **Retry** in History to try again (which resets
     the counter).
 - **Jellyfin layout** — files are organized as
-  `Channel [id]/YYYY/Channel - date - title [id]/…` with the video (`.mkv`),
-  `.info.json`, thumbnail, subtitles, and `.nfo` alongside.
+  `Channel [id]/Season YYYY/SYYYYEMMDDHHMM - title [id]/…` with the video
+  (`.mkv`), `.info.json`, thumbnail, subtitles, and `.nfo` alongside. Each
+  year is a season, and the episode number is the upload month, day and time
+  (UTC), so Jellyfin (and Infuse, through Jellyfin) lists episodes in upload
+  order. Libraries downloaded by older versions can be converted with the
+  [layout migration](#migrating-an-older-library).
 - **Scheduling** — runs happen on the global schedule, except channels with a
   custom schedule which run on their own. You can always trigger a run manually.
+
+---
+
+## Migrating an older library
+
+Versions before the season/episode layout saved videos as
+`Channel [id]/YYYY/Channel - date - title [id]/…`, with no episode numbers, so
+Jellyfin could not order them reliably. A command renames those files into the
+current layout, updates the paths stored in the database, and rewrites the
+`.nfo` files with season and episode numbers.
+
+Preview first. The dry run prints every rename and changes nothing:
+
+```bash
+docker exec -it channelfinwatcher cfw migrate-layout --dry-run
+```
+
+Then apply it:
+
+```bash
+docker exec -it channelfinwatcher cfw migrate-layout --apply
+```
+
+- Add `--channel <id>` to migrate a single channel. The dry run prints each
+  channel's ID next to its name, e.g. `Ms Rachel (id 3)`.
+- `cfw` switches to the app's user (your `PUID`/`PGID`) by itself, so the
+  folders it creates stay writable for new downloads.
+- `--apply` refuses to start while a download run is in progress, and blocks
+  downloads until it finishes.
+- Nothing is overwritten. Videos without a `.info.json`, or whose new name is
+  already taken, are listed as `SKIP` and left where they are.
+- Running it again is safe; already-migrated videos are skipped.
+- After applying, run a library scan in Jellyfin. Jellyfin sees renamed files
+  as new items, so watched status for those videos may reset.
 
 ---
 
