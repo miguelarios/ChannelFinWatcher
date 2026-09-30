@@ -18,6 +18,7 @@ from app.utils import (
     friendly_download_error,
 )
 from app.nfo_service import get_nfo_service
+from app.media_layout import OUTPUT_TEMPLATE
 from app.progress_store import download_progress_store
 from app.time_utils import utc_now
 
@@ -109,7 +110,8 @@ class VideoDownloadService:
                 'temp': self.temp_path,
                 'home': self.media_path
             },
-            'outtmpl': '%(channel)s [%(channel_id)s]/%(upload_date>%Y)s/%(channel)s - %(upload_date)s - %(title)s [%(id)s]/%(channel)s - %(upload_date)s - %(title)s [%(id)s].%(ext)s',
+            # Season/episode naming for Jellyfin; see app/media_layout.py
+            'outtmpl': OUTPUT_TEMPLATE,
             'format': 'bv*+ba/b',  # Best video + best audio
             'merge_output_format': 'mkv',
             'writeinfojson': True,

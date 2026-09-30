@@ -61,6 +61,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models import Channel, ApplicationSettings
 from app.nfo_service import get_nfo_service
+from app.media_layout import parse_season_dir
 from app.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
@@ -751,7 +752,7 @@ class NFOBackfillService:
         """
         Discover all year directories in channel directory.
 
-        Year directories are folders with 4-digit names (e.g., "2021", "2022").
+        Year directories are season folders ("Season 2021", or legacy "2021").
 
         Args:
             channel_dir: Path to channel root directory
@@ -772,8 +773,8 @@ class NFOBackfillService:
         for item in os.listdir(channel_dir):
             item_path = os.path.join(channel_dir, item)
 
-            # Check if it's a directory and has 4-digit name
-            if os.path.isdir(item_path) and item.isdigit() and len(item) == 4:
+            # Check if it's a season directory ("Season 2021" or legacy "2021")
+            if os.path.isdir(item_path) and parse_season_dir(item) is not None:
                 year_dirs.append(item_path)
 
         return sorted(year_dirs)
