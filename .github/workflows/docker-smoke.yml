@@ -1,0 +1,39 @@
+name: Container Smoke Test
+
+# Builds the production image (the one docker-publish.yml ships as :latest)
+# and runs docker/smoke-test.sh against it: PUID/PGID/UMASK/TZ handling in
+# docker/entrypoint.sh and docker/supervisord.conf. Nothing else exercises
+# those files before they are published.
+on:
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - 'docker/**'
+      - '.github/workflows/docker-smoke.yml'
+  workflow_dispatch:
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: channelfinwatcher:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run smoke test
+        run: sh docker/smoke-test.sh channelfinwatcher:smoke

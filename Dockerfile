@@ -45,6 +45,7 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     supervisor \
     curl \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 22 for running frontend AND yt-dlp EJS (External JavaScript)
@@ -107,7 +108,8 @@ ENV PYTHONPATH=/app/backend \
     CONFIG_FILE=/app/data/config.yaml \
     COOKIES_FILE=/app/data/cookies.txt \
     NODE_ENV=production \
-    NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+    NEXT_PUBLIC_API_URL=http://127.0.0.1:8000 \
+    UMASK=022
 
 # Use entrypoint script for initialization
 ENTRYPOINT ["/app/entrypoint.sh"]

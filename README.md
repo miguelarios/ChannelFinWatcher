@@ -126,9 +126,11 @@ cd channelfinwatcher
 # Download compose file
 curl -O https://raw.githubusercontent.com/miguelarios/ChannelFinWatcher/main/docker-compose.yml
 
-# Optional: adjust TZ and host ports for your environment
+# Optional: adjust user, timezone and host ports for your environment
 nano docker-compose.yml
+#   - PUID/PGID: your user and group IDs (run `id`), so files are owned by you
 #   - TZ: set your timezone (default America/Chicago)
+#   - UMASK: optional, 002 makes downloaded files group-writable
 #   - ports: 3333:3000 maps the web UI to host port 3333 (change as desired)
 #   - ports: 8001:8000 exposes the API/docs (optional)
 
