@@ -210,7 +210,8 @@ environment:
 | Ubuntu/Debian | 1000 | No change needed (default) |
 | Multi-user Linux | 1001+ | Set to your UID/GID from `id` command |
 | macOS | 501 | Set PUID=501, PGID=20 |
-| Unraid/TrueNAS | Varies | Check with `id` command |
+| Unraid | 99/100 (`nobody:users`) | Set PUID=99, PGID=100, UMASK=000 |
+| TrueNAS | Varies | Check with `id` command |
 
 **What happens:**
 1. Container starts with default UID 1000
@@ -228,6 +229,15 @@ convention, so the settings work the same as in those images.
 **File permissions (`UMASK`):** controls the permissions of new files. The
 default `022` gives `rw-r--r--`. Use `002` if another service in the same group
 (e.g. Jellyfin) needs to write to the downloads, giving `rw-rw-r--`.
+
+**Changing the owner of an existing library:** new files follow PUID/PGID,
+but files downloaded earlier keep their old owner. To hand the whole library to
+the app's user once (e.g. after switching to Unraid's `nobody:users`):
+```bash
+docker exec channelfinwatcher chown -R appuser:appuser /app/media
+```
+On Unraid you can use **Tools → Docker Safe New Perms** instead, which also
+resets the share permissions.
 
 **Running commands inside the container:** `docker exec` runs as root by
 default, so files it creates would be root-owned. Run commands as the app user:
