@@ -126,12 +126,17 @@ downloads suddenly failing).
 
 ## Environment variables
 
-Read by `backend/app/config.py` (Pydantic settings). Defaults target the
-in-container paths used by the published image; you normally only set `TZ`.
+Defaults target the in-container paths used by the published image; you
+normally only set `PUID`, `PGID` and `TZ`. The first four are read by the
+container entrypoint (the same variables as linuxserver.io images); the rest by
+`backend/app/config.py` (Pydantic settings).
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `TZ` | `UTC` | Timezone for the scheduler (e.g. `America/Chicago`). |
+| `PUID` | `1000` | User ID the app runs as; files it creates are owned by it. Find yours with `id`. |
+| `PGID` | `1000` | Group ID the app runs as. |
+| `TZ` | `UTC` | Timezone for the scheduler and logs (e.g. `America/Chicago`). An unknown value falls back to UTC with a warning. |
+| `UMASK` | `022` | Permission mask for new files. `002` makes them group-writable. |
 | `DATABASE_URL` | `sqlite:////app/data/app.db` | Main database. |
 | `MEDIA_DIR` | `/app/media` | Downloaded videos. |
 | `TEMP_DIR` | `/app/temp` | Download staging (use fast/SSD storage). |

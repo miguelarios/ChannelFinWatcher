@@ -4,9 +4,12 @@ services:
   channelfinwatcher:
     container_name: channelfinwatcher
     image: ghcr.io/miguelarios/channelfinwatcher:latest
-    restart: always
+    restart: unless-stopped
     environment:
-      - TZ=America/Chicago
+      - PUID=1000            # your user ID (run `id` on the host)
+      - PGID=1000            # your group ID
+      - TZ=America/Chicago   # your timezone
+      - UMASK=022            # optional; 002 makes files group-writable
     volumes:
       - ./data:/app/data
       - ./media:/app/media

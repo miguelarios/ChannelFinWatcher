@@ -45,6 +45,7 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     supervisor \
     curl \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 22 for running frontend AND yt-dlp EJS (External JavaScript)

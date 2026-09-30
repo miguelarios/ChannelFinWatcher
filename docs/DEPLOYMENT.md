@@ -29,9 +29,12 @@ services:
   channelfinwatcher:
     container_name: channelfinwatcher
     image: ghcr.io/miguelarios/channelfinwatcher:latest
-    restart: always
+    restart: unless-stopped
     environment:
-      - TZ=America/Chicago  # Change to your timezone
+      - PUID=1000            # your user ID (run `id` on the host)
+      - PGID=1000            # your group ID
+      - TZ=America/Chicago   # your timezone
+      - UMASK=022            # optional; 002 makes files group-writable
     volumes:
       - ./data:/app/data
       - ./media:/app/media
@@ -137,7 +140,7 @@ services:
   channelfinwatcher:
     image: ghcr.io/miguelarios/channelfinwatcher:latest
     container_name: channelfinwatcher
-    restart: always
+    restart: unless-stopped
     ports:
       - "3000:3000"
     volumes:
@@ -145,7 +148,9 @@ services:
       - ./media:/app/media
       - ./temp:/app/temp
     environment:
-      - TZ=America/Chicago  # Set your timezone
+      - PUID=1000            # your user ID (run `id` on the host)
+      - PGID=1000            # your group ID
+      - TZ=America/Chicago   # Set your timezone
     networks:
       - channelfinwatcher-net
 
@@ -211,8 +216,28 @@ environment:
 1. Container starts with default UID 1000
 2. Entrypoint script checks PUID/PGID environment variables
 3. If different, updates the internal `appuser` to match
-4. All files created will have your UID/GID
-5. You can access/modify files without permission issues
+4. `data/` and `temp/` are given to your UID/GID on every start
+5. `media/` is never changed recursively: only its top-level folder is
+   given to you, and only if the app can't write to it. Your existing
+   library keeps the ownership it has.
+6. All files the app creates will have your UID/GID
+
+This follows the [linuxserver.io](https://docs.linuxserver.io/general/understanding-puid-and-pgid/)
+convention, so the settings work the same as in those images.
+
+**File permissions (`UMASK`):** controls the permissions of new files. The
+default `022` gives `rw-r--r--`. Use `002` if another service in the same group
+(e.g. Jellyfin) needs to write to the downloads, giving `rw-rw-r--`.
+
+**Running commands inside the container:** `docker exec` runs as root by
+default, so files it creates would be root-owned. Run commands as the app user:
+```bash
+docker exec -it -u appuser channelfinwatcher bash
+```
+
+**Invalid values:** a non-numeric `PUID`/`PGID` or a bad `UMASK` stops the
+container with an error in `docker logs`. An unknown `TZ` logs a warning and
+falls back to UTC.
 
 ### Port Configuration
 
@@ -252,8 +277,10 @@ services:
   channelfinwatcher:
     container_name: channelfinwatcher
     image: ghcr.io/miguelarios/channelfinwatcher:latest
-    restart: always
+    restart: unless-stopped
     environment:
+      - PUID=1000  # your user ID (run `id` on the host)
+      - PGID=1000  # your group ID
       - TZ=America/New_York  # Change to your timezone
     volumes:
       - ./data:/app/data
