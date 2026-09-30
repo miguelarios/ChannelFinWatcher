@@ -12,11 +12,9 @@ thumbnails, subtitles) into the current layout, updates the file paths stored
 in the database, and regenerates the episode/season NFO files so Jellyfin gets
 the new <season>/<episode> numbers.
 
-Usage (inside the container, as the app's user so new folders stay writable):
-    docker exec -it -u appuser -w /app/backend channelfinwatcher \
-        python -m app.migrate_media_layout             # dry run: print the plan only
-    docker exec -it -u appuser -w /app/backend channelfinwatcher \
-        python -m app.migrate_media_layout --apply     # perform the renames
+Usage (the `cfw` wrapper runs it as the app's user, so new folders stay writable):
+    docker exec -it channelfinwatcher cfw migrate-layout            # dry run
+    docker exec -it channelfinwatcher cfw migrate-layout --apply    # rename
 
 Why a CLI instead of migrating automatically on startup?
 - Renaming a whole library is a one-time, hard-to-undo change; a dry run lets
@@ -366,8 +364,7 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
         # which runs as appuser, and later downloads into them would fail
         if hasattr(os, 'geteuid') and os.geteuid() == 0:
             print('\nRefusing to --apply as root: new folders would not be writable by the app.'
-                  '\nRe-run with: docker exec -it -u appuser -w /app/backend channelfinwatcher'
-                  ' python -m app.migrate_media_layout --apply')
+                  '\nRe-run with: docker exec -it channelfinwatcher cfw migrate-layout --apply')
             return 2
 
         nfo_service = get_nfo_service()

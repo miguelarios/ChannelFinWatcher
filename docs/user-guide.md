@@ -155,19 +155,19 @@ current layout, updates the paths stored in the database, and rewrites the
 Preview first. The dry run prints every rename and changes nothing:
 
 ```bash
-docker exec -it -u appuser -w /app/backend channelfinwatcher python -m app.migrate_media_layout --dry-run
+docker exec -it channelfinwatcher cfw migrate-layout --dry-run
 ```
 
 Then apply it:
 
 ```bash
-docker exec -it -u appuser -w /app/backend channelfinwatcher python -m app.migrate_media_layout --apply
+docker exec -it channelfinwatcher cfw migrate-layout --apply
 ```
 
 - Add `--channel <id>` to migrate a single channel. The dry run prints each
   channel's ID next to its name, e.g. `Ms Rachel (id 3)`.
-- `-u appuser` runs it as the same user as the app, so the folders it creates
-  stay writable for new downloads. `--apply` refuses to run as root.
+- `cfw` switches to the app's user (your `PUID`/`PGID`) by itself, so the
+  folders it creates stay writable for new downloads.
 - `--apply` refuses to start while a download run is in progress, and blocks
   downloads until it finishes.
 - Nothing is overwritten. Videos without a `.info.json`, or whose new name is
