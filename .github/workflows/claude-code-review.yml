@@ -70,9 +70,8 @@ jobs:
             comment on the PR.
 
           # --model pins the review model so it does not drift with defaults.
-          # --max-turns is the real cost ceiling: it bounds a runaway review
-          # regardless of how much the prompt asks for.
+          # No --max-turns: a 15-turn cap failed every review, even ones that
+          # finished, so the cost bound is one run per PR (see `types` above).
           claude_args: >-
             --model claude-fable-5-1
-            --max-turns 15
             --allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"
