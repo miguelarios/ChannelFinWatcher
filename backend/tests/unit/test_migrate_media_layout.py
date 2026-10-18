@@ -5,6 +5,8 @@ These build a channel folder in the legacy layout on disk, then check:
 - the dry run reports the plan and changes nothing
 - --apply moves every sidecar file, regenerates NFOs, updates the database
 - running it again is a no-op, and existing files are never overwritten
+- leftover files that belong to no video are listed, and moved aside only
+  with --remove-leftovers
 """
 
 import json
@@ -44,6 +46,17 @@ def _legacy_video(channel_dir, video_id='abcdefghijk', title='Learn Colors',
     with open(os.path.join(channel_dir, year, 'season.nfo'), 'w') as f:
         f.write('<season/>')
     return video
+
+
+def _orphan_info(channel_dir, video_id='zzzzzzzzzzz', upload_date='20210301'):
+    """Create a lone .info.json in the old layout (a failed download's remains)."""
+    stem = f'Ms Rachel - {upload_date} - Gone [{video_id}]'
+    video_dir = os.path.join(channel_dir, upload_date[:4], stem)
+    os.makedirs(video_dir, exist_ok=True)
+    path = os.path.join(video_dir, stem + '.info.json')
+    with open(path, 'w') as f:
+        json.dump({'id': video_id, 'upload_date': upload_date}, f)
+    return path
 
 
 @pytest.fixture
@@ -107,6 +120,33 @@ class TestPlanChannel:
 
         assert plan_channel(channel_dir, ydl).moves == []
 
+    def test_lists_files_without_a_video_as_leftovers(self, channel_dir, ydl):
+        _legacy_video(channel_dir)
+        orphan = _orphan_info(channel_dir)
+
+        plan = plan_channel(channel_dir, ydl)
+
+        assert len(plan.moves) == 1
+        # The video's own sidecars move with it; season.nfo is not a leftover
+        assert plan.leftovers == [orphan]
+
+    def test_lists_leftovers_when_nothing_is_left_to_rename(self, channel_dir, ydl, tmp_path):
+        _legacy_video(channel_dir)
+        apply_plan(plan_channel(channel_dir, ydl), NFOService(str(tmp_path)))
+        orphan = _orphan_info(channel_dir)
+
+        plan = plan_channel(channel_dir, ydl)
+
+        assert plan.moves == [] and plan.leftovers == [orphan]
+
+    def test_skipped_video_keeps_its_files(self, channel_dir, ydl):
+        video = _legacy_video(channel_dir, info=False)
+
+        plan = plan_channel(channel_dir, ydl)
+
+        assert plan.skipped and plan.leftovers == []
+        assert os.path.exists(video)
+
 
 class TestApplyPlan:
     def test_moves_files_and_regenerates_nfos(self, channel_dir, ydl, tmp_path):
@@ -144,6 +184,29 @@ class TestApplyPlan:
         apply_plan(plan_channel(channel_dir, ydl), NFOService(str(tmp_path)))
 
         assert os.path.exists(os.path.join(channel_dir, '2021', 'notes.txt'))
+
+    def test_leftovers_stay_without_leftovers_root(self, channel_dir, ydl, tmp_path):
+        _legacy_video(channel_dir)
+        orphan = _orphan_info(channel_dir)
+
+        apply_plan(plan_channel(channel_dir, ydl), NFOService(str(tmp_path)))
+
+        assert os.path.exists(orphan)
+        assert os.path.exists(os.path.join(channel_dir, '2021', 'season.nfo'))
+
+    def test_moves_leftovers_aside_and_removes_old_year_folder(self, channel_dir, ydl, tmp_path):
+        _legacy_video(channel_dir)
+        orphan = _orphan_info(channel_dir)
+        leftovers_root = str(tmp_path / 'leftovers')
+
+        result = apply_plan(plan_channel(channel_dir, ydl), NFOService(str(tmp_path)),
+                            leftovers_root)
+
+        assert result.moved == 1 and result.leftovers_moved == 1 and result.errors == []
+        assert sorted(os.listdir(channel_dir)) == ['Season 2021']
+        moved = os.path.join(leftovers_root, os.path.basename(channel_dir),
+                             os.path.relpath(orphan, channel_dir))
+        assert os.path.exists(moved)
 
     def test_failed_move_is_rolled_back(self, channel_dir, ydl, tmp_path):
         video = _legacy_video(channel_dir)
@@ -224,6 +287,36 @@ class TestCli:
 
         assert 'Refusing to --apply as root' in capsys.readouterr().out
         assert os.path.exists(setup.video)
+
+    def test_dry_run_lists_leftovers(self, setup, capsys):
+        orphan = _orphan_info(setup.channel_dir)
+
+        assert run([]) == 0
+
+        out = capsys.readouterr().out
+        assert 'LEFTOVER Ms Rachel [UCabc]/2021/' in out
+        assert '1 leftover file(s) in old year folders belong to no video' in out
+        assert os.path.exists(orphan)
+
+    def test_remove_leftovers_after_videos_were_migrated(self, setup, capsys):
+        # The reported case: videos already moved, only leftovers remain
+        assert run(['--apply']) == 0
+        orphan = _orphan_info(setup.channel_dir)
+        capsys.readouterr()
+
+        assert run(['--apply']) == 0
+        assert 'Nothing to migrate.' in capsys.readouterr().out
+        assert os.path.exists(orphan)
+
+        assert run(['--apply', '--remove-leftovers']) == 0
+
+        out = capsys.readouterr().out
+        assert 'Moved 1 of 1 leftover file(s)' in out
+        assert not os.path.exists(orphan)
+        assert sorted(os.listdir(setup.channel_dir)) == ['Season 2021']
+        leftovers = os.path.join(os.path.dirname(setup.channel_dir), '.migrate-leftovers')
+        moved = [os.path.join(root, f) for root, _d, files in os.walk(leftovers) for f in files]
+        assert [os.path.basename(p) for p in moved] == [os.path.basename(orphan)]
 
     def test_channel_filter(self, setup, capsys):
         assert run(['--channel', '999']) == 0

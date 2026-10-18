@@ -173,6 +173,19 @@ docker exec -it channelfinwatcher cfw migrate-layout --apply
 - Nothing is overwritten. Videos without a `.info.json`, or whose new name is
   already taken, are listed as `SKIP` and left where they are.
 - Running it again is safe; already-migrated videos are skipped.
+
+The dry run also lists `LEFTOVER` files: files in the old `YYYY/` folders that
+belong to no video, mostly `.info.json` files from downloads that failed. The
+app never reads them, and they keep the old folders from being removed. To
+move them aside, even after your videos are already migrated:
+
+```bash
+docker exec -it channelfinwatcher cfw migrate-layout --apply --remove-leftovers
+```
+
+They go to `.migrate-leftovers/<date-time>/` in your media folder, with their
+original paths, and the emptied `YYYY/` folders are removed. Nothing is
+deleted; remove `.migrate-leftovers` yourself once you have checked it.
 - After applying, run a library scan in Jellyfin. Jellyfin sees renamed files
   as new items, so watched status for those videos may reset.
 
